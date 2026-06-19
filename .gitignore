@@ -1,0 +1,28 @@
+# Gradle
+.gradle/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Kotlin
+.kotlin/
+*.kotlin_module
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+out/
+
+# Agent/tool indexes
+.codegraph/
+
+# Runtime and logs
+*.log
+logs/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

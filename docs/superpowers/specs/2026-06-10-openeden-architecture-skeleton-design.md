@@ -88,7 +88,7 @@ The module stays pure where possible and does not depend on Ktor server APIs.
 `server` owns Ktor application wiring:
 
 - health and status routes for verifying the app starts;
-- route/RPC modules that depend on runtime interfaces;
+- route modules that depend on runtime interfaces;
 - dependency assembly for in-memory skeleton implementations;
 - logging configuration and request trace propagation.
 
@@ -98,7 +98,7 @@ services.
 ### `client`
 
 `client` remains a shared client boundary for future Web, CLI, or platform
-frontends. During initialization it can expose typed RPC/client contracts but
+frontends. During initialization it can expose typed HTTP/client contracts but
 does not need user-facing behavior.
 
 ### Root Project
@@ -219,4 +219,3 @@ The project framework is initialized when:
 6. No blocking operation is introduced into request/runtime paths.
 7. VQ-VAE quantization is represented by an async contract with heuristic
    fallback and trace tagging.
-
