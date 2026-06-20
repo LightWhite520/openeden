@@ -120,6 +120,27 @@ class MessagePipelineTest {
         assertEquals(0.06f, state.omega.value, 0.0001f)
     }
 
+    @Test
+    fun `pipeline runs runtime math through inference executor`() = runTest {
+        val executor = RecordingInferenceExecutor()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            inferenceExecutor = executor,
+        )
+
+        pipeline.handle(
+            DevelopmentMessageRequest(
+                platform = "QQ",
+                scopeId = "100",
+                userId = "u1",
+                text = "hello",
+                emotionConfidence = 0.49f,
+            ),
+        )
+
+        assertEquals(2, executor.calls)
+    }
+
     private fun testPersonaConfig(): PersonaConfig = PersonaConfig(
         mode = PersonaMode.GROWTH,
         evolutionThresholds = EvolutionThresholds(10, 30),

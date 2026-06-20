@@ -5,6 +5,7 @@ import io.openeden.bio.VectorDelta
 import io.openeden.bio.VectorMapping
 import io.openeden.codebook.CodebookQuantizer
 import io.openeden.codebook.HeuristicCodebookFallback
+import io.openeden.codebook.QuantizationResult
 import io.openeden.llm.DevelopmentLlmStub
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutputValidator
@@ -57,6 +58,7 @@ class DevelopmentMessagePipeline(
     private val llmClient: LlmClient,
     private val vectorWriteService: VectorWriteService,
     private val diaryQueue: SessionDiaryQueue,
+    private val inferenceExecutor: InferenceExecutor,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     suspend fun handle(request: DevelopmentMessageRequest): DevelopmentMessageResult {
@@ -66,21 +68,28 @@ class DevelopmentMessagePipeline(
             original = current.vector,
             signal = EmotionSignal(delta = request.emotionDelta, confidence = request.emotionConfidence),
         )
-        val dissonance = preTick.preTicked.derivedDissonance()
-        val quantization = quantizer.quantize(preTick.preTicked, dissonance)
-        val internalVector = VectorMapping.toInternal(preTick.preTicked, current.origin)
-        val retrievalMode = RetrievalModeSelector.select(
-            internalVector = internalVector,
-            omegaState = current.omega,
-            shockState = current.shockState,
-        )
+        val inference = inferenceExecutor.run {
+            val dissonance = preTick.preTicked.derivedDissonance()
+            val quantization = quantizer.quantize(preTick.preTicked, dissonance)
+            val internalVector = VectorMapping.toInternal(preTick.preTicked, current.origin)
+            val retrievalMode = RetrievalModeSelector.select(
+                internalVector = internalVector,
+                omegaState = current.omega,
+                shockState = current.shockState,
+            )
+            PipelineInferenceResult(
+                dissonance = dissonance,
+                quantization = quantization,
+                retrievalMode = retrievalMode,
+            )
+        }
         val retrievalResult = memoryRetriever.retrieve(
             RetrievalRequest(
                 sessionId = sessionId,
                 userInput = request.text,
                 currentVector = preTick.preTicked,
                 origin = current.origin,
-                mode = retrievalMode,
+                mode = inference.retrievalMode,
             ),
         )
         val prompt = promptBuilder.build(
@@ -88,8 +97,8 @@ class DevelopmentMessagePipeline(
                 personaConfig = personaConfig,
                 evolutionIndex = current.evolutionIndex,
                 vectorSnapshot = preTick.preTicked,
-                derivedDissonance = dissonance,
-                quantization = quantization,
+                derivedDissonance = inference.dissonance,
+                quantization = inference.quantization,
                 retrievalResult = retrievalResult,
                 omegaState = current.omega,
                 shockState = current.shockState,
@@ -104,11 +113,14 @@ class DevelopmentMessagePipeline(
                 preTickedSnapshot = preTick.preTicked,
                 delta = validation.delta,
             )
-            val shockWrite = ShockStateEngine.detectFromLlmOutput(
-                vectorDelta = validation.delta,
-                emotionConfidence = request.emotionConfidence,
-                internalLogic = validation.output?.internalLogic.orEmpty(),
-            )?.let { shock ->
+            val detectedShock = inferenceExecutor.run {
+                ShockStateEngine.detectFromLlmOutput(
+                    vectorDelta = validation.delta,
+                    emotionConfidence = request.emotionConfidence,
+                    internalLogic = validation.output?.internalLogic.orEmpty(),
+                )
+            }
+            val shockWrite = detectedShock?.let { shock ->
                 vectorWriteService.applyShock(sessionId, shock)
             }
             val applied = shockWrite?.copy(
@@ -133,7 +145,7 @@ class DevelopmentMessagePipeline(
         return DevelopmentMessageResult(
             sessionId = sessionId,
             retrievalMode = retrievalResult.mode,
-            traceTags = quantization.traceTags + write.traceTags + diaryOutcome.traceTags + sourceTags,
+            traceTags = inference.quantization.traceTags + write.traceTags + diaryOutcome.traceTags + sourceTags,
             prompt = prompt,
             promptPreview = listOf(prompt.systemText, prompt.personaText, prompt.userText).joinToString("\n\n"),
             response = validation.output?.response,
@@ -167,6 +179,7 @@ class DevelopmentMessagePipeline(
             llmClient: LlmClient = DevelopmentLlmStub(),
             store: SessionStateStore = MutableSessionStateStore(),
             vectorWriteService: VectorWriteService = VectorWriteService(store),
+            inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
         ): DevelopmentMessagePipeline {
             return DevelopmentMessagePipeline(
                 personaConfig = personaConfig,
@@ -177,6 +190,7 @@ class DevelopmentMessagePipeline(
                 llmClient = llmClient,
                 vectorWriteService = vectorWriteService,
                 diaryQueue = SessionDiaryQueue(),
+                inferenceExecutor = inferenceExecutor,
             )
         }
     }
@@ -185,6 +199,12 @@ class DevelopmentMessagePipeline(
 private data class DiaryOutcome(
     val label: String,
     val traceTags: Set<String>,
+)
+
+private data class PipelineInferenceResult(
+    val dissonance: Float,
+    val quantization: QuantizationResult,
+    val retrievalMode: RetrievalMode,
 )
 
 class MutableSessionStateStore(
