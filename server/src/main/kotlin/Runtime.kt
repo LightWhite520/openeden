@@ -2,12 +2,14 @@ package io.openeden.server
 
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaFileLoader
-import io.openeden.runtime.BackgroundDriftScheduler
 import io.openeden.runtime.DevelopmentMessagePipeline
 import io.openeden.runtime.HeartbeatScheduler
 import io.openeden.runtime.LoggingHeartbeatDelivery
 import io.openeden.runtime.HeartbeatOwner
+import io.openeden.runtime.JvmInferenceExecutor
 import io.openeden.runtime.OwnerHeartbeatRouteResolver
+import io.openeden.runtime.RuntimeConfig
+import io.openeden.runtime.RuntimeTickScheduler
 import io.openeden.runtime.SecureRandomHeartbeatInterval
 import io.openeden.runtime.SecureRandomSineWaveFluctuation
 import io.openeden.runtime.SineWaveFluctuationEngine
@@ -35,10 +37,13 @@ fun Application.configureRuntime() {
     // One VectorWriteService shared by the pipeline and the scheduler so all per-session writes
     // (user deltas + shock-heartbeat latch) serialize on the same Mutex registry (§14.2).
     val writer = VectorWriteService(store)
+    val runtimeConfig = RuntimeConfig.Default.copy(owner = resolveHeartbeatOwner())
+    val inferenceExecutor = JvmInferenceExecutor()
     val pipeline = DevelopmentMessagePipeline.create(
         personaConfig = loadDefaultPersonaConfig(),
         store = store,
         vectorWriteService = writer,
+        inferenceExecutor = inferenceExecutor,
     )
     attributes.put(PipelineKey, pipeline)
 
@@ -49,19 +54,21 @@ fun Application.configureRuntime() {
         writer = writer,
         delivery = LoggingHeartbeatDelivery { log.info(it) },
         interval = SecureRandomHeartbeatInterval(),
-        routeResolver = OwnerHeartbeatRouteResolver(resolveHeartbeatOwner()),
+        routeResolver = OwnerHeartbeatRouteResolver(runtimeConfig.owner),
     )
     val job = scheduler.start(scope)
-    val driftJob = BackgroundDriftScheduler(
+    val tickJob = RuntimeTickScheduler(
         store = store,
         writer = writer,
         fluctuation = SineWaveFluctuationEngine(SecureRandomSineWaveFluctuation.profile()),
+        inferenceExecutor = inferenceExecutor,
+        config = runtimeConfig,
     ).start(scope)
     log.info("OpenEden heartbeat scheduler started")
 
     monitor.subscribe(ApplicationStopping) {
         job.cancel()
-        driftJob.cancel()
+        tickJob.cancel()
         scope.cancel()
         store.close()
         log.info("OpenEden runtime stopped")
