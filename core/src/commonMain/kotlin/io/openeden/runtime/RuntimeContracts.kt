@@ -238,6 +238,22 @@ class VectorWriteService(
         }
     }
 
+    suspend fun applyRuntimeTick(
+        sessionId: String,
+        transform: (SessionState) -> Pair<SessionState, Set<String>>,
+    ): VectorWriteResult {
+        val mutex = mutexRegistry.forSession(sessionId)
+        return mutex.withLock {
+            val latest = store.read(sessionId)
+            val (updated, traceTags) = transform(latest)
+            store.write(updated)
+            VectorWriteResult(
+                state = updated,
+                traceTags = traceTags,
+            )
+        }
+    }
+
     private fun BioVector.deltaTo(target: BioVector): VectorDelta = VectorDelta(
         l = target.l - l,
         p = target.p - p,

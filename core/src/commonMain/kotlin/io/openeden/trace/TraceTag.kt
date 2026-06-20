@@ -7,4 +7,7 @@ object TraceTag {
     const val HeartbeatSource = "source=HEARTBEAT"
     const val ShockStateTransition = "shock=STATE_TRANSITION"
     const val BackgroundDrift = "source=BACKGROUND_DRIFT"
+    const val ShockStateDecayed = "shock=DECAYED"
+    const val OmegaAccumulated = "omega=ACCUMULATED"
+    const val RuntimeTickSessionFailed = "tick=SESSION_FAILED"
 }
