@@ -33,9 +33,38 @@ To build or run the project, use one of the following tasks:
 
 | Task                      | Description       |
 |---------------------------|-------------------|
+| `./gradlew :run --args="chat --message \"hello\""` | Run the local CLI chat surface |
+| `./gradlew :run --args="state"` | Print local CLI session state |
 | `./gradlew :server:test`  | Run the tests     |
 | `./gradlew :server:build` | Build the project |
 | `./gradlew :server:run`   | Run the server    |
 
 If the server starts successfully, it listens on `http://0.0.0.0:8080` and the
 root route returns `OpenEden runtime skeleton`.
+
+## Local CLI
+
+Stage 1 exposes a local one-on-one runtime through the root application. Set:
+
+```powershell
+$env:OPENEDEN_OPENAI_API_KEY="sk-..."
+$env:OPENEDEN_OPENAI_MODEL="gpt-5-mini"
+$env:OPENEDEN_LOCAL_USER_ID="local"
+```
+
+If you use an OpenAI-compatible relay, also set its API base URL:
+
+```powershell
+$env:OPENEDEN_OPENAI_BASE_URL="https://your-relay.example.com/v1"
+```
+
+Then run:
+
+```powershell
+.\gradlew.bat :run --args='chat --message "你好"'
+.\gradlew.bat :run --args='chat --message "你好" --debug'
+.\gradlew.bat :run --args='state --user local'
+```
+
+Local sessions use `CLI:<userId>` and persist to
+`data/runtime/openeden.db` unless `OPENEDEN_RUNTIME_DB_PATH` is set.

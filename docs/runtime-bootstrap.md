@@ -32,3 +32,32 @@ $env:OPENEDEN_OWNER_USER_ID="123456"
 ```
 
 If owner variables are absent, heartbeat output is dropped after state write-back.
+
+## Local CLI
+
+The Stage 1 local runtime uses the same pipeline as the development route, but
+through a production-facing local contract. Configure:
+
+```powershell
+$env:OPENEDEN_OPENAI_API_KEY="sk-..."
+$env:OPENEDEN_OPENAI_MODEL="gpt-5-mini"
+$env:OPENEDEN_LOCAL_USER_ID="local"
+```
+
+OpenAI-compatible relay providers are configured by overriding the base URL:
+
+```powershell
+$env:OPENEDEN_OPENAI_BASE_URL="https://your-relay.example.com/v1"
+```
+
+Run:
+
+```powershell
+.\gradlew.bat :run --args='chat --message "hello"'
+.\gradlew.bat :run --args='chat --message "hello" --debug'
+.\gradlew.bat :run --args='state --user local'
+```
+
+The CLI stores state in `data/runtime/openeden.db` by default. It keeps
+`sessionId = "CLI:<userId>"`, uses the configured persona YAML, and still routes
+prompt state through the codebook boundary before provider calls.
