@@ -209,6 +209,35 @@ class VectorWriteService(
             state.copy(shockState = state.shockState?.copy(shockHeartbeatFired = true))
         }
 
+    suspend fun applyShock(sessionId: String, signal: ShockState): VectorWriteResult {
+        val mutex = mutexRegistry.forSession(sessionId)
+        return mutex.withLock {
+            val latest = store.read(sessionId)
+            val updated = latest.copy(
+                shockState = signal,
+                omega = ShockStateEngine.omegaJump(latest.omega, signal),
+            )
+            store.write(updated)
+            VectorWriteResult(
+                state = updated,
+                traceTags = setOf(TraceTag.ShockStateTransition),
+            )
+        }
+    }
+
+    suspend fun applyBackgroundDrift(sessionId: String, delta: VectorDelta): VectorWriteResult {
+        val mutex = mutexRegistry.forSession(sessionId)
+        return mutex.withLock {
+            val latest = store.read(sessionId)
+            val updated = latest.copy(vector = latest.vector.apply(delta))
+            store.write(updated)
+            VectorWriteResult(
+                state = updated,
+                traceTags = setOf(TraceTag.BackgroundDrift),
+            )
+        }
+    }
+
     private fun BioVector.deltaTo(target: BioVector): VectorDelta = VectorDelta(
         l = target.l - l,
         p = target.p - p,

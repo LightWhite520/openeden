@@ -5,4 +5,6 @@ object TraceTag {
     const val DiaryQueueOverflow = "diary=QUEUE_OVERFLOW"
     const val VectorWriteSerialized = "vector=WRITE_SERIALIZED"
     const val HeartbeatSource = "source=HEARTBEAT"
+    const val ShockStateTransition = "shock=STATE_TRANSITION"
+    const val BackgroundDrift = "source=BACKGROUND_DRIFT"
 }

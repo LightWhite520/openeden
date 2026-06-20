@@ -1,0 +1,35 @@
+-- Durable session state (AGENTS.md §1.1): evolution_index and the 8D vector MUST survive restart,
+-- otherwise growth resets and sub-state transitions are no longer irreversible.
+-- ShockState is decomposed into columns so we never serialize kotlin.time.Instant; the two
+-- BioVector fields are stored as JSON (BioVector is @Serializable).
+CREATE TABLE session_state (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    vector_json TEXT NOT NULL,
+    origin_json TEXT NOT NULL,
+    omega REAL NOT NULL,
+    evolution_index INTEGER NOT NULL,
+    last_user_activity_ms INTEGER,
+    shock_active INTEGER,
+    shock_intensity REAL,
+    shock_description TEXT,
+    shock_triggered_at_ms INTEGER,
+    shock_decay_lambda REAL,
+    shock_heartbeat_fired INTEGER
+);
+
+selectById:
+SELECT session_id, vector_json, origin_json, omega, evolution_index, last_user_activity_ms,
+       shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
+       shock_heartbeat_fired
+FROM session_state
+WHERE session_id = ?;
+
+selectAllIds:
+SELECT session_id FROM session_state;
+
+upsert:
+INSERT OR REPLACE INTO session_state(
+    session_id, vector_json, origin_json, omega, evolution_index, last_user_activity_ms,
+    shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
+    shock_heartbeat_fired
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

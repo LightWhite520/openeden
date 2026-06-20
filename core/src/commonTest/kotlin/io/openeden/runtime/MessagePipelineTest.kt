@@ -13,6 +13,7 @@ import io.openeden.trace.TraceTag
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlinx.coroutines.test.runTest
 
 class MessagePipelineTest {
@@ -76,6 +77,47 @@ class MessagePipelineTest {
 
         assertEquals("enqueued", result.diaryOutcome)
         assertEquals(0.7f, result.updatedVector.p)
+    }
+
+    @Test
+    fun `shock back-detection persists shock state and omega jump behind confidence gate`() = runTest {
+        val store = MutableSessionStateStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = store,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "a severe discontinuity was inferred from the response",
+                    vectorDelta = mapOf(
+                        "L" to 0.0f,
+                        "P" to -0.5f,
+                        "E" to 0.0f,
+                        "S" to 0.0f,
+                        "tau" to 0.0f,
+                        "V" to 0.0f,
+                        "M" to 0.0f,
+                        "F" to 0.4f,
+                    ),
+                    response = "response",
+                )
+            },
+        )
+
+        pipeline.handle(
+            DevelopmentMessageRequest(
+                platform = "QQ",
+                scopeId = "100",
+                userId = "u1",
+                text = "hello",
+                emotionConfidence = 0.65f,
+            ),
+        )
+
+        val state = store.read("QQ:100")
+        val shock = assertNotNull(state.shockState)
+        assertEquals(true, shock.active)
+        assertEquals(0.4f, shock.intensity)
+        assertEquals(0.06f, state.omega.value, 0.0001f)
     }
 
     private fun testPersonaConfig(): PersonaConfig = PersonaConfig(

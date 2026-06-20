@@ -99,11 +99,21 @@ class DevelopmentMessagePipeline(
         val llmOutput = llmClient.complete(prompt)
         val validation = LlmOutputValidator.validate(llmOutput)
         val write = if (validation.isValid && validation.delta != null) {
-            val applied = vectorWriteService.applyLlmDelta(
+            val vectorWrite = vectorWriteService.applyLlmDelta(
                 sessionId = sessionId,
                 preTickedSnapshot = preTick.preTicked,
                 delta = validation.delta,
             )
+            val shockWrite = ShockStateEngine.detectFromLlmOutput(
+                vectorDelta = validation.delta,
+                emotionConfidence = request.emotionConfidence,
+                internalLogic = validation.output?.internalLogic.orEmpty(),
+            )?.let { shock ->
+                vectorWriteService.applyShock(sessionId, shock)
+            }
+            val applied = shockWrite?.copy(
+                traceTags = vectorWrite.traceTags + shockWrite.traceTags,
+            ) ?: vectorWrite
             // USER turns reset the silence clock that gates heartbeats (§9.3); heartbeat turns
             // evolve state but must not, or ATRI would silence her own proactive impulse.
             if (request.source == TurnSource.USER) {
