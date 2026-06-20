@@ -6,6 +6,8 @@ import io.openeden.runtime.BackgroundDriftScheduler
 import io.openeden.runtime.DevelopmentMessagePipeline
 import io.openeden.runtime.HeartbeatScheduler
 import io.openeden.runtime.LoggingHeartbeatDelivery
+import io.openeden.runtime.HeartbeatOwner
+import io.openeden.runtime.OwnerHeartbeatRouteResolver
 import io.openeden.runtime.SecureRandomHeartbeatInterval
 import io.openeden.runtime.SecureRandomSineWaveFluctuation
 import io.openeden.runtime.SineWaveFluctuationEngine
@@ -47,6 +49,7 @@ fun Application.configureRuntime() {
         writer = writer,
         delivery = LoggingHeartbeatDelivery { log.info(it) },
         interval = SecureRandomHeartbeatInterval(),
+        routeResolver = OwnerHeartbeatRouteResolver(resolveHeartbeatOwner()),
     )
     val job = scheduler.start(scope)
     val driftJob = BackgroundDriftScheduler(
@@ -71,6 +74,12 @@ internal fun loadDefaultPersonaConfig(): PersonaConfig =
 internal fun resolveDefaultPersonaPath(): Path = resolveFromRoot(Path.of("persona", "default.yaml"))
 
 private fun resolveRuntimeDbPath(): Path = resolveFromRoot(Path.of("data", "runtime", "openeden.db"))
+
+private fun resolveHeartbeatOwner(): HeartbeatOwner? {
+    val platform = System.getenv("OPENEDEN_OWNER_PLATFORM")?.takeIf { it.isNotBlank() }
+    val userId = System.getenv("OPENEDEN_OWNER_USER_ID")?.takeIf { it.isNotBlank() }
+    return if (platform != null && userId != null) HeartbeatOwner(platform, userId) else null
+}
 
 /** Walk up from the working dir to find a project-relative path, falling back to the relative path. */
 private fun resolveFromRoot(relative: Path): Path {

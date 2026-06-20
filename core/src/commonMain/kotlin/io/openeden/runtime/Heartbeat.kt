@@ -15,72 +15,46 @@ import kotlin.time.Clock
  * and for each live session decides whether to speak unprompted, routing a heartbeat turn through
  * the full pipeline so the 8D vector and evolution_index advance like any normal turn.
  *
- * Delivery is abstracted behind [HeartbeatDelivery] because no real platform adapter exists yet;
- * [HeartbeatRouteResolver] implements the §13.4 routing decision from adapter activity records.
+ * Delivery is abstracted behind [HeartbeatDelivery] because no real platform adapter exists yet.
+ * Heartbeats are generated for session state, but delivery is restricted to the configured owner.
  */
 
 /** Where a generated heartbeat goes. Default impls log or drop; a real adapter replaces this. */
 interface HeartbeatDelivery {
-    suspend fun deliver(sessionId: String, platform: String, shock: Boolean, response: String?)
+    suspend fun deliver(sessionId: String, target: HeartbeatTarget, shock: Boolean, response: String?)
 }
 
 object NoopHeartbeatDelivery : HeartbeatDelivery {
-    override suspend fun deliver(sessionId: String, platform: String, shock: Boolean, response: String?) {}
+    override suspend fun deliver(sessionId: String, target: HeartbeatTarget, shock: Boolean, response: String?) {}
 }
 
 /** Logs each heartbeat through an injectable sink (no logging framework in commonMain). */
 class LoggingHeartbeatDelivery(private val sink: (String) -> Unit = ::println) : HeartbeatDelivery {
-    override suspend fun deliver(sessionId: String, platform: String, shock: Boolean, response: String?) {
+    override suspend fun deliver(sessionId: String, target: HeartbeatTarget, shock: Boolean, response: String?) {
         val kind = if (shock) "shock" else "base"
-        sink("[heartbeat:$kind] $sessionId -> ${response ?: "<no response>"}")
+        sink("[heartbeat:$kind] $sessionId -> ${target.platform}:${target.userId} ${response ?: "<no response>"}")
     }
 }
 
-fun interface HeartbeatRouteResolver {
-    fun platformsFor(sessionId: String, nowMs: Long): List<String>
-}
-
-object SessionIdHeartbeatRouteResolver : HeartbeatRouteResolver {
-    override fun platformsFor(sessionId: String, nowMs: Long): List<String> =
-        listOf(sessionId.substringBefore(':'))
-}
-
-data class AdapterActivity(
+data class HeartbeatTarget(
     val platform: String,
-    val lastActiveMs: Long,
-    val connected: Boolean = true,
+    val userId: String,
 )
 
-class AdapterHeartbeatRouteResolver(
-    private val recentWindowMs: Long = 2 * 60 * 60_000L,
+data class HeartbeatOwner(
+    val platform: String,
+    val userId: String,
+)
+
+fun interface HeartbeatRouteResolver {
+    fun targetsFor(sessionId: String, nowMs: Long): List<HeartbeatTarget>
+}
+
+class OwnerHeartbeatRouteResolver(
+    private val owner: HeartbeatOwner?,
 ) : HeartbeatRouteResolver {
-    private val activityBySession = mutableMapOf<String, MutableMap<String, AdapterActivity>>()
-
-    fun recordAdapterActivity(
-        sessionId: String,
-        platform: String,
-        lastActiveMs: Long,
-        connected: Boolean = true,
-    ) {
-        val sessionActivity = activityBySession.getOrPut(sessionId) { mutableMapOf() }
-        sessionActivity[platform] = AdapterActivity(platform, lastActiveMs, connected)
-    }
-
-    override fun platformsFor(sessionId: String, nowMs: Long): List<String> {
-        val connected = activityBySession[sessionId]
-            ?.values
-            ?.filter { it.connected }
-            ?.sortedByDescending { it.lastActiveMs }
-            .orEmpty()
-        if (connected.isEmpty()) return SessionIdHeartbeatRouteResolver.platformsFor(sessionId, nowMs)
-
-        val latest = connected.first()
-        return if (nowMs - latest.lastActiveMs <= recentWindowMs) {
-            listOf(latest.platform)
-        } else {
-            connected.map { it.platform }.distinct()
-        }
-    }
+    override fun targetsFor(sessionId: String, nowMs: Long): List<HeartbeatTarget> =
+        owner?.let { listOf(HeartbeatTarget(it.platform, it.userId)) }.orEmpty()
 }
 
 /** Pluggable inter-fire delay so production randomizes while tests stay deterministic. */
@@ -112,7 +86,7 @@ class HeartbeatScheduler(
     private val delivery: HeartbeatDelivery = NoopHeartbeatDelivery,
     private val config: HeartbeatConfig = HeartbeatConfig(),
     private val interval: HeartbeatIntervalStrategy = RandomHeartbeatInterval(),
-    private val routeResolver: HeartbeatRouteResolver = SessionIdHeartbeatRouteResolver,
+    private val routeResolver: HeartbeatRouteResolver = OwnerHeartbeatRouteResolver(owner = null),
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     /** Pure gate logic, separated for deterministic testing. */
@@ -148,8 +122,8 @@ class HeartbeatScheduler(
             )
             // Latch the one-shot flag so a ShockState activation fires exactly one shock heartbeat.
             if (shock) writer.markShockHeartbeatFired(sessionId)
-            for (targetPlatform in routeResolver.platformsFor(sessionId, now)) {
-                delivery.deliver(sessionId, targetPlatform, shock, result.response)
+            for (target in routeResolver.targetsFor(sessionId, now)) {
+                delivery.deliver(sessionId, target, shock, result.response)
             }
         }
     }

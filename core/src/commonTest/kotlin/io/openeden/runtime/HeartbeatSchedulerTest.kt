@@ -92,34 +92,29 @@ class HeartbeatSchedulerTest {
     }
 
     @Test
-    fun `heartbeat routes to most recently active connected adapter`() = runTest {
+    fun `heartbeat delivers only to configured owner`() = runTest {
         val store = MutableSessionStateStore()
         store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
         val delivery = RecordingDelivery()
-        val router = AdapterHeartbeatRouteResolver().apply {
-            recordAdapterActivity("QQ:shared", "QQ", now - 20 * 60_000L)
-            recordAdapterActivity("QQ:shared", "WEB", now - 1 * 60_000L)
-        }
+        val router = OwnerHeartbeatRouteResolver(owner = HeartbeatOwner(platform = "QQ", userId = "owner"))
 
         scheduler(store, delivery, routeResolver = router).evaluateOnce(now)
 
-        assertEquals(listOf("WEB"), delivery.calls.map { it.platform })
+        assertEquals(listOf("QQ"), delivery.calls.map { it.platform })
+        assertEquals(listOf("owner"), delivery.calls.map { it.userId })
     }
 
     @Test
-    fun `heartbeat broadcasts to all connected adapters when none active recently`() = runTest {
+    fun `heartbeat without owner updates state but drops delivery`() = runTest {
         val store = MutableSessionStateStore()
         store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
         val delivery = RecordingDelivery()
-        val router = AdapterHeartbeatRouteResolver().apply {
-            recordAdapterActivity("QQ:shared", "QQ", now - 3 * 60 * 60_000L)
-            recordAdapterActivity("QQ:shared", "WEB", now - 4 * 60 * 60_000L)
-            recordAdapterActivity("QQ:shared", "STALE", now - 1 * 60_000L, connected = false)
-        }
+        val router = OwnerHeartbeatRouteResolver(owner = null)
 
         scheduler(store, delivery, routeResolver = router).evaluateOnce(now)
 
-        assertEquals(listOf("QQ", "WEB"), delivery.calls.map { it.platform }.sorted())
+        assertEquals(emptyList(), delivery.calls)
+        assertEquals(1, store.read("QQ:shared").evolutionIndex)
     }
 
     private fun neutral(id: String) = SessionStateStore.neutral(id)
@@ -127,7 +122,7 @@ class HeartbeatSchedulerTest {
     private fun scheduler(
         store: MutableSessionStateStore,
         delivery: RecordingDelivery,
-        routeResolver: HeartbeatRouteResolver = SessionIdHeartbeatRouteResolver,
+        routeResolver: HeartbeatRouteResolver = OwnerHeartbeatRouteResolver(HeartbeatOwner("QQ", "owner")),
     ): HeartbeatScheduler {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = personaConfig(),
@@ -170,11 +165,11 @@ class HeartbeatSchedulerTest {
 }
 
 private class RecordingDelivery : HeartbeatDelivery {
-    data class Call(val sessionId: String, val platform: String, val shock: Boolean, val response: String?)
+    data class Call(val sessionId: String, val platform: String, val userId: String, val shock: Boolean, val response: String?)
 
     val calls = mutableListOf<Call>()
 
-    override suspend fun deliver(sessionId: String, platform: String, shock: Boolean, response: String?) {
-        calls += Call(sessionId, platform, shock, response)
+    override suspend fun deliver(sessionId: String, target: HeartbeatTarget, shock: Boolean, response: String?) {
+        calls += Call(sessionId, target.platform, target.userId, shock, response)
     }
 }
