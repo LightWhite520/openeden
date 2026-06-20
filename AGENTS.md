@@ -142,7 +142,8 @@ To balance logical stability with emotional fidelity for a Simplified Chinese us
  * **Language:** Kotlin 2.0+
  * **Framework:** Ktor (Server/Client) for absolute asynchronous, non-blocking I/O.
  * **Concurrency:** Coroutines + Flow
- * **Protocol:** OneBot v11 (WebSocket)
+ * **First-Party Surfaces:** Local CLI and Web UI.
+ * **Third-Party Platform Adapters:** External chat platforms are adapter modules over the same runtime pipeline. The current third-party implementation target is **QQ via OneBot v11 WebSocket only**. Telegram and other platforms MAY be added later, but MUST NOT shape current core runtime assumptions.
  * **Embedding Engine:** DJL (Deep Java Library) for localized vector operations, VQ-VAE inference, and utility evaluations.
 
 ---
@@ -435,7 +436,8 @@ ATRI 此刻主动开口，不是因为被要求，而是忍不住了。
 | DJL + Codebook CSV | 8D Vector to Semantic Translation; heuristic fallback when codebook unavailable |
 | Prompt Builder | Bilingual Persona + State + derived D injection + sub-state patch selection |
 | Runtime | Vector math, derived D computation, dual-space mapping, centroid tracking, Ω tracking, ShockState decay, session Mutex management, evolution_index tracking, DJL execution |
-| Session Manager | session identity resolution (platform:group_id), heartbeat platform routing |
+| Surface / Adapter Layer | Local CLI, Web UI, and third-party platform adapters (currently QQ/OneBot) call the shared runtime pipeline without duplicating logic |
+| Session Manager | session identity resolution (platform:scope_id), owner-only heartbeat delivery target resolution |
 | AGENTS.md | System Constraints |
 
 ---
@@ -491,8 +493,14 @@ Although the session is shared, Memory Palace entries MUST record the `user_id` 
  * Future per-user relationship modeling without structural changes
  * Audit logging for group moderation
 
-### 13.4 Heartbeat Platform Routing
-When multiple platform adapters are active for the same session (e.g., a group member also has a Web session open), heartbeats MUST be routed to the **most recently active platform adapter**. If no activity exists in the last 2 hours across all adapters, heartbeat delivery MUST be attempted on all connected adapters. Stale adapters (disconnected) MUST be skipped silently.
+### 13.4 Heartbeat Owner-Only Delivery
+Heartbeats are internal proactive turns that evolve ATRI's state, but outward delivery is restricted:
+
+ * Heartbeat turns MUST route through the full runtime pipeline and MUST increment `evolution_index`.
+ * Heartbeat responses MUST be delivered only to the configured owner target.
+ * Heartbeats MUST NOT be broadcast to a group, all connected adapters, or recently active non-owner users.
+ * If no owner target is configured or the owner adapter is disconnected, the heartbeat output MUST be dropped after state write-back. It MUST NOT be queued for later replay.
+ * The owner target is delivery metadata, not session identity. Group sessions still use `platform:group_id` as the shared state scope.
 
 ---
 
@@ -566,6 +574,6 @@ Any code that:
  * triggers ShockState when `emotion_confidence < 0.65`, applies any pre-tick when `emotion_confidence < 0.5`, or applies an unscaled full pre-tick at any confidence (violates §14.4)
  * uses an enum to categorize ShockState source (violates §8.2.2 — description must be free-text)
  * hardcodes evolution_index thresholds instead of reading from persona/*.yaml (violates §1.1)
- * routes heartbeats without consulting the most recently active platform adapter (violates §13.4)
+ * delivers heartbeat output to anyone other than the configured owner target, broadcasts heartbeat output, or queues stale heartbeat output for replay (violates §13.4)
  * writes Narrative Diary entries concurrently without the diary write queue (violates §7.2)
 → MUST be rejected.
