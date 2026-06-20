@@ -20,7 +20,7 @@ This phase covers runtime internals only.
 In scope:
 
 - `InferenceExecutor` abstraction for runtime math and future DJL work.
-- Unified `RuntimeTickScheduler` replacing the narrow background drift scheduler.
+- Unified `RuntimeTickScheduler` replacing the narrow legacy drift scheduler.
 - Tick-time sine drift, ShockState decay, Ω accumulation, and trace tags.
 - `RuntimeConfig` for owner target and tick parameters currently scattered across server wiring.
 - A bootstrap `HomeostasisCentroidProvider` interface that returns persisted origin until Memory Palace exists.
@@ -62,7 +62,7 @@ The following work must go through this boundary:
 
 ### RuntimeTickScheduler
 
-Replace `BackgroundDriftScheduler` with a unified tick:
+Replace the legacy background drift scheduler with a unified tick:
 
 1. Enumerate known sessions.
 2. For each session, compute elapsed time since last tick.
@@ -154,7 +154,7 @@ Add focused tests:
 1. Add `InferenceExecutor` and direct test executor.
 2. Thread executor through `DevelopmentMessagePipeline`.
 3. Add `RuntimeConfig` for tick/omega/owner defaults.
-4. Replace `BackgroundDriftScheduler` with `RuntimeTickScheduler`.
+4. Replace the legacy background drift scheduler with `RuntimeTickScheduler`.
 5. Add Ω accumulation engine.
 6. Add ShockState passive decay in tick.
 7. Add `HomeostasisCentroidProvider`.
