@@ -122,11 +122,34 @@ data class SessionState(
     val omega: OmegaState,
     val shockState: ShockState?,
     val evolutionIndex: Long,
+    // Epoch-millis of the last USER-initiated turn. Drives the heartbeat silence gates (§9.3).
+    // Null = no user turn observed yet. Heartbeat turns MUST NOT update it.
+    val lastUserActivityMs: Long? = null,
 )
 
 interface SessionStateStore {
     suspend fun read(sessionId: String): SessionState
+
+    /** Return the existing session, or a fresh neutral one if absent. Lets the pipeline depend on
+     *  this interface rather than a concrete store. Implementations need not persist on read. */
+    suspend fun readOrCreate(sessionId: String): SessionState = read(sessionId)
+
     suspend fun write(state: SessionState)
+
+    /** All session ids the store currently knows about — the heartbeat scheduler enumerates these. */
+    suspend fun sessionIds(): Set<String>
+
+    companion object {
+        fun neutral(sessionId: String): SessionState = SessionState(
+            sessionId = sessionId,
+            vector = BioVector.Neutral,
+            origin = BioVector.Neutral,
+            omega = OmegaState(0.0f),
+            shockState = null,
+            evolutionIndex = 0,
+            lastUserActivityMs = null,
+        )
+    }
 }
 
 class SessionMutexRegistry {
@@ -163,6 +186,28 @@ class VectorWriteService(
             )
         }
     }
+
+    /** Mutex-guarded read-modify-write for session mutations that are not LLM vector deltas
+     *  (e.g. activity timestamps, shock-heartbeat flag). Shares the per-session Mutex with
+     *  [applyLlmDelta] so all writes to a session remain serialized (§14.2). */
+    suspend fun update(sessionId: String, transform: (SessionState) -> SessionState): SessionState {
+        val mutex = mutexRegistry.forSession(sessionId)
+        return mutex.withLock {
+            val updated = transform(store.read(sessionId))
+            store.write(updated)
+            updated
+        }
+    }
+
+    /** Record the timestamp of a USER turn (never called for heartbeat turns). */
+    suspend fun markUserActivity(sessionId: String, nowMs: Long): SessionState =
+        update(sessionId) { it.copy(lastUserActivityMs = nowMs) }
+
+    /** Latch the one-shot shock-extended heartbeat flag for the current ShockState activation. */
+    suspend fun markShockHeartbeatFired(sessionId: String): SessionState =
+        update(sessionId) { state ->
+            state.copy(shockState = state.shockState?.copy(shockHeartbeatFired = true))
+        }
 
     private fun BioVector.deltaTo(target: BioVector): VectorDelta = VectorDelta(
         l = target.l - l,

@@ -123,4 +123,6 @@ private class InMemorySessionStateStore(initial: SessionState) : SessionStateSto
     override suspend fun write(state: SessionState) {
         this.state = state
     }
+
+    override suspend fun sessionIds(): Set<String> = setOf(state.sessionId)
 }

@@ -18,6 +18,12 @@ import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
+import io.openeden.trace.TraceTag
+import kotlin.time.Clock
+
+/** Distinguishes real user turns from proactive heartbeat turns. Heartbeat turns still evolve the
+ *  8D vector and evolution_index (§9.3), but MUST NOT update the user-activity silence clock. */
+enum class TurnSource { USER, HEARTBEAT }
 
 data class DevelopmentMessageRequest(
     val platform: String,
@@ -26,6 +32,7 @@ data class DevelopmentMessageRequest(
     val text: String,
     val emotionConfidence: Float,
     val emotionDelta: VectorDelta = VectorDelta.Zero,
+    val source: TurnSource = TurnSource.USER,
 )
 
 data class DevelopmentMessageResult(
@@ -43,13 +50,14 @@ data class DevelopmentMessageResult(
 
 class DevelopmentMessagePipeline(
     private val personaConfig: PersonaConfig,
-    private val store: MutableSessionStateStore,
+    private val store: SessionStateStore,
     private val quantizer: CodebookQuantizer,
     private val memoryRetriever: MemoryRetriever,
     private val promptBuilder: PromptBuilder,
     private val llmClient: LlmClient,
     private val vectorWriteService: VectorWriteService,
     private val diaryQueue: SessionDiaryQueue,
+    private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     suspend fun handle(request: DevelopmentMessageRequest): DevelopmentMessageResult {
         val sessionId = "${request.platform}:${request.scopeId}"
@@ -91,21 +99,31 @@ class DevelopmentMessagePipeline(
         val llmOutput = llmClient.complete(prompt)
         val validation = LlmOutputValidator.validate(llmOutput)
         val write = if (validation.isValid && validation.delta != null) {
-            vectorWriteService.applyLlmDelta(
+            val applied = vectorWriteService.applyLlmDelta(
                 sessionId = sessionId,
                 preTickedSnapshot = preTick.preTicked,
                 delta = validation.delta,
             )
+            // USER turns reset the silence clock that gates heartbeats (§9.3); heartbeat turns
+            // evolve state but must not, or ATRI would silence her own proactive impulse.
+            if (request.source == TurnSource.USER) {
+                val refreshed = vectorWriteService.markUserActivity(sessionId, nowMs())
+                applied.copy(state = refreshed)
+            } else {
+                applied
+            }
         } else {
             VectorWriteResult(state = current, traceTags = emptySet())
         }
+
+        val sourceTags = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
 
         val diaryOutcome = diaryOutcome(sessionId, validation.delta)
 
         return DevelopmentMessageResult(
             sessionId = sessionId,
             retrievalMode = retrievalResult.mode,
-            traceTags = quantization.traceTags + write.traceTags + diaryOutcome.traceTags,
+            traceTags = quantization.traceTags + write.traceTags + diaryOutcome.traceTags + sourceTags,
             prompt = prompt,
             promptPreview = listOf(prompt.systemText, prompt.personaText, prompt.userText).joinToString("\n\n"),
             response = validation.output?.response,
@@ -137,8 +155,9 @@ class DevelopmentMessagePipeline(
         fun create(
             personaConfig: PersonaConfig,
             llmClient: LlmClient = DevelopmentLlmStub(),
+            store: SessionStateStore = MutableSessionStateStore(),
+            vectorWriteService: VectorWriteService = VectorWriteService(store),
         ): DevelopmentMessagePipeline {
-            val store = MutableSessionStateStore()
             return DevelopmentMessagePipeline(
                 personaConfig = personaConfig,
                 store = store,
@@ -146,7 +165,7 @@ class DevelopmentMessagePipeline(
                 memoryRetriever = EmptyMemoryRetriever,
                 promptBuilder = DefaultPromptBuilder(),
                 llmClient = llmClient,
-                vectorWriteService = VectorWriteService(store),
+                vectorWriteService = vectorWriteService,
                 diaryQueue = SessionDiaryQueue(),
             )
         }
@@ -161,23 +180,16 @@ private data class DiaryOutcome(
 class MutableSessionStateStore(
     private val states: MutableMap<String, SessionState> = mutableMapOf(),
 ) : SessionStateStore {
-    suspend fun readOrCreate(sessionId: String): SessionState =
-        states.getOrPut(sessionId) {
-            SessionState(
-                sessionId = sessionId,
-                vector = BioVector.Neutral,
-                origin = BioVector.Neutral,
-                omega = OmegaState(0.0f),
-                shockState = null,
-                evolutionIndex = 0,
-            )
-        }
+    override suspend fun readOrCreate(sessionId: String): SessionState =
+        states.getOrPut(sessionId) { SessionStateStore.neutral(sessionId) }
 
     override suspend fun read(sessionId: String): SessionState = readOrCreate(sessionId)
 
     override suspend fun write(state: SessionState) {
         states[state.sessionId] = state
     }
+
+    override suspend fun sessionIds(): Set<String> = states.keys.toSet()
 }
 
 private object EmptyMemoryRetriever : MemoryRetriever {

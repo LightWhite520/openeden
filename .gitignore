@@ -20,6 +20,7 @@ out/
 # Runtime and logs
 *.log
 logs/
+data/runtime/
 
 # Private copyrighted/local corpora
 private_corpus/

@@ -1,7 +1,6 @@
 package io.openeden.server
 
 import io.openeden.bio.VectorDelta
-import io.openeden.persona.PersonaFileLoader
 import io.openeden.runtime.DevelopmentMessagePipeline
 import io.openeden.runtime.DevelopmentMessageRequest
 import io.ktor.server.request.*
@@ -11,11 +10,12 @@ import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import kotlinx.serialization.Serializable
-import java.nio.file.Files
-import java.nio.file.Path
 
 fun Application.configureRouting() {
-    val developmentPipeline = DevelopmentMessagePipeline.create(loadDefaultPersonaConfig())
+    // Prefer the durable-backed pipeline published by configureRuntime; fall back to an in-memory
+    // pipeline when routing is configured standalone (e.g. lightweight tests).
+    val developmentPipeline = attributes.getOrNull(PipelineKey)
+        ?: DevelopmentMessagePipeline.create(loadDefaultPersonaConfig())
     routing {
         get("/") {
             call.respondText("OpenEden runtime skeleton")
@@ -101,16 +101,3 @@ data class DevMessageResponseDto(
     val diaryOutcome: String,
     val validationErrors: List<String>,
 )
-
-private fun loadDefaultPersonaConfig() =
-    PersonaFileLoader.load(resolveDefaultPersonaPath())
-
-private fun resolveDefaultPersonaPath(): Path {
-    var current = Path.of("").toAbsolutePath()
-    repeat(6) {
-        val candidate = current.resolve(Path.of("persona", "default.yaml"))
-        if (Files.exists(candidate)) return candidate
-        current.parent?.let { current = it } ?: return candidate
-    }
-    return Path.of("persona", "default.yaml")
-}

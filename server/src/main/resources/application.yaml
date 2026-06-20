@@ -6,4 +6,5 @@ ktor:
       - io.openeden.server.SerializationKt.configureSerialization
       - io.openeden.server.WebsocketsKt.configureWebsockets
       - io.openeden.server.StatusPagesKt.configureStatusPages
+      - io.openeden.server.RuntimeKt.configureRuntime
       - io.openeden.server.RoutingKt.configureRouting
