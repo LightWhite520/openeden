@@ -21,6 +21,9 @@ out/
 *.log
 logs/
 
+# Private copyrighted/local corpora
+private_corpus/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

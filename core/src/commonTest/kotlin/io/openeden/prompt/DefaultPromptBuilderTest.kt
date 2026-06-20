@@ -36,6 +36,7 @@ class DefaultPromptBuilderTest {
         val built = DefaultPromptBuilder().build(promptInput(evolutionIndex = 15))
 
         assertContains(built.systemText, "\"persona_sub_state\": \"TRUE_SELF\"")
+        assertContains(built.personaText, "behavior rules from data")
         assertContains(built.personaText, "true self patch from data")
     }
 
@@ -57,6 +58,18 @@ class DefaultPromptBuilderTest {
         val built = DefaultPromptBuilder().build(promptInput(userInput = HEARTBEAT_TRIGGER))
 
         assertContains(built.personaText, "heartbeat text from data")
+    }
+
+    @Test
+    fun `style guidance is injected from persona data`() = runTest {
+        val built = DefaultPromptBuilder().build(promptInput())
+
+        assertContains(built.personaText, "\"style\":")
+        assertContains(built.personaText, "style summary from data")
+        assertContains(built.personaText, "source language notes from data")
+        assertContains(built.personaText, "do item one")
+        assertContains(built.personaText, "do item two")
+        assertContains(built.personaText, "avoid item one")
     }
 
     @Test
@@ -109,12 +122,17 @@ class DefaultPromptBuilderTest {
             evolutionThresholds = EvolutionThresholds(threshold1 = 10, threshold2 = 20),
             promptSections = mapOf(
                 PromptSectionKeys.PersonaBase to "base persona from data",
+                PromptSectionKeys.PersonaBehavior to "behavior rules from data",
                 PromptSectionKeys.OutputLayerRules to "output rules from data",
                 PromptSectionKeys.PreCommandPatch to "pre command patch from data",
                 PromptSectionKeys.TrueSelfPatch to "true self patch from data",
                 PromptSectionKeys.AwakenedPatch to "awakened patch from data",
                 PromptSectionKeys.Heartbeat to "heartbeat text from data",
                 PromptSectionKeys.ShockHeartbeat to "shock heartbeat text from data",
+                PromptSectionKeys.StyleObservedSummary to "style summary from data",
+                PromptSectionKeys.StyleSourceLanguageNotes to "source language notes from data",
+                PromptSectionKeys.StyleDo to "do item one\ndo item two",
+                PromptSectionKeys.StyleDoNot to "avoid item one",
             ),
         ),
         evolutionIndex = evolutionIndex,

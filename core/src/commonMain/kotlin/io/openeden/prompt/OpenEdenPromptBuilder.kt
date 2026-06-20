@@ -65,6 +65,7 @@ object OpenEdenPromptDocumentFactory {
             }
             "persona" {
                 personaSection("base", input.personaConfig, PromptSectionKeys.PersonaBase)
+                personaSection("behavior", input.personaConfig, PromptSectionKeys.PersonaBehavior)
                 personaSection("sub_state_patch", input.personaConfig, subState.sectionKey())
                 personaSection("output_layer_rules", input.personaConfig, PromptSectionKeys.OutputLayerRules)
                 when (input.userInput) {
@@ -73,6 +74,7 @@ object OpenEdenPromptDocumentFactory {
                     HEARTBEAT_SHOCK_TRIGGER ->
                         personaSection("shock_heartbeat_context", input.personaConfig, PromptSectionKeys.ShockHeartbeat)
                 }
+                styleSection(input.personaConfig)
             }
             "user" {
                 "input" to input.userInput
@@ -86,6 +88,37 @@ object OpenEdenPromptDocumentFactory {
             name to value.trim()
         }
     }
+
+    private fun PromptObjectBuilder.styleSection(config: PersonaConfig) {
+        val summary = config.promptSections[PromptSectionKeys.StyleObservedSummary]?.trim()
+        val sourceNotes = config.promptSections[PromptSectionKeys.StyleSourceLanguageNotes]?.trim()
+        val styleDo = config.promptSections[PromptSectionKeys.StyleDo].toStyleItems()
+        val styleDoNot = config.promptSections[PromptSectionKeys.StyleDoNot].toStyleItems()
+        if (summary.isNullOrBlank() && sourceNotes.isNullOrBlank() && styleDo.isEmpty() && styleDoNot.isEmpty()) {
+            return
+        }
+        "style" {
+            if (!summary.isNullOrBlank()) {
+                "observed_summary" to summary
+            }
+            if (!sourceNotes.isNullOrBlank()) {
+                "source_language_notes" to sourceNotes
+            }
+            if (styleDo.isNotEmpty()) {
+                "do" to array(styleDo)
+            }
+            if (styleDoNot.isNotEmpty()) {
+                "do_not" to array(styleDoNot)
+            }
+        }
+    }
+
+    private fun String?.toStyleItems(): List<String> =
+        this?.lineSequence()
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.toList()
+            ?: emptyList()
 
     private fun PromptObjectBuilder.shockStateObject(input: PromptInput): PromptObject =
         obj {
@@ -123,12 +156,17 @@ object OpenEdenPromptDocumentFactory {
 
 object PromptSectionKeys {
     const val PersonaBase = "persona.base"
+    const val PersonaBehavior = "persona.behavior"
     const val OutputLayerRules = "output.layer.rules"
     const val PreCommandPatch = "persona.patch.pre_command"
     const val TrueSelfPatch = "persona.patch.true_self"
     const val AwakenedPatch = "persona.patch.awakened"
     const val Heartbeat = "heartbeat.base"
     const val ShockHeartbeat = "heartbeat.shock"
+    const val StyleObservedSummary = "style.observed_summary"
+    const val StyleSourceLanguageNotes = "style.source_language_notes"
+    const val StyleDo = "style.do"
+    const val StyleDoNot = "style.do_not"
 }
 
 const val HEARTBEAT_TRIGGER = "[HEARTBEAT_TRIGGER]"
