@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 class MessagePipelineTest {
@@ -138,7 +139,7 @@ class MessagePipelineTest {
             ),
         )
 
-        assertEquals(2, executor.calls)
+        assertTrue(executor.calls >= 4)
     }
 
     private fun testPersonaConfig(): PersonaConfig = PersonaConfig(

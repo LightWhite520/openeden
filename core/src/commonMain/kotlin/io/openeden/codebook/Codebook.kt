@@ -2,10 +2,21 @@ package io.openeden.codebook
 
 import io.openeden.bio.BioVector
 import io.openeden.trace.TraceTag
+import kotlinx.serialization.Serializable
+import kotlin.math.sqrt
 
 interface CodebookQuantizer {
     suspend fun quantize(vector: BioVector, dissonance: Float): QuantizationResult
 }
+
+interface CodebookModelRunner {
+    suspend fun predict(vector: BioVector, dissonance: Float): CodebookModelResult
+}
+
+data class CodebookModelResult(
+    val nodeIds: List<String>,
+    val confidence: Float,
+)
 
 data class QuantizationResult(
     val activeNodes: List<String>,
@@ -70,3 +81,67 @@ class HeuristicCodebookFallback : CodebookQuantizer {
         const val LOW = 0.3f
     }
 }
+
+class VqVaeCodebookQuantizer(
+    private val modelRunner: CodebookModelRunner,
+    private val dictionary: CodebookDictionary,
+    private val fallback: CodebookQuantizer = HeuristicCodebookFallback(),
+    private val minConfidence: Float = 0.6f,
+) : CodebookQuantizer {
+    override suspend fun quantize(vector: BioVector, dissonance: Float): QuantizationResult {
+        val modelResult = runCatching { modelRunner.predict(vector, dissonance) }.getOrNull()
+            ?: return fallback.quantize(vector, dissonance)
+        if (modelResult.confidence < minConfidence || modelResult.nodeIds.isEmpty()) {
+            return fallback.quantize(vector, dissonance)
+        }
+        val definitions = dictionary.definitionsFor(modelResult.nodeIds)
+        if (definitions.isEmpty()) {
+            return fallback.quantize(vector, dissonance)
+        }
+        return QuantizationResult(
+            activeNodes = modelResult.nodeIds,
+            semanticDefinitions = definitions,
+            confidence = modelResult.confidence.coerceIn(0.0f, 1.0f),
+            traceTags = setOf(TraceTag.CodebookQuantized),
+        )
+    }
+}
+
+class NearestVectorCodebookModelRunner(
+    private val nodes: List<CodebookVector>,
+    private val topK: Int = 3,
+) : CodebookModelRunner {
+    override suspend fun predict(vector: BioVector, dissonance: Float): CodebookModelResult {
+        if (nodes.isEmpty()) return CodebookModelResult(emptyList(), 0.0f)
+        val input = vector.toList() + dissonance.coerceIn(0.0f, 1.0f)
+        val ranked = nodes
+            .map { it.nodeId to cosine(input, it.embedding) }
+            .sortedByDescending { it.second }
+            .take(topK.coerceAtLeast(1))
+        return CodebookModelResult(
+            nodeIds = ranked.map { it.first },
+            confidence = ranked.firstOrNull()?.second?.coerceIn(0.0f, 1.0f) ?: 0.0f,
+        )
+    }
+
+    private fun cosine(left: List<Float>, right: List<Float>): Float {
+        val size = minOf(left.size, right.size)
+        if (size == 0) return 0.0f
+        var dot = 0.0f
+        var leftNorm = 0.0f
+        var rightNorm = 0.0f
+        for (index in 0 until size) {
+            dot += left[index] * right[index]
+            leftNorm += left[index] * left[index]
+            rightNorm += right[index] * right[index]
+        }
+        val denominator = sqrt(leftNorm) * sqrt(rightNorm)
+        return if (denominator == 0.0f) 0.0f else dot / denominator
+    }
+}
+
+@Serializable
+data class CodebookVector(
+    val nodeId: String,
+    val embedding: List<Float>,
+)

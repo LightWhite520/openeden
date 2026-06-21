@@ -2,7 +2,13 @@ package io.openeden.runtime
 
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
+import io.openeden.codebook.CodebookQuantizer
+import io.openeden.codebook.HeuristicCodebookFallback
 import io.openeden.llm.LlmClient
+import io.openeden.memory.InMemoryMemoryPalace
+import io.openeden.memory.DeterministicMemoryEmbeddingModel
+import io.openeden.memory.MemoryEmbeddingModel
+import io.openeden.memory.MemoryStore
 import io.openeden.memory.RetrievalMode
 import io.openeden.persona.PersonaConfig
 import io.openeden.prompt.BuiltPrompt
@@ -66,6 +72,9 @@ class OpenEdenRuntimePipeline private constructor(
             store: SessionStateStore = MutableSessionStateStore(),
             vectorWriteService: VectorWriteService = VectorWriteService(store),
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
+            quantizer: CodebookQuantizer = HeuristicCodebookFallback(),
+            memoryEmbeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
+            memoryStore: MemoryStore = InMemoryMemoryPalace(inferenceExecutor, embeddingModel = memoryEmbeddingModel),
         ): OpenEdenRuntimePipeline {
             val pipeline = DevelopmentMessagePipeline.create(
                 personaConfig = personaConfig,
@@ -73,6 +82,9 @@ class OpenEdenRuntimePipeline private constructor(
                 store = store,
                 vectorWriteService = vectorWriteService,
                 inferenceExecutor = inferenceExecutor,
+                quantizer = quantizer,
+                memoryStore = memoryStore,
+                memoryEmbeddingModel = memoryEmbeddingModel,
             )
             return OpenEdenRuntimePipeline(pipeline, store)
         }

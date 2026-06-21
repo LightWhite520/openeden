@@ -1,6 +1,7 @@
 package io.openeden.runtime
 
 import io.openeden.bio.BioVector
+import io.openeden.memory.MemoryStore
 
 fun interface HomeostasisCentroidProvider {
     suspend fun centroidFor(sessionId: String): BioVector
@@ -12,3 +13,28 @@ class StoredOriginCentroidProvider(
     override suspend fun centroidFor(sessionId: String): BioVector =
         store.read(sessionId).origin
 }
+
+class SlidingWindowHomeostasisCentroidProvider(
+    private val memoryStore: MemoryStore,
+    private val fallback: HomeostasisCentroidProvider,
+    private val windowSize: Int = 32,
+) : HomeostasisCentroidProvider {
+    override suspend fun centroidFor(sessionId: String): BioVector {
+        val vectors = memoryStore.stableVectors(sessionId, windowSize)
+        if (vectors.isEmpty()) return fallback.centroidFor(sessionId)
+        return BioVector(
+            l = vectors.map { it.l }.averageFloat(),
+            p = vectors.map { it.p }.averageFloat(),
+            e = vectors.map { it.e }.averageFloat(),
+            s = vectors.map { it.s }.averageFloat(),
+            tau = vectors.map { it.tau }.averageFloat(),
+            v = vectors.map { it.v }.averageFloat(),
+            m = vectors.map { it.m }.averageFloat(),
+            f = vectors.map { it.f }.averageFloat(),
+        )
+    }
+
+}
+
+private fun List<Float>.averageFloat(): Float =
+    if (isEmpty()) 0.0f else (sum() / size).coerceIn(0.0f, 1.0f)

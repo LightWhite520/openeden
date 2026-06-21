@@ -11,6 +11,9 @@ class CodebookDictionary private constructor(
 ) {
     fun definitionFor(nodeId: String): String? = entries[nodeId]?.definition
 
+    fun definitionsFor(nodeIds: List<String>): List<String> =
+        nodeIds.mapNotNull(::definitionFor)
+
     companion object {
         fun parseCsv(csv: String): CodebookDictionary {
             val entries = csv.lineSequence()

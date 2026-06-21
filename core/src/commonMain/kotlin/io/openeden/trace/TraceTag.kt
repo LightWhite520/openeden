@@ -2,7 +2,9 @@ package io.openeden.trace
 
 object TraceTag {
     const val CodebookHeuristicFallback = "codebook=HEURISTIC_FALLBACK"
+    const val CodebookQuantized = "codebook=VQVAE_QUANTIZED"
     const val DiaryQueueOverflow = "diary=QUEUE_OVERFLOW"
+    const val DiaryWritten = "diary=WRITTEN"
     const val VectorWriteSerialized = "vector=WRITE_SERIALIZED"
     const val HeartbeatSource = "source=HEARTBEAT"
     const val ShockStateTransition = "shock=STATE_TRANSITION"
@@ -10,4 +12,7 @@ object TraceTag {
     const val ShockStateDecayed = "shock=DECAYED"
     const val OmegaAccumulated = "omega=ACCUMULATED"
     const val RuntimeTickSessionFailed = "tick=SESSION_FAILED"
+    const val MemoryWritten = "memory=WRITTEN"
+    const val MemoryRetrieved = "memory=RETRIEVED"
+    const val CentroidUpdated = "centroid=UPDATED"
 }

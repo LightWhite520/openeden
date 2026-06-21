@@ -17,11 +17,14 @@ data class RetrievalResult(
     val mode: RetrievalMode,
     val injectionLabel: String,
     val memories: List<MemorySnippet>,
+    val traceTags: Set<String> = emptySet(),
 )
 
 data class MemorySnippet(
+    val id: String = "",
     val content: String,
     val metadata: MemoryMetadata,
+    val score: Float = 0.0f,
 )
 
 @Serializable
@@ -35,6 +38,37 @@ data class MemoryMetadata(
 
 interface MemoryRetriever {
     suspend fun retrieve(request: RetrievalRequest): RetrievalResult
+}
+
+interface MemoryStore : MemoryRetriever {
+    suspend fun write(entry: MemoryEntry): Set<String>
+    suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector>
+}
+
+data class MemoryEntry(
+    val id: String,
+    val sessionId: String,
+    val content: String,
+    val room: MemoryRoom,
+    val kind: MemoryKind,
+    val tags: Set<String> = emptySet(),
+    val semanticEmbedding: List<Float>,
+    val emotionalEmbedding: List<Float>,
+    val metadata: MemoryMetadata,
+)
+
+enum class MemoryRoom {
+    TECH_ROOM,
+    PROJECT_ROOM,
+    PROFILE_ROOM,
+    EVENT_ROOM,
+    KNOWLEDGE_ROOM,
+    NOISE_ROOM,
+}
+
+enum class MemoryKind {
+    RAW,
+    DIARY,
 }
 
 data class RetrievalRequest(

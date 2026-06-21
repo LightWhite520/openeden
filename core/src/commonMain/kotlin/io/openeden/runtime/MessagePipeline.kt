@@ -9,6 +9,13 @@ import io.openeden.codebook.QuantizationResult
 import io.openeden.llm.DevelopmentLlmStub
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutputValidator
+import io.openeden.memory.InMemoryMemoryPalace
+import io.openeden.memory.DeterministicMemoryEmbeddingModel
+import io.openeden.memory.MemoryEmbeddingModel
+import io.openeden.memory.MemoryEntry
+import io.openeden.memory.MemoryKind
+import io.openeden.memory.MemoryRoom
+import io.openeden.memory.MemoryStore
 import io.openeden.memory.MemoryRetriever
 import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalModeSelector
@@ -59,11 +66,19 @@ class DevelopmentMessagePipeline(
     private val vectorWriteService: VectorWriteService,
     private val diaryQueue: SessionDiaryQueue,
     private val inferenceExecutor: InferenceExecutor,
+    private val memoryStore: MemoryStore?,
+    private val memoryEmbeddingModel: MemoryEmbeddingModel,
+    private val centroidProvider: HomeostasisCentroidProvider,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     suspend fun handle(request: DevelopmentMessageRequest): DevelopmentMessageResult {
         val sessionId = "${request.platform}:${request.scopeId}"
-        val current = store.readOrCreate(sessionId)
+        val initial = store.readOrCreate(sessionId)
+        val centroid = inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
+        if (centroid != initial.origin) {
+            vectorWriteService.update(sessionId) { it.copy(origin = centroid) }
+        }
+        val current = store.read(sessionId)
         val preTick = PreTickEngine.apply(
             original = current.vector,
             signal = EmotionSignal(delta = request.emotionDelta, confidence = request.emotionConfidence),
@@ -83,15 +98,17 @@ class DevelopmentMessagePipeline(
                 retrievalMode = retrievalMode,
             )
         }
-        val retrievalResult = memoryRetriever.retrieve(
-            RetrievalRequest(
-                sessionId = sessionId,
-                userInput = request.text,
-                currentVector = preTick.preTicked,
-                origin = current.origin,
-                mode = inference.retrievalMode,
-            ),
-        )
+        val retrievalResult = inferenceExecutor.run {
+            memoryRetriever.retrieve(
+                RetrievalRequest(
+                    sessionId = sessionId,
+                    userInput = request.text,
+                    currentVector = preTick.preTicked,
+                    origin = current.origin,
+                    mode = inference.retrievalMode,
+                ),
+            )
+        }
         val prompt = promptBuilder.build(
             PromptInput(
                 personaConfig = personaConfig,
@@ -141,16 +158,47 @@ class DevelopmentMessagePipeline(
         val sourceTags = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
 
         val diaryOutcome = diaryOutcome(sessionId, validation.delta)
+        val memoryTraceTags = if (validation.isValid && validation.delta != null && validation.output != null) {
+            inferenceExecutor.run {
+                writeMemories(
+                    request = request,
+                    sessionId = sessionId,
+                    preTicked = preTick.preTicked,
+                    origin = current.origin,
+                    omega = write.state.omega,
+                    delta = validation.delta,
+                    response = validation.output.response,
+                    diaryOutcome = diaryOutcome,
+                )
+            }
+        } else {
+            emptySet()
+        }
+        val updatedOrigin = memoryStore?.let {
+            inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
+        }
+        val centroidTags = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
+            vectorWriteService.update(sessionId) { it.copy(origin = updatedOrigin) }
+            setOf(TraceTag.CentroidUpdated)
+        } else {
+            emptySet()
+        }
 
         return DevelopmentMessageResult(
             sessionId = sessionId,
             retrievalMode = retrievalResult.mode,
-            traceTags = inference.quantization.traceTags + write.traceTags + diaryOutcome.traceTags + sourceTags,
+            traceTags = inference.quantization.traceTags +
+                retrievalResult.traceTags +
+                write.traceTags +
+                diaryOutcome.traceTags +
+                memoryTraceTags +
+                centroidTags +
+                sourceTags,
             prompt = prompt,
             promptPreview = listOf(prompt.systemText, prompt.personaText, prompt.userText).joinToString("\n\n"),
             response = validation.output?.response,
-            updatedVector = write.state.vector,
-            evolutionIndex = write.state.evolutionIndex,
+            updatedVector = store.read(sessionId).vector,
+            evolutionIndex = store.read(sessionId).evolutionIndex,
             diaryOutcome = diaryOutcome.label,
             validationErrors = validation.errors,
         )
@@ -173,6 +221,62 @@ class DevelopmentMessagePipeline(
             DiaryOutcome(label = "not_triggered", traceTags = emptySet())
         }
 
+    private suspend fun writeMemories(
+        request: DevelopmentMessageRequest,
+        sessionId: String,
+        preTicked: BioVector,
+        origin: BioVector,
+        omega: OmegaState,
+        delta: VectorDelta,
+        response: String,
+        diaryOutcome: DiaryOutcome,
+    ): Set<String> {
+        val store = memoryStore ?: return emptySet()
+        val metadata = io.openeden.memory.MemoryMetadata(
+            snapshot8D = preTicked,
+            omegaState = omega.value,
+            deltaVec = delta,
+            snapshotOrigin = origin,
+            userId = request.userId,
+        )
+        val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
+        val rawTags = if (omega.value < 0.75f && delta.toList().all { kotlin.math.abs(it) <= 0.05f }) {
+            setOf("daily", "stable")
+        } else {
+            emptySet()
+        }
+        val rawTrace = store.write(
+            MemoryEntry(
+                id = "$sessionId:${nowMs()}:raw",
+                sessionId = sessionId,
+                content = rawContent,
+                room = MemoryRoom.EVENT_ROOM,
+                kind = MemoryKind.RAW,
+                tags = rawTags,
+                semanticEmbedding = memoryEmbeddingModel.embed(rawContent),
+                emotionalEmbedding = memoryEmbeddingModel.embed(preTicked),
+                metadata = metadata,
+            ),
+        )
+        val diaryTrace = if (diaryOutcome.label == "enqueued") {
+            store.write(
+                MemoryEntry(
+                    id = "$sessionId:${nowMs()}:diary",
+                    sessionId = sessionId,
+                    content = "significant_turn reason=vector_delta user=${request.userId}",
+                    room = MemoryRoom.EVENT_ROOM,
+                    kind = MemoryKind.DIARY,
+                    semanticEmbedding = memoryEmbeddingModel.embed("significant_turn vector_delta"),
+                    emotionalEmbedding = memoryEmbeddingModel.embed(preTicked),
+                    metadata = metadata,
+                ),
+            ) + TraceTag.DiaryWritten
+        } else {
+            emptySet()
+        }
+        return rawTrace + diaryTrace
+    }
+
     companion object {
         fun create(
             personaConfig: PersonaConfig,
@@ -180,17 +284,29 @@ class DevelopmentMessagePipeline(
             store: SessionStateStore = MutableSessionStateStore(),
             vectorWriteService: VectorWriteService = VectorWriteService(store),
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
+            quantizer: CodebookQuantizer = HeuristicCodebookFallback(),
+            memoryEmbeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
+            memoryStore: MemoryStore = InMemoryMemoryPalace(inferenceExecutor, embeddingModel = memoryEmbeddingModel),
+            promptBuilder: PromptBuilder = DefaultPromptBuilder(),
+            diaryQueue: SessionDiaryQueue = SessionDiaryQueue(),
+            centroidProvider: HomeostasisCentroidProvider = SlidingWindowHomeostasisCentroidProvider(
+                memoryStore = memoryStore,
+                fallback = StoredOriginCentroidProvider(store),
+            ),
         ): DevelopmentMessagePipeline {
             return DevelopmentMessagePipeline(
                 personaConfig = personaConfig,
                 store = store,
-                quantizer = HeuristicCodebookFallback(),
-                memoryRetriever = EmptyMemoryRetriever,
-                promptBuilder = DefaultPromptBuilder(),
+                quantizer = quantizer,
+                memoryRetriever = memoryStore,
+                promptBuilder = promptBuilder,
                 llmClient = llmClient,
                 vectorWriteService = vectorWriteService,
-                diaryQueue = SessionDiaryQueue(),
+                diaryQueue = diaryQueue,
                 inferenceExecutor = inferenceExecutor,
+                memoryStore = memoryStore,
+                memoryEmbeddingModel = memoryEmbeddingModel,
+                centroidProvider = centroidProvider,
             )
         }
     }
@@ -220,13 +336,4 @@ class MutableSessionStateStore(
     }
 
     override suspend fun sessionIds(): Set<String> = states.keys.toSet()
-}
-
-private object EmptyMemoryRetriever : MemoryRetriever {
-    override suspend fun retrieve(request: RetrievalRequest): RetrievalResult =
-        RetrievalResult(
-            mode = request.mode,
-            injectionLabel = RetrievalModeSelector.injectionLabel(request.mode),
-            memories = emptyList(),
-        )
 }
