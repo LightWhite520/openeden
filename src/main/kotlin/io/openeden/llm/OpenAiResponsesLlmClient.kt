@@ -29,7 +29,7 @@ class OpenAiResponsesLlmClient(
     private val baseUrl: String = "https://api.openai.com/v1",
     private val httpClient: HttpClient = httpClient(CIO.create()),
     private val json: Json = Json { ignoreUnknownKeys = true },
-) : io.openeden.llm.LlmClient {
+) : LlmClient {
     override suspend fun complete(prompt: BuiltPrompt): io.openeden.llm.LlmOutput {
         val response = httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             bearerAuth(apiKey)
