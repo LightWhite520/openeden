@@ -12,7 +12,7 @@ OpenEden is a Kotlin/Ktor runtime for a deterministic continuous-to-discrete bio
 
 ### Star History
 
-[![Star History Chart](https://www.star-history.com/?type=date&repos=LightWhite520%2Fopeneden)](https://www.star-history.com/#LightWhite520/openeden&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=LightWhite520/openeden&type=Date)](https://www.star-history.com/#LightWhite520/openeden&Date)
 
 ## What This Project Is
 
