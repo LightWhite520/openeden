@@ -29,6 +29,18 @@ Training samples contain `nodeId`, semantic `definition`, optional
 `definitionEn`/`definitionZh`, `tags`, and the stored 8D `vector`. They must not
 contain derived D; D remains runtime-computed.
 
+If the local runtime artifact is missing, Gradle can restore it from the public
+OpenEden Hugging Face model repository:
+
+```powershell
+.\gradlew.bat ensureLocalModelArtifact
+```
+
+By default this downloads
+`https://huggingface.co/0x4C57/openeden-codebook-base-model/resolve/main/local-model-artifact.json`.
+Set `OPENEDEN_LOCAL_MODEL_ARTIFACT` to change the destination path, or
+`OPENEDEN_LOCAL_MODEL_ARTIFACT_URL` to change the source URL.
+
 `data/codebook/codebook.generated.csv` uses bilingual columns:
 
 ```csv
@@ -42,6 +54,14 @@ The runtime dictionary accepts both this format and the older
 
 Use this when a GPU is available and you want a real base model trained on the
 8D/text pairs before downstream artifact generation.
+
+The current published model repository is:
+
+```text
+https://huggingface.co/0x4C57/openeden-codebook-base-model
+```
+
+The repository is public and AGPL-3.0 licensed.
 
 Recommended starting point:
 

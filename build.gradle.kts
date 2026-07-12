@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     application
     alias(libs.plugins.kotlin.multiplatform) apply false
@@ -10,6 +12,33 @@ version = "1.0.0-SNAPSHOT"
 
 application {
     mainClass = "io.openeden.MainKt"
+}
+
+val localModelArtifactPath = providers
+    .environmentVariable("OPENEDEN_LOCAL_MODEL_ARTIFACT")
+    .orElse("data/models/local-model-artifact.json")
+
+val localModelArtifactUrl = providers
+    .environmentVariable("OPENEDEN_LOCAL_MODEL_ARTIFACT_URL")
+    .orElse("https://huggingface.co/0x4C57/openeden-codebook-base-model/resolve/main/local-model-artifact.json")
+
+tasks.register("ensureLocalModelArtifact") {
+    group = "openeden"
+    description = "Download the OpenEden local model artifact from Hugging Face when it is missing."
+    val artifactFile = file(localModelArtifactPath.get())
+    outputs.file(artifactFile)
+    onlyIf { !artifactFile.exists() }
+    doLast {
+        artifactFile.parentFile?.mkdirs()
+        URI(localModelArtifactUrl.get()).toURL().openStream().use { input ->
+            artifactFile.outputStream().use { output -> input.copyTo(output) }
+        }
+        logger.lifecycle("Downloaded OpenEden local model artifact to ${artifactFile.path}")
+    }
+}
+
+tasks.named("run") {
+    dependsOn("ensureLocalModelArtifact")
 }
 
 kotlin {
