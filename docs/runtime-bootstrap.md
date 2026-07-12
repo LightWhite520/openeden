@@ -40,7 +40,7 @@ through a production-facing local contract. Configure:
 
 ```powershell
 $env:OPENEDEN_OPENAI_API_KEY="sk-..."
-$env:OPENEDEN_OPENAI_MODEL="gpt-5-mini"
+$env:OPENEDEN_OPENAI_MODEL="gpt-5.5"
 $env:OPENEDEN_LOCAL_USER_ID="local"
 ```
 

@@ -37,7 +37,7 @@ class OpenAiResponsesLlmClientTest {
         }
         val client = OpenAiResponsesLlmClient(
             apiKey = "sk-test",
-            model = "gpt-5-mini",
+            model = "gpt-5.5",
             baseUrl = "https://relay.example.com/v1",
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
@@ -50,7 +50,7 @@ class OpenAiResponsesLlmClientTest {
 
         val body = Json.parseToJsonElement(requestBody).jsonObject
         assertEquals("https://relay.example.com/v1/responses", requestUrl)
-        assertEquals("gpt-5-mini", body.getValue("model").jsonPrimitive.content)
+        assertEquals("gpt-5.5", body.getValue("model").jsonPrimitive.content)
         val input = body.getValue("input").jsonArray
         assertEquals("system", input[0].jsonObject.getValue("role").jsonPrimitive.content)
         assertEquals("system", input[0].jsonObject.getValue("content").jsonPrimitive.content)
@@ -75,7 +75,7 @@ class OpenAiResponsesLlmClientTest {
         }
         val client = OpenAiResponsesLlmClient(
             apiKey = "sk-test",
-            model = "gpt-5-mini",
+            model = "gpt-5.5",
             reasoningEffort = ReasoningEffort.HIGH,
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
@@ -93,7 +93,7 @@ class OpenAiResponsesLlmClientTest {
         }
         val client = OpenAiResponsesLlmClient(
             apiKey = "sk-test",
-            model = "gpt-5-mini",
+            model = "gpt-5.5",
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
 
