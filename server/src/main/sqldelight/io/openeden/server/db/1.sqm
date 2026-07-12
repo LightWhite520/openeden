@@ -1,0 +1,75 @@
+-- Upgrade schema version 1 databases created before durable Memory Palace tables
+-- were introduced. All statements are idempotent for recovery-safe startup.
+CREATE TABLE IF NOT EXISTS memory_entries (
+    id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    room TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    snapshot_l REAL NOT NULL,
+    snapshot_p REAL NOT NULL,
+    snapshot_e REAL NOT NULL,
+    snapshot_s REAL NOT NULL,
+    snapshot_tau REAL NOT NULL,
+    snapshot_v REAL NOT NULL,
+    snapshot_m REAL NOT NULL,
+    snapshot_f REAL NOT NULL,
+    omega_state REAL NOT NULL,
+    delta_l REAL NOT NULL,
+    delta_p REAL NOT NULL,
+    delta_e REAL NOT NULL,
+    delta_s REAL NOT NULL,
+    delta_tau REAL NOT NULL,
+    delta_v REAL NOT NULL,
+    delta_m REAL NOT NULL,
+    delta_f REAL NOT NULL,
+    origin_l REAL NOT NULL,
+    origin_p REAL NOT NULL,
+    origin_e REAL NOT NULL,
+    origin_s REAL NOT NULL,
+    origin_tau REAL NOT NULL,
+    origin_v REAL NOT NULL,
+    origin_m REAL NOT NULL,
+    origin_f REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS memory_embeddings (
+    memory_id TEXT NOT NULL PRIMARY KEY REFERENCES memory_entries(id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    semantic_json TEXT NOT NULL,
+    emotional_json TEXT NOT NULL,
+    status TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS diary_tasks (
+    id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    source_memory_id TEXT,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    available_at_ms INTEGER NOT NULL,
+    lease_expires_at_ms INTEGER,
+    last_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS trace_spans (
+    span_id TEXT NOT NULL PRIMARY KEY,
+    trace_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    parent_span_id TEXT,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at_ms INTEGER NOT NULL,
+    finished_at_ms INTEGER,
+    tags_json TEXT NOT NULL,
+    attributes_json TEXT NOT NULL,
+    error_code TEXT,
+    error_summary TEXT
+);

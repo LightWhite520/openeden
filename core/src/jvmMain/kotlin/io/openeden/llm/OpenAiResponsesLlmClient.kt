@@ -18,7 +18,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.float
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -30,7 +29,7 @@ class OpenAiResponsesLlmClient(
     private val httpClient: HttpClient = httpClient(CIO.create()),
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) : LlmClient {
-    override suspend fun complete(prompt: BuiltPrompt): io.openeden.llm.LlmOutput {
+    override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
         val response = httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             bearerAuth(apiKey)
             contentType(ContentType.Application.Json)
@@ -56,83 +55,50 @@ class OpenAiResponsesLlmClient(
         }
         val body = json.decodeFromString<ResponsesResponse>(response.bodyAsText())
         val outputText = body.outputText
-            ?: extractOutputText(body.output)
+            ?: body.output.orEmpty().flatMap { it.content.orEmpty() }.firstNotNullOfOrNull { it.text }
             ?: throw IllegalStateException("OpenAI Responses API response did not contain output text")
-        return parseOutput(outputText)
-    }
-
-    private fun parseOutput(outputText: String): io.openeden.llm.LlmOutput {
         val root = json.parseToJsonElement(outputText).jsonObject
-        val delta = root.getValue("vector_delta").jsonObject.mapValues { (_, value) ->
-            value.jsonPrimitive.float
-        }
-        return io.openeden.llm.LlmOutput(
+        return LlmOutput(
             internalLogic = root.getValue("internal_logic").jsonPrimitive.content,
-            vectorDelta = delta,
+            vectorDelta = root.getValue("vector_delta").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.float },
             response = root.getValue("response").jsonPrimitive.content,
         )
     }
 
-    private fun extractOutputText(output: List<ResponseOutputItem>?): String? =
-        output.orEmpty()
-            .flatMap { it.content.orEmpty() }
-            .firstNotNullOfOrNull { it.text }
-
     companion object {
         fun httpClient(engine: HttpClientEngine, installTimeout: Boolean = true): HttpClient = HttpClient(engine) {
-            if (installTimeout) {
-                install(HttpTimeout) {
-                    requestTimeoutMillis = 120_000
-                    connectTimeoutMillis = 30_000
-                    socketTimeoutMillis = 120_000
-                }
+            if (installTimeout) install(HttpTimeout) {
+                requestTimeoutMillis = 120_000
+                connectTimeoutMillis = 30_000
+                socketTimeoutMillis = 120_000
             }
             install(ContentNegotiation) {
-                json(Json {
-                    ignoreUnknownKeys = true
-                    encodeDefaults = true
-                })
+                json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
             }
         }
     }
 }
 
 @Serializable
-private data class ResponsesRequest(
-    val model: String,
-    val input: String,
-    val text: TextFormat,
-)
+private data class ResponsesRequest(val model: String, val input: String, val text: TextFormat)
 
 @Serializable
-private data class TextFormat(
-    val format: JsonSchemaFormat,
-)
+private data class TextFormat(val format: JsonSchemaFormat)
 
 @Serializable
-private data class JsonSchemaFormat(
-    val type: String,
-    val name: String,
-    val schema: JsonElement,
-    val strict: Boolean,
-)
+private data class JsonSchemaFormat(val type: String, val name: String, val schema: JsonElement, val strict: Boolean)
 
 @Serializable
 private data class ResponsesResponse(
-    @SerialName("output_text")
-    val outputText: String? = null,
+    @SerialName("output_text") val outputText: String? = null,
     val output: List<ResponseOutputItem>? = null,
 )
 
 @Serializable
-private data class ResponseOutputItem(
-    val content: List<ResponseContentItem>? = null,
-)
+private data class ResponseOutputItem(val content: List<ResponseContentItem>? = null)
 
 @Serializable
-private data class ResponseContentItem(
-    val text: String? = null,
-)
+private data class ResponseContentItem(val text: String? = null)
 
 private val llmOutputSchema: JsonElement = JsonObject(
     mapOf(
@@ -160,8 +126,5 @@ private val llmOutputSchema: JsonElement = JsonObject(
     ),
 )
 
-private fun jsonString(value: String): kotlinx.serialization.json.JsonPrimitive =
-    kotlinx.serialization.json.JsonPrimitive(value)
-
-private fun jsonArray(vararg values: String): kotlinx.serialization.json.JsonArray =
-    kotlinx.serialization.json.JsonArray(values.map(::jsonString))
+private fun jsonString(value: String) = kotlinx.serialization.json.JsonPrimitive(value)
+private fun jsonArray(vararg values: String) = kotlinx.serialization.json.JsonArray(values.map(::jsonString))

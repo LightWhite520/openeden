@@ -68,7 +68,7 @@ enum class MemoryRoom {
 
 enum class MemoryKind {
     RAW,
-    DIARY,
+    NARRATIVE,
 }
 
 data class RetrievalRequest(

@@ -11,17 +11,26 @@ class InMemoryMemoryPalace(
     private val inferenceExecutor: InferenceExecutor,
     private val maxResults: Int = 6,
     private val embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
+    private val index: VectorIndex = RebuildableInMemoryVectorIndex(inferenceExecutor),
 ) : MemoryStore {
     private val entries = mutableListOf<MemoryEntry>()
 
     override suspend fun write(entry: MemoryEntry): Set<String> {
         entries += entry
+        index.insert(entry)
         return setOf(TraceTag.MemoryWritten)
     }
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult =
         inferenceExecutor.run {
-            val candidates = entries.filter { it.sessionId == request.sessionId }
+            val candidates = index.search(
+                VectorSearchRequest(
+                    sessionId = request.sessionId,
+                    semanticEmbedding = embeddingModel.embed(request.userInput),
+                    emotionalEmbedding = embeddingModel.embed(request.currentVector),
+                    limit = entries.count { it.sessionId == request.sessionId },
+                ),
+            ).map { it.entry }
             val selected = when (request.mode) {
                 RetrievalMode.CONGRUENT -> rank(candidates, request, request.currentVector, maxResults)
                 RetrievalMode.MIXED -> {

@@ -27,6 +27,10 @@ import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
 import io.openeden.trace.TraceTag
+import io.openeden.trace.TraceContext
+import io.openeden.trace.TraceSpan
+import io.openeden.trace.TraceStatus
+import io.openeden.trace.TraceStore
 import kotlin.time.Clock
 
 /** Distinguishes real user turns from proactive heartbeat turns. Heartbeat turns still evolve the
@@ -69,19 +73,43 @@ class DevelopmentMessagePipeline(
     private val memoryStore: MemoryStore?,
     private val memoryEmbeddingModel: MemoryEmbeddingModel,
     private val centroidProvider: HomeostasisCentroidProvider,
+    private val turnGate: SessionTurnGate,
+    private val diaryTaskStore: DiaryTaskStore?,
+    private val traceStore: TraceStore?,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     suspend fun handle(request: DevelopmentMessageRequest): DevelopmentMessageResult {
         val sessionId = "${request.platform}:${request.scopeId}"
+        return turnGate.withSession(sessionId) {
+            handleLocked(request, sessionId)
+        }
+    }
+
+    private suspend fun handleLocked(
+        request: DevelopmentMessageRequest,
+        sessionId: String,
+    ): DevelopmentMessageResult {
+        val traceContext = TraceContext(
+            traceId = "$sessionId:${nowMs()}",
+            turnId = "$sessionId:${nowMs()}:turn",
+            sessionId = sessionId,
+        )
         val initial = store.readOrCreate(sessionId)
+        trace(traceContext, "state_load")
         val centroid = inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
         if (centroid != initial.origin) {
-            vectorWriteService.update(sessionId) { it.copy(origin = centroid) }
+            vectorWriteService.updateLocked(sessionId) { it.copy(origin = centroid) }
         }
+        trace(traceContext, "centroid", attributes = mapOf("updated" to (centroid != initial.origin).toString()))
         val current = store.read(sessionId)
         val preTick = PreTickEngine.apply(
             original = current.vector,
             signal = EmotionSignal(delta = request.emotionDelta, confidence = request.emotionConfidence),
+        )
+        trace(
+            traceContext,
+            "pre_tick",
+            attributes = mapOf("skipped" to preTick.skipped.toString(), "confidence" to request.emotionConfidence.toString()),
         )
         val inference = inferenceExecutor.run {
             val dissonance = preTick.preTicked.derivedDissonance()
@@ -98,6 +126,7 @@ class DevelopmentMessagePipeline(
                 retrievalMode = retrievalMode,
             )
         }
+        trace(traceContext, "quantization", tags = inference.quantization.traceTags)
         val retrievalResult = inferenceExecutor.run {
             memoryRetriever.retrieve(
                 RetrievalRequest(
@@ -109,6 +138,7 @@ class DevelopmentMessagePipeline(
                 ),
             )
         }
+        trace(traceContext, "retrieval", tags = retrievalResult.traceTags, attributes = mapOf("mode" to retrievalResult.mode.name))
         val prompt = promptBuilder.build(
             PromptInput(
                 personaConfig = personaConfig,
@@ -122,10 +152,19 @@ class DevelopmentMessagePipeline(
                 userInput = request.text,
             ),
         )
+        trace(traceContext, "prompt_construction")
         val llmOutput = llmClient.complete(prompt)
+        trace(traceContext, "llm_inference")
         val validation = LlmOutputValidator.validate(llmOutput)
+        trace(
+            traceContext,
+            "validation",
+            status = if (validation.isValid) TraceStatus.OK else TraceStatus.FAILED,
+            errorCode = if (validation.isValid) null else "TURN_REJECTED",
+            errorSummary = validation.errors.joinToString("; "),
+        )
         val write = if (validation.isValid && validation.delta != null) {
-            val vectorWrite = vectorWriteService.applyLlmDelta(
+            val vectorWrite = vectorWriteService.applyLlmDeltaLocked(
                 sessionId = sessionId,
                 preTickedSnapshot = preTick.preTicked,
                 delta = validation.delta,
@@ -138,7 +177,7 @@ class DevelopmentMessagePipeline(
                 )
             }
             val shockWrite = detectedShock?.let { shock ->
-                vectorWriteService.applyShock(sessionId, shock)
+                vectorWriteService.applyShockLocked(sessionId, shock)
             }
             val applied = shockWrite?.copy(
                 traceTags = vectorWrite.traceTags + shockWrite.traceTags,
@@ -146,7 +185,7 @@ class DevelopmentMessagePipeline(
             // USER turns reset the silence clock that gates heartbeats (§9.3); heartbeat turns
             // evolve state but must not, or ATRI would silence her own proactive impulse.
             if (request.source == TurnSource.USER) {
-                val refreshed = vectorWriteService.markUserActivity(sessionId, nowMs())
+                val refreshed = vectorWriteService.markUserActivityLocked(sessionId, nowMs())
                 applied.copy(state = refreshed)
             } else {
                 applied
@@ -154,6 +193,7 @@ class DevelopmentMessagePipeline(
         } else {
             VectorWriteResult(state = current, traceTags = emptySet())
         }
+        trace(traceContext, "state_commit", tags = write.traceTags)
 
         val sourceTags = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
 
@@ -174,15 +214,25 @@ class DevelopmentMessagePipeline(
         } else {
             emptySet()
         }
+        trace(traceContext, "memory_write", tags = memoryTraceTags)
         val updatedOrigin = memoryStore?.let {
             inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
         }
         val centroidTags = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
-            vectorWriteService.update(sessionId) { it.copy(origin = updatedOrigin) }
+            vectorWriteService.updateLocked(sessionId) { it.copy(origin = updatedOrigin) }
             setOf(TraceTag.CentroidUpdated)
         } else {
             emptySet()
         }
+        trace(traceContext, "diary_publish", tags = diaryOutcome.traceTags, attributes = mapOf("outcome" to diaryOutcome.label))
+
+        trace(
+            traceContext,
+            "turn",
+            status = if (validation.isValid) TraceStatus.OK else TraceStatus.FAILED,
+            tags = inference.quantization.traceTags + retrievalResult.traceTags + sourceTags,
+            attributes = mapOf("source" to request.source.name, "retrieval_mode" to retrievalResult.mode.name),
+        )
 
         return DevelopmentMessageResult(
             sessionId = sessionId,
@@ -204,9 +254,46 @@ class DevelopmentMessagePipeline(
         )
     }
 
-    private fun diaryOutcome(sessionId: String, delta: VectorDelta?): DiaryOutcome =
+    private suspend fun trace(
+        context: TraceContext,
+        stage: String,
+        status: TraceStatus = TraceStatus.OK,
+        tags: Set<String> = emptySet(),
+        attributes: Map<String, String> = emptyMap(),
+        errorCode: String? = null,
+        errorSummary: String? = null,
+    ) {
+        traceStore?.let { store ->
+            runCatching {
+                store.append(
+                    TraceSpan(
+                        context = context,
+                        spanId = "${context.traceId}:$stage:${nowMs()}",
+                        stage = stage,
+                        status = status,
+                        startedAtMs = nowMs(),
+                        finishedAtMs = nowMs(),
+                        tags = tags,
+                        attributes = attributes,
+                        errorCode = errorCode,
+                        errorSummary = errorSummary,
+                    ),
+                )
+            }
+        }
+    }
+
+    private suspend fun diaryOutcome(sessionId: String, delta: VectorDelta?): DiaryOutcome =
         if (delta != null && delta.toList().any { kotlin.math.abs(it) > 0.0f }) {
-            val traceTags = diaryQueue.tryEnqueue(
+            val traceTags = diaryTaskStore?.enqueue(
+                DiaryTask(
+                    id = "$sessionId:${nowMs()}:diary",
+                    sessionId = sessionId,
+                    sourceMemoryId = null,
+                    reason = "vector_delta",
+                    availableAtMs = nowMs(),
+                ),
+            ) ?: diaryQueue.tryEnqueue(
                 DiaryEvent(
                     sessionId = sessionId,
                     traceId = "development",
@@ -258,23 +345,9 @@ class DevelopmentMessagePipeline(
                 metadata = metadata,
             ),
         )
-        val diaryTrace = if (diaryOutcome.label == "enqueued") {
-            store.write(
-                MemoryEntry(
-                    id = "$sessionId:${nowMs()}:diary",
-                    sessionId = sessionId,
-                    content = "significant_turn reason=vector_delta user=${request.userId}",
-                    room = MemoryRoom.EVENT_ROOM,
-                    kind = MemoryKind.DIARY,
-                    semanticEmbedding = memoryEmbeddingModel.embed("significant_turn vector_delta"),
-                    emotionalEmbedding = memoryEmbeddingModel.embed(preTicked),
-                    metadata = metadata,
-                ),
-            ) + TraceTag.DiaryWritten
-        } else {
-            emptySet()
-        }
-        return rawTrace + diaryTrace
+        // Diary generation is consumed by the asynchronous worker after the RAW commit. The user
+        // turn must never create a NARRATIVE memory synchronously or wait for Diary inference.
+        return rawTrace
     }
 
     companion object {
@@ -289,6 +362,8 @@ class DevelopmentMessagePipeline(
             memoryStore: MemoryStore = InMemoryMemoryPalace(inferenceExecutor, embeddingModel = memoryEmbeddingModel),
             promptBuilder: PromptBuilder = DefaultPromptBuilder(),
             diaryQueue: SessionDiaryQueue = SessionDiaryQueue(),
+            diaryTaskStore: DiaryTaskStore? = null,
+            traceStore: TraceStore? = null,
             centroidProvider: HomeostasisCentroidProvider = SlidingWindowHomeostasisCentroidProvider(
                 memoryStore = memoryStore,
                 fallback = StoredOriginCentroidProvider(store),
@@ -307,6 +382,9 @@ class DevelopmentMessagePipeline(
                 memoryStore = memoryStore,
                 memoryEmbeddingModel = memoryEmbeddingModel,
                 centroidProvider = centroidProvider,
+                turnGate = SessionTurnGate(vectorWriteService.mutexRegistry),
+                diaryTaskStore = diaryTaskStore,
+                traceStore = traceStore,
             )
         }
     }

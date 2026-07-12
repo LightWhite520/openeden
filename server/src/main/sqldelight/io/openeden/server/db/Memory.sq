@@ -1,0 +1,149 @@
+CREATE TABLE memory_entries (
+    id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    room TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    snapshot_l REAL NOT NULL,
+    snapshot_p REAL NOT NULL,
+    snapshot_e REAL NOT NULL,
+    snapshot_s REAL NOT NULL,
+    snapshot_tau REAL NOT NULL,
+    snapshot_v REAL NOT NULL,
+    snapshot_m REAL NOT NULL,
+    snapshot_f REAL NOT NULL,
+    omega_state REAL NOT NULL,
+    delta_l REAL NOT NULL,
+    delta_p REAL NOT NULL,
+    delta_e REAL NOT NULL,
+    delta_s REAL NOT NULL,
+    delta_tau REAL NOT NULL,
+    delta_v REAL NOT NULL,
+    delta_m REAL NOT NULL,
+    delta_f REAL NOT NULL,
+    origin_l REAL NOT NULL,
+    origin_p REAL NOT NULL,
+    origin_e REAL NOT NULL,
+    origin_s REAL NOT NULL,
+    origin_tau REAL NOT NULL,
+    origin_v REAL NOT NULL,
+    origin_m REAL NOT NULL,
+    origin_f REAL NOT NULL
+);
+
+CREATE TABLE memory_embeddings (
+    memory_id TEXT NOT NULL PRIMARY KEY REFERENCES memory_entries(id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    semantic_json TEXT NOT NULL,
+    emotional_json TEXT NOT NULL,
+    status TEXT NOT NULL
+);
+
+selectById:
+SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
+       memory_embeddings.emotional_json, memory_embeddings.status
+FROM memory_entries
+LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
+WHERE memory_entries.id = ?;
+
+selectBySession:
+SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
+       memory_embeddings.emotional_json, memory_embeddings.status
+FROM memory_entries
+LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
+WHERE memory_entries.session_id = ?
+ORDER BY memory_entries.created_at_ms DESC;
+
+selectStable:
+SELECT snapshot_l, snapshot_p, snapshot_e, snapshot_s, snapshot_tau, snapshot_v, snapshot_m, snapshot_f
+FROM memory_entries
+WHERE session_id = ? AND tags_json LIKE '%"daily"%' AND tags_json LIKE '%"stable"%'
+ORDER BY created_at_ms DESC
+LIMIT ?;
+
+insertEntry:
+INSERT OR REPLACE INTO memory_entries(
+    id, session_id, user_id, platform, room, kind, content, tags_json, created_at_ms,
+    snapshot_l, snapshot_p, snapshot_e, snapshot_s, snapshot_tau, snapshot_v, snapshot_m, snapshot_f,
+    omega_state, delta_l, delta_p, delta_e, delta_s, delta_tau, delta_v, delta_m, delta_f,
+    origin_l, origin_p, origin_e, origin_s, origin_tau, origin_v, origin_m, origin_f
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+upsertEmbedding:
+INSERT OR REPLACE INTO memory_embeddings(memory_id, model_id, semantic_json, emotional_json, status)
+VALUES (?, ?, ?, ?, ?);
+
+CREATE TABLE diary_tasks (
+    id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    source_memory_id TEXT,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    available_at_ms INTEGER NOT NULL,
+    lease_expires_at_ms INTEGER,
+    last_error TEXT
+);
+
+insertDiaryTask:
+INSERT INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, last_error)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+countActiveDiaryTasks:
+SELECT COUNT(*) FROM diary_tasks
+WHERE session_id = ? AND status IN ('PENDING', 'RUNNING');
+
+selectPendingDiaryTask:
+SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, last_error
+FROM diary_tasks
+WHERE session_id = ? AND status = 'PENDING' AND available_at_ms <= ?
+ORDER BY created_at_ms ASC LIMIT 1;
+
+markDiaryTaskRunning:
+UPDATE diary_tasks SET status = 'RUNNING', lease_expires_at_ms = ? WHERE id = ? AND status = 'PENDING';
+
+completeDiaryTask:
+UPDATE diary_tasks SET status = 'DONE', lease_expires_at_ms = NULL WHERE id = ?;
+
+failDiaryTask:
+UPDATE diary_tasks SET status = ?, attempts = ?, available_at_ms = ?, lease_expires_at_ms = NULL, last_error = ? WHERE id = ?;
+
+recoverExpiredDiaryTasks:
+UPDATE diary_tasks SET status = 'PENDING', lease_expires_at_ms = NULL
+WHERE status = 'RUNNING' AND lease_expires_at_ms IS NOT NULL AND lease_expires_at_ms <= ?;
+
+selectDiaryTask:
+SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, last_error
+FROM diary_tasks WHERE id = ?;
+
+CREATE TABLE trace_spans (
+    span_id TEXT NOT NULL PRIMARY KEY,
+    trace_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    parent_span_id TEXT,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at_ms INTEGER NOT NULL,
+    finished_at_ms INTEGER,
+    tags_json TEXT NOT NULL,
+    attributes_json TEXT NOT NULL,
+    error_code TEXT,
+    error_summary TEXT
+);
+
+insertTraceSpan:
+INSERT OR REPLACE INTO trace_spans(
+    span_id, trace_id, turn_id, session_id, parent_span_id, stage, status,
+    started_at_ms, finished_at_ms, tags_json, attributes_json, error_code, error_summary
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectTraceSpans:
+SELECT span_id, trace_id, turn_id, session_id, parent_span_id, stage, status,
+       started_at_ms, finished_at_ms, tags_json, attributes_json, error_code, error_summary
+FROM trace_spans ORDER BY started_at_ms ASC;

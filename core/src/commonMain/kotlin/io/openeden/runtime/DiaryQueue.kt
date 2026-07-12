@@ -12,6 +12,28 @@ data class DiaryEvent(
     val reason: String,
 )
 
+enum class DiaryTaskStatus { PENDING, RUNNING, DONE, DEAD }
+
+data class DiaryTask(
+    val id: String,
+    val sessionId: String,
+    val sourceMemoryId: String?,
+    val reason: String,
+    val status: DiaryTaskStatus = DiaryTaskStatus.PENDING,
+    val attempts: Int = 0,
+    val availableAtMs: Long = 0L,
+    val leaseExpiresAtMs: Long? = null,
+    val lastError: String? = null,
+)
+
+interface DiaryTaskStore {
+    suspend fun enqueue(task: DiaryTask): Set<String>
+    suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask?
+    suspend fun complete(taskId: String)
+    suspend fun fail(taskId: String, nowMs: Long, error: String, maxAttempts: Int = 5)
+    suspend fun recoverExpired(nowMs: Long)
+}
+
 class SessionDiaryQueue(
     capacity: Int = 8,
 ) {

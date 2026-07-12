@@ -24,10 +24,14 @@ class CodebookDictionary private constructor(
                 .toList()
             if (lines.isEmpty()) return CodebookDictionary(emptyMap())
             val header = splitCsvRow(lines.first().removePrefix("\uFEFF"))
-            val entries = lines.asSequence()
+            val parsed = lines.asSequence()
                 .drop(1)
                 .map { parseRow(header, it) }
-                .associateBy { it.nodeId }
+                .toList()
+            require(parsed.map { it.nodeId }.toSet().size == parsed.size) {
+                "Duplicate codebook node_id"
+            }
+            val entries = parsed.associateBy { it.nodeId }
             return CodebookDictionary(entries)
         }
 

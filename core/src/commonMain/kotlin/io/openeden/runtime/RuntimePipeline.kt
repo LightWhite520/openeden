@@ -75,6 +75,8 @@ class OpenEdenRuntimePipeline private constructor(
             quantizer: CodebookQuantizer = HeuristicCodebookFallback(),
             memoryEmbeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
             memoryStore: MemoryStore = InMemoryMemoryPalace(inferenceExecutor, embeddingModel = memoryEmbeddingModel),
+            diaryTaskStore: DiaryTaskStore? = null,
+            traceStore: io.openeden.trace.TraceStore? = null,
         ): OpenEdenRuntimePipeline {
             val pipeline = DevelopmentMessagePipeline.create(
                 personaConfig = personaConfig,
@@ -85,6 +87,8 @@ class OpenEdenRuntimePipeline private constructor(
                 quantizer = quantizer,
                 memoryStore = memoryStore,
                 memoryEmbeddingModel = memoryEmbeddingModel,
+                diaryTaskStore = diaryTaskStore,
+                traceStore = traceStore,
             )
             return OpenEdenRuntimePipeline(pipeline, store)
         }

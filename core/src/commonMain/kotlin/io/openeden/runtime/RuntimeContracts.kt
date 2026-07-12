@@ -161,9 +161,16 @@ class SessionMutexRegistry {
     }
 }
 
+class SessionTurnGate(
+    private val registry: SessionMutexRegistry,
+) {
+    suspend fun <T> withSession(sessionId: String, block: suspend () -> T): T =
+        registry.forSession(sessionId).withLock { block() }
+}
+
 class VectorWriteService(
     private val store: SessionStateStore,
-    private val mutexRegistry: SessionMutexRegistry = SessionMutexRegistry(),
+    val mutexRegistry: SessionMutexRegistry = SessionMutexRegistry(),
 ) {
     suspend fun applyLlmDelta(
         sessionId: String,
@@ -171,20 +178,26 @@ class VectorWriteService(
         delta: VectorDelta,
     ): VectorWriteResult {
         val mutex = mutexRegistry.forSession(sessionId)
-        return mutex.withLock {
-            val latest = store.read(sessionId)
-            val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
-            val updatedVector = latest.vector.apply(relativePreTickDelta).apply(delta)
-            val updated = latest.copy(
-                vector = updatedVector,
-                evolutionIndex = latest.evolutionIndex + 1,
-            )
-            store.write(updated)
-            VectorWriteResult(
-                state = updated,
-                traceTags = setOf(TraceTag.VectorWriteSerialized),
-            )
-        }
+        return mutex.withLock { applyLlmDeltaLocked(sessionId, preTickedSnapshot, delta) }
+    }
+
+    suspend fun applyLlmDeltaLocked(
+        sessionId: String,
+        preTickedSnapshot: BioVector,
+        delta: VectorDelta,
+    ): VectorWriteResult {
+        val latest = store.read(sessionId)
+        val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
+        val updatedVector = latest.vector.apply(relativePreTickDelta).apply(delta)
+        val updated = latest.copy(
+            vector = updatedVector,
+            evolutionIndex = latest.evolutionIndex + 1,
+        )
+        store.write(updated)
+        return VectorWriteResult(
+            state = updated,
+            traceTags = setOf(TraceTag.VectorWriteSerialized),
+        )
     }
 
     /** Mutex-guarded read-modify-write for session mutations that are not LLM vector deltas
@@ -192,16 +205,21 @@ class VectorWriteService(
      *  [applyLlmDelta] so all writes to a session remain serialized (§14.2). */
     suspend fun update(sessionId: String, transform: (SessionState) -> SessionState): SessionState {
         val mutex = mutexRegistry.forSession(sessionId)
-        return mutex.withLock {
-            val updated = transform(store.read(sessionId))
-            store.write(updated)
-            updated
-        }
+        return mutex.withLock { updateLocked(sessionId, transform) }
+    }
+
+    suspend fun updateLocked(sessionId: String, transform: (SessionState) -> SessionState): SessionState {
+        val updated = transform(store.read(sessionId))
+        store.write(updated)
+        return updated
     }
 
     /** Record the timestamp of a USER turn (never called for heartbeat turns). */
     suspend fun markUserActivity(sessionId: String, nowMs: Long): SessionState =
         update(sessionId) { it.copy(lastUserActivityMs = nowMs) }
+
+    suspend fun markUserActivityLocked(sessionId: String, nowMs: Long): SessionState =
+        updateLocked(sessionId) { it.copy(lastUserActivityMs = nowMs) }
 
     /** Latch the one-shot shock-extended heartbeat flag for the current ShockState activation. */
     suspend fun markShockHeartbeatFired(sessionId: String): SessionState =
@@ -209,20 +227,27 @@ class VectorWriteService(
             state.copy(shockState = state.shockState?.copy(shockHeartbeatFired = true))
         }
 
+    suspend fun markShockHeartbeatFiredLocked(sessionId: String): SessionState =
+        updateLocked(sessionId) { state ->
+            state.copy(shockState = state.shockState?.copy(shockHeartbeatFired = true))
+        }
+
     suspend fun applyShock(sessionId: String, signal: ShockState): VectorWriteResult {
         val mutex = mutexRegistry.forSession(sessionId)
-        return mutex.withLock {
-            val latest = store.read(sessionId)
-            val updated = latest.copy(
-                shockState = signal,
-                omega = ShockStateEngine.omegaJump(latest.omega, signal),
-            )
-            store.write(updated)
-            VectorWriteResult(
-                state = updated,
-                traceTags = setOf(TraceTag.ShockStateTransition),
-            )
-        }
+        return mutex.withLock { applyShockLocked(sessionId, signal) }
+    }
+
+    suspend fun applyShockLocked(sessionId: String, signal: ShockState): VectorWriteResult {
+        val latest = store.read(sessionId)
+        val updated = latest.copy(
+            shockState = signal,
+            omega = ShockStateEngine.omegaJump(latest.omega, signal),
+        )
+        store.write(updated)
+        return VectorWriteResult(
+            state = updated,
+            traceTags = setOf(TraceTag.ShockStateTransition),
+        )
     }
 
     suspend fun applyBackgroundDrift(sessionId: String, delta: VectorDelta): VectorWriteResult {

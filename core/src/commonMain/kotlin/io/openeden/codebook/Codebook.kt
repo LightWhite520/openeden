@@ -42,7 +42,10 @@ class HeuristicCodebookFallback : CodebookQuantizer {
             activeNodes = listOf("HEURISTIC_FALLBACK"),
             semanticDefinitions = definitions,
             confidence = 1.0f,
-            traceTags = setOf(TraceTag.CodebookHeuristicFallback),
+            traceTags = setOf(
+                TraceTag.CodebookHeuristicFallback,
+                "codebook_fallback_reason=explicit_heuristic",
+            ),
         )
     }
 
@@ -90,13 +93,16 @@ class VqVaeCodebookQuantizer(
 ) : CodebookQuantizer {
     override suspend fun quantize(vector: BioVector, dissonance: Float): QuantizationResult {
         val modelResult = runCatching { modelRunner.predict(vector, dissonance) }.getOrNull()
-            ?: return fallback.quantize(vector, dissonance)
+            ?: return degradedFallback(vector, dissonance, "predictor_failure")
+        if (!modelResult.confidence.isFinite()) {
+            return degradedFallback(vector, dissonance, "non_finite_confidence")
+        }
         if (modelResult.confidence < minConfidence || modelResult.nodeIds.isEmpty()) {
-            return fallback.quantize(vector, dissonance)
+            return degradedFallback(vector, dissonance, "low_confidence_or_empty")
         }
         val definitions = dictionary.definitionsFor(modelResult.nodeIds)
         if (definitions.isEmpty()) {
-            return fallback.quantize(vector, dissonance)
+            return degradedFallback(vector, dissonance, "missing_dictionary_definition")
         }
         return QuantizationResult(
             activeNodes = modelResult.nodeIds,
@@ -104,6 +110,15 @@ class VqVaeCodebookQuantizer(
             confidence = modelResult.confidence.coerceIn(0.0f, 1.0f),
             traceTags = setOf(TraceTag.CodebookQuantized),
         )
+    }
+
+    private suspend fun degradedFallback(
+        vector: BioVector,
+        dissonance: Float,
+        reason: String,
+    ): QuantizationResult {
+        val result = fallback.quantize(vector, dissonance)
+        return result.copy(traceTags = result.traceTags + "codebook_fallback_reason=$reason")
     }
 }
 
