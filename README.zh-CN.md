@@ -4,6 +4,16 @@
 
 OpenEden 是一个 Kotlin/Ktor 运行时，用来构建确定性的连续到离散生物状态机。它把 8D 生理向量、VQ-VAE Codebook、记忆检索、Omega 磨损、ShockState、心跳任务和 LLM Prompt 组装放在同一条可追踪的异步流水线里。
 
+## 项目历史
+
+### 贡献历史
+
+[![贡献历史](https://github-readme-activity-graph.vercel.app/graph?username=LightWhite520&repo=openeden&theme=github-compact)](https://github.com/LightWhite520/openeden/graphs/contributors)
+
+### Stars 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=LightWhite520/openeden&type=Date)](https://www.star-history.com/#LightWhite520/openeden&Date)
+
 ## 项目定位
 
 OpenEden 不是一个把人格写死在代码里的聊天机器人。它的核心目标是提供一个高性能、可测试、非阻塞的后端内核：

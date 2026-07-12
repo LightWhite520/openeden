@@ -4,6 +4,16 @@
 
 OpenEden is a Kotlin/Ktor runtime for a deterministic continuous-to-discrete biological state machine. It connects the 8D physiological vector, VQ-VAE codebook, memory retrieval, Omega wear, ShockState, heartbeat tasks, and LLM prompt construction through one traceable async pipeline.
 
+## Project History
+
+### Contribution History
+
+[![Contribution History](https://github-readme-activity-graph.vercel.app/graph?username=LightWhite520&repo=openeden&theme=github-compact)](https://github.com/LightWhite520/openeden/graphs/contributors)
+
+### Star History
+
+[![Star History Chart](https://www.star-history.com/?type=date&repos=LightWhite520%2Fopeneden)](https://www.star-history.com/#LightWhite520/openeden&Date)
+
 ## What This Project Is
 
 OpenEden is not a chatbot with personality hardcoded into business logic. It is a deterministic, mathematical runtime for a continuous-to-discrete biological state machine.
