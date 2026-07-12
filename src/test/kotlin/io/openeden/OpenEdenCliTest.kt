@@ -93,6 +93,8 @@ class OpenEdenCliTest {
                     localUserId = "owner",
                     personaPath = Files.createTempFile("persona", ".yaml"),
                     runtimeDbPath = Files.createTempFile("runtime", ".db"),
+                    localModelArtifactPath = null,
+                    localModelArtifactUrl = "https://models.example/openeden.json",
                     llm = LlmProviderConfig("openai", "gpt-5-mini", "https://api.openai.com/v1", null),
                 )
             },
@@ -116,6 +118,8 @@ class OpenEdenCliTest {
                 localUserId = "owner",
                 personaPath = tempDir.resolve("persona.yaml"),
                 runtimeDbPath = dbPath,
+                localModelArtifactPath = null,
+                localModelArtifactUrl = "https://models.example/openeden.json",
                 llm = LlmProviderConfig("openai", "gpt-5-mini", "https://api.openai.com/v1", "sk-test"),
             )
             SqlDelightSessionStateStore.open(dbPath).use { store ->

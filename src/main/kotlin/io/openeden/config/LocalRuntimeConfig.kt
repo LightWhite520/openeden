@@ -6,6 +6,8 @@ data class LocalRuntimeConfig(
     val localUserId: String,
     val personaPath: Path,
     val runtimeDbPath: Path,
+    val localModelArtifactPath: Path?,
+    val localModelArtifactUrl: String,
     val llm: LlmProviderConfig,
 ) {
     fun requireProviderCredentials(): LocalRuntimeConfig {
@@ -23,6 +25,13 @@ data class LocalRuntimeConfig(
                 localUserId = env.valueOrDefault("OPENEDEN_LOCAL_USER_ID", "local"),
                 personaPath = Path.of(env.valueOrDefault("OPENEDEN_PERSONA_PATH", "persona/default.yaml")),
                 runtimeDbPath = Path.of(env.valueOrDefault("OPENEDEN_RUNTIME_DB_PATH", "data/runtime/openeden.db")),
+                localModelArtifactPath = env["OPENEDEN_LOCAL_MODEL_ARTIFACT"]
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let(Path::of),
+                localModelArtifactUrl = env.valueOrDefault(
+                    "OPENEDEN_LOCAL_MODEL_ARTIFACT_URL",
+                    "https://huggingface.co/0x4C57/openeden-codebook-base-model/resolve/main/local-model-artifact.json",
+                ),
                 llm = LlmProviderConfig(
                     provider = provider,
                     model = env.valueOrDefault("OPENEDEN_OPENAI_MODEL", "gpt-5-mini"),

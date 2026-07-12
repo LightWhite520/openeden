@@ -6,6 +6,12 @@ and tests for the invariants in `AGENTS.md`; production DJL/VQ-VAE inference,
 Memory Palace persistence, persona content, and platform adapters are still
 future integrations.
 
+## License
+
+OpenEden code, generated codebook artifacts, and published OpenEden model
+artifacts are released under the GNU Affero General Public License v3.0. See
+[`LICENSE`](LICENSE).
+
 ## Modules
 
 | Path | Purpose |
@@ -33,6 +39,7 @@ To build or run the project, use one of the following tasks:
 
 | Task                      | Description       |
 |---------------------------|-------------------|
+| `./gradlew ensureLocalModelArtifact` | Download `data/models/local-model-artifact.json` from the public Hugging Face model repo if it is missing |
 | `./gradlew :run --args="chat --message \"hello\""` | Run the local CLI chat surface |
 | `./gradlew :run --args="state"` | Print local CLI session state |
 | `./gradlew :server:test`  | Run the tests     |
@@ -68,3 +75,13 @@ Then run:
 
 Local sessions use `CLI:<userId>` and persist to
 `data/runtime/openeden.db` unless `OPENEDEN_RUNTIME_DB_PATH` is set.
+
+The `:run` task depends on `ensureLocalModelArtifact`. If
+`OPENEDEN_LOCAL_MODEL_ARTIFACT` is missing, Gradle downloads the default runtime
+artifact from:
+
+```text
+https://huggingface.co/0x4C57/openeden-codebook-base-model
+```
+
+Override the artifact URL with `OPENEDEN_LOCAL_MODEL_ARTIFACT_URL`.

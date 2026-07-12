@@ -1,0 +1,11 @@
+{
+  "sampleCount": 2048,
+  "codebookSize": 512,
+  "batchSize": 64,
+  "seed": 249438246,
+  "model": "gpt-5.5",
+  "bilingual": true,
+  "rawPairs": "data\\training\\codebook.raw-pairs.jsonl",
+  "assignedSamples": "data\\training\\codebook.samples.json",
+  "codebookCsv": "data\\codebook\\codebook.generated.csv"
+}

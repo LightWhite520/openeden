@@ -13,6 +13,8 @@ class LocalRuntimeConfigTest {
         assertEquals("local", config.localUserId)
         assertEquals(Path.of("persona", "default.yaml"), config.personaPath)
         assertEquals(Path.of("data", "runtime", "openeden.db"), config.runtimeDbPath)
+        assertEquals(null, config.localModelArtifactPath)
+        assertEquals("https://huggingface.co/0x4C57/openeden-codebook-base-model/resolve/main/local-model-artifact.json", config.localModelArtifactUrl)
         assertEquals("openai", config.llm.provider)
         assertEquals("gpt-5-mini", config.llm.model)
     }
@@ -33,6 +35,8 @@ class LocalRuntimeConfigTest {
                 "OPENEDEN_LOCAL_USER_ID" to "owner",
                 "OPENEDEN_PERSONA_PATH" to "persona/atri.yaml",
                 "OPENEDEN_RUNTIME_DB_PATH" to "build/openeden-test.db",
+                "OPENEDEN_LOCAL_MODEL_ARTIFACT" to "data/models/local-model-artifact.json",
+                "OPENEDEN_LOCAL_MODEL_ARTIFACT_URL" to "https://models.example/openeden.json",
                 "OPENEDEN_OPENAI_API_KEY" to "sk-test",
                 "OPENEDEN_OPENAI_MODEL" to "gpt-5.1",
                 "OPENEDEN_OPENAI_BASE_URL" to "https://relay.example.com/v1",
@@ -42,6 +46,8 @@ class LocalRuntimeConfigTest {
         assertEquals("owner", config.localUserId)
         assertEquals(Path.of("persona/atri.yaml"), config.personaPath)
         assertEquals(Path.of("build/openeden-test.db"), config.runtimeDbPath)
+        assertEquals(Path.of("data/models/local-model-artifact.json"), config.localModelArtifactPath)
+        assertEquals("https://models.example/openeden.json", config.localModelArtifactUrl)
         assertEquals("sk-test", config.llm.openAiApiKey)
         assertEquals("gpt-5.1", config.llm.model)
         assertEquals("https://relay.example.com/v1", config.llm.openAiBaseUrl)
