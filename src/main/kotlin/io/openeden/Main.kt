@@ -9,6 +9,7 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import io.openeden.config.LocalRuntimeConfig
 import io.openeden.llm.OpenAiResponsesLlmClient
+import io.openeden.model.LocalModelArtifactLoader
 import io.openeden.persona.PersonaFileLoader
 import io.openeden.runtime.JvmInferenceExecutor
 import io.openeden.runtime.LocalRuntimeRequest
@@ -125,11 +126,17 @@ private fun openStore(config: LocalRuntimeConfig): SqlDelightSessionStateStore {
 
 private fun createRuntime(store: SessionStateStore, config: LocalRuntimeConfig): RuntimeHandle {
     val writer = VectorWriteService(store)
+    val artifact = config.localModelArtifactPath
+        ?.let(::resolvePath)
+        ?.let(LocalModelArtifactLoader::read)
     val pipeline = OpenEdenRuntimePipeline.local(
         personaConfig = PersonaFileLoader.load(resolvePath(config.personaPath)),
         store = store,
         vectorWriteService = writer,
         inferenceExecutor = JvmInferenceExecutor(),
+        quantizer = artifact?.codebookQuantizer() ?: io.openeden.codebook.HeuristicCodebookFallback(),
+        memoryEmbeddingModel = artifact?.memoryEmbeddingModel()
+            ?: io.openeden.memory.DeterministicMemoryEmbeddingModel,
         llmClient = OpenAiResponsesLlmClient(
             apiKey = requireNotNull(config.llm.openAiApiKey),
             model = config.llm.model,

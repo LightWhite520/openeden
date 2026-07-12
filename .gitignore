@@ -22,6 +22,10 @@ out/
 logs/
 data/runtime/
 
+# Local training environments and heavyweight GPU checkpoints
+.venv*/
+data/models/codebook-base-model*/
+
 # Private copyrighted/local corpora
 private_corpus/
 

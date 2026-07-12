@@ -4,6 +4,8 @@ data class CodebookEntry(
     val nodeId: String,
     val definition: String,
     val tags: List<String>,
+    val definitionEn: String = definition,
+    val definitionZh: String = "",
 )
 
 class CodebookDictionary private constructor(
@@ -16,24 +18,46 @@ class CodebookDictionary private constructor(
 
     companion object {
         fun parseCsv(csv: String): CodebookDictionary {
-            val entries = csv.lineSequence()
+            val lines = csv.lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
+                .toList()
+            if (lines.isEmpty()) return CodebookDictionary(emptyMap())
+            val header = splitCsvRow(lines.first().removePrefix("\uFEFF"))
+            val entries = lines.asSequence()
                 .drop(1)
-                .map(::parseRow)
+                .map { parseRow(header, it) }
                 .associateBy { it.nodeId }
             return CodebookDictionary(entries)
         }
 
-        private fun parseRow(row: String): CodebookEntry {
+        private fun parseRow(header: List<String>, row: String): CodebookEntry {
             val fields = splitCsvRow(row)
-            require(fields.size >= 3) { "Invalid codebook CSV row: $row" }
+            val byName = header.mapIndexed { index, name -> name to fields.getOrElse(index) { "" } }.toMap()
+            val nodeId = byName["node_id"] ?: fields.getOrElse(0) { "" }
+            val definitionEn = byName["definition_en"]
+                ?: byName["definition"]
+                ?: fields.getOrElse(1) { "" }
+            val definitionZh = byName["definition_zh"].orEmpty()
+            val tags = (byName["tags"] ?: fields.getOrElse(if (definitionZh.isBlank()) 2 else 3) { "" })
+                .split(';')
+                .filter { it.isNotBlank() }
+            require(nodeId.isNotBlank() && definitionEn.isNotBlank()) { "Invalid codebook CSV row: $row" }
             return CodebookEntry(
-                nodeId = fields[0],
-                definition = fields[1],
-                tags = fields[2].split(';').filter { it.isNotBlank() },
+                nodeId = nodeId,
+                definition = buildDefinition(definitionEn, definitionZh),
+                tags = tags,
+                definitionEn = definitionEn,
+                definitionZh = definitionZh,
             )
         }
+
+        private fun buildDefinition(definitionEn: String, definitionZh: String): String =
+            if (definitionZh.isBlank()) {
+                definitionEn
+            } else {
+                "EN: $definitionEn\nZH: $definitionZh"
+            }
 
         private fun splitCsvRow(row: String): List<String> {
             val fields = mutableListOf<String>()
