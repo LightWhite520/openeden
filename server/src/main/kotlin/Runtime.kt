@@ -14,6 +14,7 @@ import io.openeden.runtime.SecureRandomHeartbeatInterval
 import io.openeden.runtime.SecureRandomSineWaveFluctuation
 import io.openeden.runtime.SineWaveFluctuationEngine
 import io.openeden.runtime.VectorWriteService
+import io.openeden.runtime.SessionStateStore
 import io.openeden.runtime.DurableDiaryWorker
 import io.openeden.runtime.DiaryNarrativeGenerator
 import io.openeden.runtime.DiaryWorkerScheduler
@@ -25,16 +26,20 @@ import io.openeden.codebook.DjlVqVaeCodebookModelRunner
 import io.openeden.codebook.VqVaeCodebookQuantizer
 import io.openeden.memory.DjlMemoryEmbeddingModel
 import io.openeden.memory.MemoryEmbeddingModel
+import io.openeden.relationship.UserAffectAnalyzer
+import io.openeden.relationship.DjlTextAffectAnalyzer
 import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
 import io.openeden.bio.BioVector
 import io.openeden.llm.OpenAiResponsesLlmClient
+import io.openeden.llm.ReasoningEffort
 import io.openeden.server.db.SqlDelightDiaryTaskStore
 import io.openeden.server.db.SqlDelightMemoryRepository
 import io.openeden.server.db.SqlDelightTraceStore
 import io.openeden.server.db.SqlDelightSessionStateStore
+import io.openeden.server.db.SqlDelightRelationshipStateStore
 import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +51,7 @@ import java.nio.file.Path
 
 /** The shared, durable-backed pipeline, published for [configureRouting] to consume. */
 val PipelineKey = AttributeKey<DevelopmentMessagePipeline>("openeden.pipeline")
+val SessionStateStoreKey = AttributeKey<SessionStateStore>("openeden.session-state-store")
 
 /**
  * Boots the persona runtime: durable SQLite store → pipeline → heartbeat scheduler. Runs before
@@ -53,24 +59,25 @@ val PipelineKey = AttributeKey<DevelopmentMessagePipeline>("openeden.pipeline")
  * The scheduler runs on its own dispatcher (§9.3.3) and is torn down on application stop.
  */
 fun Application.configureRuntime() {
-    val store = SqlDelightSessionStateStore.open(resolveRuntimeDbPath())
-    val diaryTaskStore = SqlDelightDiaryTaskStore.open(resolveRuntimeDbPath())
-    val traceStore = SqlDelightTraceStore.open(resolveRuntimeDbPath())
+    val serverConfig = loadServerRuntimeConfig(environment.config)
+    val store = SqlDelightSessionStateStore.open(serverConfig.runtimeDbPath)
+    val relationshipStore = SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
+    val diaryTaskStore = SqlDelightDiaryTaskStore.open(serverConfig.runtimeDbPath)
+    val traceStore = SqlDelightTraceStore.open(serverConfig.runtimeDbPath)
     // One VectorWriteService shared by the pipeline and the scheduler so all per-session writes
     // (user deltas + shock-heartbeat latch) serialize on the same Mutex registry (§14.2).
     val writer = VectorWriteService(store)
-    val runtimeConfig = RuntimeConfig.Default.copy(owner = resolveHeartbeatOwner())
+    val runtimeConfig = RuntimeConfig.Default.copy(owner = serverConfig.heartbeatOwner)
     val inferenceExecutor = JvmInferenceExecutor()
-    val models = loadRuntimeModels()
-    val memoryStore = SqlDelightMemoryRepository.open(resolveRuntimeDbPath(), models.embeddingModel)
+    val models = loadRuntimeModels(serverConfig)
+    val memoryStore = SqlDelightMemoryRepository.open(serverConfig.runtimeDbPath, models.embeddingModel)
     val pipeline = DevelopmentMessagePipeline.create(
-        personaConfig = loadDefaultPersonaConfig(),
+        personaConfig = PersonaFileLoader.load(serverConfig.personaPath),
         llmClient = OpenAiResponsesLlmClient(
-            apiKey = requireNotNull(System.getenv("OPENEDEN_OPENAI_API_KEY")) {
-                "OPENEDEN_OPENAI_API_KEY is required for server runtime"
-            },
-            model = System.getenv("OPENEDEN_OPENAI_MODEL") ?: "gpt-5-mini",
-            baseUrl = System.getenv("OPENEDEN_OPENAI_BASE_URL") ?: "https://api.openai.com/v1",
+            apiKey = serverConfig.apiKey,
+            model = serverConfig.model,
+            reasoningEffort = serverConfig.reasoningEffort,
+            baseUrl = serverConfig.baseUrl,
         ),
         store = store,
         vectorWriteService = writer,
@@ -80,8 +87,11 @@ fun Application.configureRuntime() {
         memoryEmbeddingModel = models.embeddingModel,
         diaryTaskStore = diaryTaskStore,
         traceStore = traceStore,
+        relationshipStore = relationshipStore,
+        userAffectAnalyzer = models.userAffectAnalyzer,
     )
     attributes.put(PipelineKey, pipeline)
+    attributes.put(SessionStateStoreKey, store)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val diaryWorker = DurableDiaryWorker(
@@ -140,41 +150,36 @@ fun Application.configureRuntime() {
         memoryStore.close()
         diaryTaskStore.close()
         traceStore.close()
+        relationshipStore.close()
         log.info("OpenEden runtime stopped")
     }
 }
 
 internal fun loadDefaultPersonaConfig(): PersonaConfig =
-    PersonaFileLoader.load(resolveDefaultPersonaPath())
+    PersonaFileLoader.load(resolveFromRoot(Path.of("persona", "atri.yaml")))
 
-internal fun resolveDefaultPersonaPath(): Path = resolveFromRoot(Path.of("persona", "default.yaml"))
-
-private fun resolveRuntimeDbPath(): Path = resolveFromRoot(Path.of("data", "runtime", "openeden.db"))
-
-private fun loadLocalArtifact() = runCatching {
-    val path = System.getenv("OPENEDEN_LOCAL_MODEL_ARTIFACT")
-        ?.takeIf { it.isNotBlank() }
-        ?.let(Path::of)
-        ?: resolveFromRoot(Path.of("data", "models", "local-model-artifact.json"))
+private fun loadLocalArtifact(config: ServerRuntimeConfig) = runCatching {
+    val path = config.localModelArtifactPath
     if (Files.exists(path)) LocalModelArtifactLoader.read(path) else null
 }.getOrNull()
 
 private data class RuntimeModels(
     val quantizer: CodebookQuantizer,
     val embeddingModel: MemoryEmbeddingModel,
+    val userAffectAnalyzer: UserAffectAnalyzer,
 )
 
-private fun loadRuntimeModels(): RuntimeModels {
-    val artifact = requireNotNull(loadLocalArtifact()) {
+private fun loadRuntimeModels(config: ServerRuntimeConfig): RuntimeModels {
+    val artifact = requireNotNull(loadLocalArtifact(config)) {
         "Local model artifact is required for server startup"
     }
-    return when (System.getenv("OPENEDEN_MODEL_BACKEND")?.lowercase() ?: "djl") {
-        "artifact" -> RuntimeModels(artifact.codebookQuantizer(), artifact.memoryEmbeddingModel())
+    return when (config.modelBackend.lowercase()) {
+        "artifact" -> RuntimeModels(artifact.codebookQuantizer(), artifact.memoryEmbeddingModel(), artifact.userAffectAnalyzer())
         "djl" -> {
             val runner = DjlVqVaeCodebookModelRunner.fromModelPath(
-                modelPath = requiredModelPath("OPENEDEN_DJL_VQVAE_MODEL_PATH"),
-                modelName = System.getenv("OPENEDEN_DJL_MODEL_NAME") ?: "model",
-                engineName = System.getenv("OPENEDEN_DJL_ENGINE") ?: "PyTorch",
+                modelPath = config.djlVqVaeModelPath,
+                modelName = config.djlModelName,
+                engineName = config.djlEngine,
                 inputDimension = 9,
                 codebook = artifact.vqVae.codebook,
                 topK = artifact.vqVae.topK,
@@ -185,35 +190,23 @@ private fun loadRuntimeModels(): RuntimeModels {
                     dictionary = CodebookDictionary.parseCsv(artifact.codebookCsv),
                 ),
                 embeddingModel = DjlMemoryEmbeddingModel.fromModelPaths(
-                    textModelPath = requiredModelPath("OPENEDEN_DJL_TEXT_MODEL_PATH"),
-                    emotionalModelPath = requiredModelPath("OPENEDEN_DJL_EMOTIONAL_MODEL_PATH"),
-                    textModelName = System.getenv("OPENEDEN_DJL_MODEL_NAME") ?: "model",
-                    emotionalModelName = System.getenv("OPENEDEN_DJL_MODEL_NAME") ?: "model",
-                    engineName = System.getenv("OPENEDEN_DJL_ENGINE") ?: "PyTorch",
+                    textModelPath = config.djlTextModelPath,
+                    emotionalModelPath = config.djlEmotionalModelPath,
+                    textModelName = config.djlModelName,
+                    emotionalModelName = config.djlModelName,
+                    engineName = config.djlEngine,
+                    textInputDimension = artifact.textEmbedding.bucketSize,
+                ),
+                userAffectAnalyzer = DjlTextAffectAnalyzer.fromModelPath(
+                    modelPath = config.djlAffectModelPath,
+                    modelName = config.djlModelName,
+                    engineName = config.djlEngine,
                     textInputDimension = artifact.textEmbedding.bucketSize,
                 ),
             )
         }
         else -> error("Unsupported OPENEDEN_MODEL_BACKEND")
     }
-}
-
-private fun requiredModelPath(envName: String): Path {
-    val configured = System.getenv(envName)?.takeIf { it.isNotBlank() }?.let(Path::of)
-    val path = configured ?: when (envName) {
-        "OPENEDEN_DJL_VQVAE_MODEL_PATH" -> resolveFromRoot(Path.of("data", "models", "djl", "vqvae"))
-        "OPENEDEN_DJL_TEXT_MODEL_PATH" -> resolveFromRoot(Path.of("data", "models", "djl", "text"))
-        "OPENEDEN_DJL_EMOTIONAL_MODEL_PATH" -> resolveFromRoot(Path.of("data", "models", "djl", "emotional"))
-        else -> error("$envName is required when OPENEDEN_MODEL_BACKEND=djl")
-    }
-    require(Files.exists(path)) { "$envName does not point to a model path: $path" }
-    return path
-}
-
-private fun resolveHeartbeatOwner(): HeartbeatOwner? {
-    val platform = System.getenv("OPENEDEN_OWNER_PLATFORM")?.takeIf { it.isNotBlank() }
-    val userId = System.getenv("OPENEDEN_OWNER_USER_ID")?.takeIf { it.isNotBlank() }
-    return if (platform != null && userId != null) HeartbeatOwner(platform, userId) else null
 }
 
 /** Walk up from the working dir to find a project-relative path, falling back to the relative path. */
@@ -226,4 +219,55 @@ private fun resolveFromRoot(relative: Path): Path {
         current = dir.parent
     }
     return relative
+}
+
+private data class ServerRuntimeConfig(
+    val apiKey: String,
+    val model: String,
+    val reasoningEffort: ReasoningEffort,
+    val baseUrl: String,
+    val personaPath: Path,
+    val runtimeDbPath: Path,
+    val localModelArtifactPath: Path,
+    val modelBackend: String,
+    val djlVqVaeModelPath: Path,
+    val djlTextModelPath: Path,
+    val djlEmotionalModelPath: Path,
+    val djlAffectModelPath: Path,
+    val djlEngine: String,
+    val djlModelName: String,
+    val heartbeatOwner: HeartbeatOwner?,
+)
+
+private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationConfig): ServerRuntimeConfig {
+    fun required(path: String): String = config.property(path).getString()
+    fun optional(path: String, default: String): String =
+        config.propertyOrNull(path)?.getString()?.takeIf { it.isNotBlank() } ?: default
+    fun rootPath(path: String, default: String): Path =
+        resolveFromRoot(Path.of(optional(path, default)))
+    val ownerPlatform = config.propertyOrNull("openeden.heartbeat.ownerPlatform")?.getString()
+        ?.takeIf { it.isNotBlank() }
+    val ownerUserId = config.propertyOrNull("openeden.heartbeat.ownerUserId")?.getString()
+        ?.takeIf { it.isNotBlank() }
+    return ServerRuntimeConfig(
+        apiKey = required("openeden.llm.apiKey"),
+        model = required("openeden.llm.model"),
+        reasoningEffort = ReasoningEffort.parse(optional("openeden.llm.reasoningEffort", "medium")),
+        baseUrl = required("openeden.llm.baseUrl"),
+        personaPath = rootPath("openeden.runtime.personaPath", "persona/atri.yaml"),
+        runtimeDbPath = rootPath("openeden.runtime.databasePath", "data/runtime/openeden.db"),
+        localModelArtifactPath = rootPath("openeden.runtime.localModelArtifact", "data/models/local-model-artifact.json"),
+        modelBackend = optional("openeden.runtime.modelBackend", "djl"),
+        djlVqVaeModelPath = rootPath("openeden.runtime.djlVqVaeModelPath", "data/models/djl/vqvae"),
+        djlTextModelPath = rootPath("openeden.runtime.djlTextModelPath", "data/models/djl/text"),
+        djlEmotionalModelPath = rootPath("openeden.runtime.djlEmotionalModelPath", "data/models/djl/emotional"),
+        djlAffectModelPath = rootPath("openeden.runtime.djlAffectModelPath", "data/models/djl/affect"),
+        djlEngine = optional("openeden.runtime.djlEngine", "PyTorch"),
+        djlModelName = optional("openeden.runtime.djlModelName", "model"),
+        heartbeatOwner = if (ownerPlatform != null && ownerUserId != null) {
+            HeartbeatOwner(ownerPlatform, ownerUserId)
+        } else {
+            null
+        },
+    )
 }

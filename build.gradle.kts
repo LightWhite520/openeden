@@ -14,6 +14,11 @@ application {
     mainClass = "io.openeden.MainKt"
 }
 
+tasks.named<JavaExec>("run") {
+    standardInput = System.`in`
+    jvmArgs("-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+}
+
 val localModelArtifactPath = providers
     .environmentVariable("OPENEDEN_LOCAL_MODEL_ARTIFACT")
     .orElse("data/models/local-model-artifact.json")
@@ -37,10 +42,6 @@ tasks.register("ensureLocalModelArtifact") {
     }
 }
 
-tasks.named("run") {
-    dependsOn("ensureLocalModelArtifact")
-}
-
 kotlin {
     jvmToolchain(21)
 }
@@ -53,8 +54,8 @@ dependencies {
     implementation(ktorLibs.serialization.kotlinx.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.logback.classic)
     implementation(project(":core"))
-    implementation(project(":server"))
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.client.mock)

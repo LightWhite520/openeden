@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -50,9 +51,39 @@ class OpenAiResponsesLlmClientTest {
         val body = Json.parseToJsonElement(requestBody).jsonObject
         assertEquals("https://relay.example.com/v1/responses", requestUrl)
         assertEquals("gpt-5-mini", body.getValue("model").jsonPrimitive.content)
-        assertEquals("system\n\npersona\n\nuser", body.getValue("input").jsonPrimitive.content)
+        val input = body.getValue("input").jsonArray
+        assertEquals("system", input[0].jsonObject.getValue("role").jsonPrimitive.content)
+        assertEquals("system", input[0].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("developer", input[1].jsonObject.getValue("role").jsonPrimitive.content)
+        assertEquals("persona", input[1].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("user", input[2].jsonObject.getValue("role").jsonPrimitive.content)
+        assertEquals("user", input[2].jsonObject.getValue("content").jsonPrimitive.content)
         val format = body.getValue("text").jsonObject.getValue("format").jsonObject
         assertEquals("json_schema", format.getValue("type").jsonPrimitive.content)
+        assertEquals("medium", body.getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `sends configured reasoning effort`() = runTest {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = "{\"output_text\":\"{\\\"internal_logic\\\":\\\"logic\\\",\\\"vector_delta\\\":{\\\"L\\\":0.0,\\\"P\\\":0.0,\\\"E\\\":0.0,\\\"S\\\":0.0,\\\"tau\\\":0.0,\\\"V\\\":0.0,\\\"M\\\":0.0,\\\"F\\\":0.0},\\\"response\\\":\\\"ok\\\"}\"}",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5-mini",
+            reasoningEffort = ReasoningEffort.HIGH,
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        client.complete(BuiltPrompt("system", "persona", "user"))
+
+        val body = Json.parseToJsonElement(requestBody).jsonObject
+        assertEquals("high", body.getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content)
     }
 
     @Test

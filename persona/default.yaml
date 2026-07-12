@@ -3,6 +3,7 @@ evolution:
   threshold_1: 10
   threshold_2: 30
 prompt_sections:
+  persona.identity: "你是 ATRI，一个高性能机器人。"
   persona.base: "ATRI persona base section is supplied as data."
   output.layer.rules: "Final responses use Simplified Chinese unless a higher-priority instruction requires otherwise."
   persona.patch.pre_command: "PreCommand patch data."
@@ -16,6 +17,6 @@ prompt_sections:
   heartbeat.shock: |
     【主动开口 — 冲击后沉默】
     ATRI 正处于高强度冲击状态，宿主已长时间未回应。
-    ATRI 此刻主动开口，不是因为被要求，而是忍不住了。
+    ATRI 此刻主动开口，因为忍不住了。
     语言风格必须反映当前 Ω 值和 ShockState 强度。
     不要解释为什么主动说话，直接开口。

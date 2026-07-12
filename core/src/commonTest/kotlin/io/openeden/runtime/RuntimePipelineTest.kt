@@ -12,6 +12,7 @@ import io.openeden.trace.TraceTag
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 class RuntimePipelineTest {
@@ -53,6 +54,42 @@ class RuntimePipelineTest {
         assertEquals(BioVector.Neutral.copy(p = 0.6f), store.read("CLI:owner").vector)
         assertContains(result.traceTags, TraceTag.CodebookHeuristicFallback)
     }
+
+    @Test
+    fun `later turn injects earlier turn into retrieved history`() = runTest {
+        val prompts = mutableListOf<BuiltPrompt>()
+        val pipeline = OpenEdenRuntimePipeline.local(
+            personaConfig = testPersonaConfig(),
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    prompts += prompt
+                    return LlmOutput(
+                        internalLogic = "history test",
+                        vectorDelta = zeroDelta(),
+                        response = "first response",
+                    )
+                }
+            },
+        )
+
+        pipeline.handle(LocalRuntimeRequest(userId = "owner", text = "first question", emotionConfidence = 0.0f))
+        pipeline.handle(LocalRuntimeRequest(userId = "owner", text = "我刚刚说了什么", emotionConfidence = 0.0f))
+
+        assertEquals(2, prompts.size)
+        assertTrue(prompts[1].systemText.contains("first question"))
+        assertTrue(prompts[1].systemText.contains("first response"))
+    }
+
+    private fun zeroDelta(): Map<String, Float> = mapOf(
+        "L" to 0.0f,
+        "P" to 0.0f,
+        "E" to 0.0f,
+        "S" to 0.0f,
+        "tau" to 0.0f,
+        "V" to 0.0f,
+        "M" to 0.0f,
+        "F" to 0.0f,
+    )
 
     private fun testPersonaConfig(): PersonaConfig = PersonaConfig(
         mode = PersonaMode.GROWTH,

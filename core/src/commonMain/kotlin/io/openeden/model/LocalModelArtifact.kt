@@ -10,6 +10,9 @@ import io.openeden.memory.LocalNeuralTextEmbeddingModel
 import io.openeden.memory.LocalTextEmbeddingSpec
 import io.openeden.memory.MemoryEmbeddingModel
 import io.openeden.nn.LocalMlpSpec
+import io.openeden.relationship.DeterministicUserAffectAnalyzer
+import io.openeden.relationship.LocalTextAffectAnalyzer
+import io.openeden.relationship.UserAffectAnalyzer
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -19,6 +22,7 @@ data class LocalModelArtifact(
     val vqVae: LocalVqVaeSpec,
     val textEmbedding: LocalTextEmbeddingSpec,
     val emotionalEmbedding: LocalMlpSpec,
+    val textAffect: LocalMlpSpec? = null,
 ) {
     init {
         require(schemaVersion == 1) { "Unsupported local model artifact schemaVersion=$schemaVersion" }
@@ -37,4 +41,8 @@ data class LocalModelArtifact(
             textModel = LocalNeuralTextEmbeddingModel(textEmbedding),
             emotionalModel = LocalNeuralEmotionalEmbeddingModel(emotionalEmbedding),
         )
+
+    fun userAffectAnalyzer(): UserAffectAnalyzer = textAffect?.let {
+        LocalTextAffectAnalyzer(textEmbedding, it)
+    } ?: DeterministicUserAffectAnalyzer()
 }

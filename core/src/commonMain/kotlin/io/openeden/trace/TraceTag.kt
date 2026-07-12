@@ -15,4 +15,11 @@ object TraceTag {
     const val MemoryWritten = "memory=WRITTEN"
     const val MemoryRetrieved = "memory=RETRIEVED"
     const val CentroidUpdated = "centroid=UPDATED"
+    const val UserAffectInferred = "user_affect=INFERRED"
+    const val UserAffectFallback = "user_affect=FALLBACK"
+    const val UserAffectMapped = "user_affect=MAPPED"
+    const val RelationshipLoaded = "relationship=LOADED"
+    const val RelationshipUpdated = "relationship=UPDATED"
+    const val RelationshipDegraded = "relationship=DEGRADED"
+    const val IdentityAffinityApplied = "memory=IDENTITY_AFFINITY"
 }

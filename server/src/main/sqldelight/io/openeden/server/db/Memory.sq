@@ -65,6 +65,15 @@ WHERE session_id = ? AND tags_json LIKE '%"daily"%' AND tags_json LIKE '%"stable
 ORDER BY created_at_ms DESC
 LIMIT ?;
 
+selectRecent:
+SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
+       memory_embeddings.emotional_json, memory_embeddings.status
+FROM memory_entries
+LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
+WHERE memory_entries.session_id = ?
+ORDER BY memory_entries.created_at_ms DESC
+LIMIT ?;
+
 insertEntry:
 INSERT OR REPLACE INTO memory_entries(
     id, session_id, user_id, platform, room, kind, content, tags_json, created_at_ms,

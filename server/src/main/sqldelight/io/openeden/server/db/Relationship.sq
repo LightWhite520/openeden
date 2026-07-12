@@ -1,0 +1,27 @@
+CREATE TABLE relationship_state (
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    trust REAL NOT NULL,
+    familiarity REAL NOT NULL,
+    safety REAL NOT NULL,
+    boundary_sensitivity REAL NOT NULL,
+    unresolved_tension REAL NOT NULL,
+    evidence_count INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(session_id, user_id)
+);
+
+selectByKey:
+SELECT session_id, user_id, trust, familiarity, safety, boundary_sensitivity,
+       unresolved_tension, evidence_count, updated_at_ms
+FROM relationship_state
+WHERE session_id = ? AND user_id = ?;
+
+upsert:
+INSERT OR REPLACE INTO relationship_state(
+    session_id, user_id, trust, familiarity, safety, boundary_sensitivity,
+    unresolved_tension, evidence_count, updated_at_ms
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteByKey:
+DELETE FROM relationship_state WHERE session_id = ? AND user_id = ?;

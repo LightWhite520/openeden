@@ -35,6 +35,7 @@ class LocalCodebookTrainer(
             vqVae = vqVae,
             textEmbedding = textEmbeddingSpec(),
             emotionalEmbedding = emotionalEmbeddingSpec(),
+            textAffect = textAffectSpec(),
         )
     }
 
@@ -113,6 +114,23 @@ class LocalCodebookTrainer(
                     weights = List(8) { output -> List(8) { input -> if (input == output) 1.0f else 0.0f } },
                     biases = List(8) { 0.0f },
                     activation = LocalActivation.LINEAR,
+                ),
+            ),
+        )
+
+    private fun textAffectSpec(): LocalMlpSpec =
+        LocalMlpSpec(
+            inputSize = config.textEmbeddingDimensions,
+            layers = listOf(
+                LocalDenseLayerSpec(
+                    outputSize = 6,
+                    weights = List(6) { output ->
+                        List(config.textEmbeddingDimensions) { input ->
+                            if (input % 6 == output) 0.25f else 0.0f
+                        }
+                    },
+                    biases = List(6) { index -> if (index == 5) 0.4f else 0.0f },
+                    activation = LocalActivation.SIGMOID,
                 ),
             ),
         )

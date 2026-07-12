@@ -6,6 +6,8 @@ import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
 import io.openeden.runtime.OmegaState
 import io.openeden.runtime.ShockState
+import io.openeden.relationship.RelationshipState
+import io.openeden.relationship.UserAffectState
 
 interface PromptBuilder {
     suspend fun build(input: PromptInput): BuiltPrompt
@@ -21,6 +23,8 @@ data class PromptInput(
     val omegaState: OmegaState,
     val shockState: ShockState?,
     val userInput: String,
+    val userAffect: UserAffectState = UserAffectState.Uncertain,
+    val relationshipState: RelationshipState? = null,
 )
 
 data class BuiltPrompt(

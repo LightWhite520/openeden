@@ -1,0 +1,11 @@
+{
+  "inputSize": 32,
+  "outputs": [
+    "valence",
+    "arousal",
+    "dominance",
+    "connectionNeed",
+    "openness",
+    "confidence"
+  ]
+}

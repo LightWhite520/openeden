@@ -11,6 +11,7 @@ import io.openeden.memory.MemoryEmbeddingModel
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRetriever
+import io.openeden.memory.MemorySnippet
 import io.openeden.memory.MemoryRoom
 import io.openeden.memory.MemoryStore
 import io.openeden.memory.RetrievalRequest
@@ -65,6 +66,12 @@ class SqlDelightMemoryRepository(
 
     override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> =
         queries.selectStable(sessionId, limit.toLong(), ::mapVector).executeAsList()
+
+    override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> =
+        queries.selectRecent(sessionId, limit.toLong(), ::mapRow)
+            .executeAsList()
+            .map { stored -> MemorySnippet(id = stored.entry.id, content = stored.entry.content, metadata = stored.entry.metadata) }
+            .asReversed()
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
         ensureIndexed(request.sessionId)

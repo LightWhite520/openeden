@@ -1,10 +1,9 @@
 # OpenEden
 
-OpenEden is a Kotlin/Ktor runtime skeleton for a deterministic biological state
-machine. The current repository establishes module boundaries, core contracts,
-and tests for the invariants in `AGENTS.md`; production DJL/VQ-VAE inference,
-Memory Palace persistence, persona content, and platform adapters are still
-future integrations.
+OpenEden is a Kotlin/Ktor runtime for a deterministic biological state machine.
+The server is the single owner of the kernel, SQLite state, local models, LLM
+client, heartbeat, runtime tick, and diary worker. The CLI is a persistent
+terminal client that communicates with the server over HTTP.
 
 ## License
 
@@ -17,7 +16,7 @@ artifacts are released under the GNU Affero General Public License v3.0. See
 | Path | Purpose |
 |------|---------|
 | `core` | Pure domain types and async contracts for the 8D vector, VQ-VAE/codebook boundary, prompt inputs, memory retrieval mode, Omega, ShockState, diary queues, and serialized vector writes. |
-| `server` | Ktor wiring, health routes, WebSocket installation, and in-memory skeleton service exposure. |
+| `server` | Ktor API, durable runtime bootstrap, background workers, and WebSocket installation. |
 | `client` | Shared HTTP client helpers for future platform frontends. |
 
 ## Architecture Rules
@@ -40,7 +39,8 @@ To build or run the project, use one of the following tasks:
 | Task                      | Description       |
 |---------------------------|-------------------|
 | `./gradlew ensureLocalModelArtifact` | Download `data/models/local-model-artifact.json` from the public Hugging Face model repo if it is missing |
-| `./gradlew :run --args="chat --message \"hello\""` | Run the local CLI chat surface |
+| `./gradlew :run` | Start the persistent server-backed CLI |
+| `./gradlew :run --args="chat --message \"hello\""` | Run one compatibility chat request through the server |
 | `./gradlew :run --args="state"` | Print local CLI session state |
 | `./gradlew :server:test`  | Run the tests     |
 | `./gradlew :server:build` | Build the project |
@@ -49,31 +49,61 @@ To build or run the project, use one of the following tasks:
 If the server starts successfully, it listens on `http://0.0.0.0:8080` and the
 root route returns `OpenEden runtime skeleton`.
 
-## Local CLI
+## Server-Backed CLI
 
-Stage 1 exposes a local one-on-one runtime through the root application. Set:
+On first CLI startup, OpenEden creates
+`%USERPROFILE%\.openeden\config.json` with the server URL and the current system
+username. The CLI configuration contains only client settings; LLM and runtime
+settings belong to the server.
+
+The default CLI startup is:
 
 ```powershell
+.\gradlew.bat :server:run
+# in another PowerShell window:
+.\gradlew.bat run
+```
+
+The server reads its environment variables through `application.yaml`. Start
+the server after configuring them in PowerShell:
+
+```powershell
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
 $env:OPENEDEN_OPENAI_API_KEY="sk-..."
-$env:OPENEDEN_OPENAI_MODEL="gpt-5-mini"
-$env:OPENEDEN_LOCAL_USER_ID="local"
-```
-
-If you use an OpenAI-compatible relay, also set its API base URL:
-
-```powershell
+$env:OPENEDEN_OPENAI_MODEL="gpt-5.5"
 $env:OPENEDEN_OPENAI_BASE_URL="https://your-relay.example.com/v1"
+# Optional: low, medium (default), or high.
+$env:OPENEDEN_LLM_REASONING_EFFORT="medium"
+.\gradlew.bat :server:run
 ```
 
-Then run:
+The REPL supports:
 
-```powershell
-.\gradlew.bat :run --args='chat --message "你好"'
-.\gradlew.bat :run --args='chat --message "你好" --debug'
-.\gradlew.bat :run --args='state --user local'
+```text
+/state
+/help
+/exit
 ```
 
-Local sessions use `CLI:<userId>` and persist to
+Normal input is sent to `POST /api/v1/chat`. `/exit` closes only the CLI HTTP
+client. The CLI never starts or stops the server; start `:server:run` in a
+separate terminal first.
+
+The public server endpoints are:
+
+```text
+GET  /health
+POST /api/v1/chat       {"userId":"local","text":"你好"}
+GET  /api/v1/state?userId=local
+```
+
+Chat responses contain `requestId`, `status`, `response`, and `error`. Internal
+vectors, `evolutionIndex`, prompts, traces, retrieval modes, and diary details
+are not part of the public CLI/API response.
+
+Local sessions use `CLI:<userId>` and persist to the server's
 `data/runtime/openeden.db` unless `OPENEDEN_RUNTIME_DB_PATH` is set.
 
 The `:run` task depends on `ensureLocalModelArtifact`. If

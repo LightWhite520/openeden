@@ -21,6 +21,9 @@ out/
 *.log
 logs/
 data/runtime/
+.env
+.env.*
+!.env.example
 
 # Local training environments and heavyweight GPU checkpoints
 .venv*/

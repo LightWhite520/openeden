@@ -17,6 +17,7 @@ data class RetrievalResult(
     val mode: RetrievalMode,
     val injectionLabel: String,
     val memories: List<MemorySnippet>,
+    val recentMemories: List<MemorySnippet> = emptyList(),
     val traceTags: Set<String> = emptySet(),
 )
 
@@ -43,6 +44,7 @@ interface MemoryRetriever {
 interface MemoryStore : MemoryRetriever {
     suspend fun write(entry: MemoryEntry): Set<String>
     suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector>
+    suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> = emptyList()
 }
 
 data class MemoryEntry(
@@ -77,6 +79,7 @@ data class RetrievalRequest(
     val currentVector: BioVector,
     val origin: BioVector,
     val mode: RetrievalMode,
+    val userId: String = "",
 )
 
 object RetrievalModeSelector {

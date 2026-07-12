@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "model": "user-affect-mlp",
+  "inputSize": 32,
+  "outputs": [
+    "valence",
+    "arousal",
+    "dominance",
+    "connectionNeed",
+    "openness",
+    "confidence"
+  ],
+  "device": "cpu",
+  "seed": 2952709926,
+  "counts": {
+    "test": 409,
+    "validation": 409,
+    "train": 3278
+  },
+  "validationMae": 0.14644055565198263,
+  "testMae": 0.13856889586895704,
+  "testMaeByDimension": {
+    "valence": 0.1793864667415619,
+    "arousal": 0.19688890874385834,
+    "dominance": 0.15638169646263123,
+    "connectionNeed": 0.12822888791561127,
+    "openness": 0.14127439260482788,
+    "confidence": 0.029253022745251656
+  }
+}

@@ -66,6 +66,8 @@ def main() -> None:
     export(artifact["vqVae"]["encoder"], args.output / "vqvae")
     export(artifact["textEmbedding"]["projector"], args.output / "text")
     export(artifact["emotionalEmbedding"], args.output / "emotional")
+    if artifact.get("textAffect"):
+        export(artifact["textAffect"], args.output / "affect")
     print(f"Exported DJL TorchScript models to {args.output}")
 
 

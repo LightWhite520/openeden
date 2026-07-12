@@ -8,7 +8,9 @@ import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import io.ktor.http.HttpStatusCode
 import io.ktor.websocket.*
+import java.util.UUID
 import kotlinx.serialization.Serializable
 
 fun Application.configureRouting() {
@@ -16,9 +18,62 @@ fun Application.configureRouting() {
     // pipeline when routing is configured standalone (e.g. lightweight tests).
     val developmentPipeline = attributes.getOrNull(PipelineKey)
         ?: DevelopmentMessagePipeline.create(loadDefaultPersonaConfig())
+    val sessionStateStore = attributes.getOrNull(SessionStateStoreKey)
     routing {
         get("/") {
             call.respondText("OpenEden runtime skeleton")
+        }
+        get("/health") {
+            call.respond(HealthResponseDto(status = "ready", service = "openeden-server"))
+        }
+        get("/api/v1/state") {
+            val userId = call.request.queryParameters["userId"]?.takeIf { it.isNotBlank() }
+                ?: "local"
+            val store = sessionStateStore ?: error("session state store is not configured")
+            val state = store.readOrCreate("CLI:$userId")
+            call.respond(
+                PublicStateDto(
+                    sessionId = state.sessionId,
+                    status = "ready",
+                    omega = state.omega.value,
+                    shockActive = state.shockState?.active == true,
+                ),
+            )
+        }
+        post("/api/v1/chat") {
+            val requestId = "req_${UUID.randomUUID().toString().replace("-", "")}"
+            val request = call.receive<ChatRequestDto>()
+            if (request.userId.isBlank() || request.text.isBlank()) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@post
+            }
+            try {
+                val result = developmentPipeline.handle(
+                    DevelopmentMessageRequest(
+                        platform = "CLI",
+                        scopeId = request.userId,
+                        userId = request.userId,
+                        text = request.text,
+                        emotionConfidence = 0.0f,
+                    ),
+                )
+                call.respond(
+                    ChatResponseDto(
+                        requestId = requestId,
+                        status = "completed",
+                        response = result.response,
+                    ),
+                )
+            } catch (error: Throwable) {
+                call.respond(
+                    HttpStatusCode.InternalServerError,
+                    ChatResponseDto(
+                        requestId = requestId,
+                        status = "failed",
+                        error = error.message ?: error::class.simpleName ?: "server error",
+                    ),
+                )
+            }
         }
         post("/dev/message") {
             val request = call.receive<DevMessageRequestDto>()

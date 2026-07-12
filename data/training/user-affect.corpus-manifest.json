@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "sampleCount": 4096,
+  "batchSize": 32,
+  "seed": 2952709926,
+  "model": "gpt-5.4-mini",
+  "rawCorpus": "data\\training\\user-affect.raw.jsonl",
+  "dimensions": [
+    "valence",
+    "arousal",
+    "dominance",
+    "connectionNeed",
+    "openness",
+    "confidence"
+  ],
+  "generatedAt": "2026-07-12T15:13:57.896Z"
+}

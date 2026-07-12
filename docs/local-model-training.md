@@ -10,6 +10,35 @@ OpenEden local model training has two stages:
 Neither stage encodes persona behavior in Kotlin. Training data contains state
 semantics only; derived D remains runtime-computed and is never stored.
 
+## User Affect Model
+
+The user-affect model is separate from the 8D `BioVector`. It predicts six
+turn-scoped user observations: `valence`, `arousal`, `dominance`,
+`connectionNeed`, `openness`, and label `confidence`. It must not be trained
+on ATRI physiology, persona behavior, medical diagnoses, or relationship state.
+
+Generate a resumable synthetic Chinese corpus through an OpenAI-compatible
+endpoint. Keep credentials in the invoking process only:
+
+```powershell
+$env:OPENEDEN_AFFECT_LABEL_ENDPOINT = "https://provider.example/v1/chat/completions"
+$env:OPENEDEN_AFFECT_LABEL_API_KEY = "..."
+node scripts/generate-user-affect-training-corpus.mjs --samples 4096 --model gpt-5.4-mini
+```
+
+Train and export the DJL TorchScript model:
+
+```powershell
+python scripts/train-user-affect-model.py `
+  --corpus data/training/user-affect.raw.jsonl `
+  --output data/models/djl/affect
+```
+
+The trainer writes `model.pt`, `metadata.json`, and held-out `metrics.json`.
+It refuses malformed labels, corpora smaller than 512 records, and models whose
+test MAE exceeds the configured quality gate. Runtime fallback remains active
+when no valid affect model is configured.
+
 ## Deterministic Runtime Artifact
 
 Run:

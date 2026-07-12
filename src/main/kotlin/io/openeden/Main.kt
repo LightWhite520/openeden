@@ -4,218 +4,135 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.CliktError
 import com.github.ajalt.clikt.core.main
 import com.github.ajalt.clikt.core.subcommands
-import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
-import io.openeden.config.LocalRuntimeConfig
-import io.openeden.llm.OpenAiResponsesLlmClient
-import io.openeden.model.LocalModelArtifactLoader
-import io.openeden.persona.PersonaFileLoader
-import io.openeden.runtime.JvmInferenceExecutor
-import io.openeden.runtime.LocalRuntimeRequest
-import io.openeden.runtime.LocalRuntimeResult
-import io.openeden.runtime.OpenEdenRuntimePipeline
-import io.openeden.runtime.SessionStateStore
-import io.openeden.runtime.VectorWriteService
-import io.openeden.codebook.CodebookDictionary
-import io.openeden.codebook.DjlVqVaeCodebookModelRunner
-import io.openeden.codebook.VqVaeCodebookQuantizer
-import io.openeden.memory.DjlMemoryEmbeddingModel
-import io.openeden.server.db.SqlDelightSessionStateStore
-import io.openeden.server.db.SqlDelightDiaryTaskStore
-import io.openeden.server.db.SqlDelightMemoryRepository
-import io.openeden.server.db.SqlDelightTraceStore
-import java.nio.file.Files
-import java.nio.file.Path
+import io.ktor.client.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.serialization.kotlinx.json.*
+import io.openeden.client.ChatResponse
+import io.openeden.client.OpenEdenServerApi
+import io.openeden.client.OpenEdenServerClient
+import io.openeden.client.PublicState
+import io.openeden.config.CliConfig
+import io.openeden.config.CliConfigStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.PrintStream
 import kotlin.system.exitProcess
 
-fun interface RuntimeFactory {
-    suspend fun create(store: SessionStateStore, config: LocalRuntimeConfig): RuntimeHandle
+fun interface CliInput {
+    suspend fun readLine(): String?
 }
 
-interface RuntimeHandle {
-    suspend fun handle(request: LocalRuntimeRequest): LocalRuntimeResult
-}
+class StdinCliInput : CliInput {
+    private val reader = BufferedReader(InputStreamReader(System.`in`, Charsets.UTF_8))
 
-class PipelineRuntimeHandle(
-    private val pipeline: OpenEdenRuntimePipeline,
-) : RuntimeHandle {
-    override suspend fun handle(request: LocalRuntimeRequest): LocalRuntimeResult = pipeline.handle(request)
+    override suspend fun readLine(): String? = withContext(Dispatchers.IO) { reader.readLine() }
 }
 
 class OpenEdenCli(
-    private val configLoader: () -> LocalRuntimeConfig = { LocalRuntimeConfig.fromEnv() },
-    private val storeFactory: (LocalRuntimeConfig) -> SessionStateStore = ::openStore,
-    private val runtimeFactory: RuntimeFactory = RuntimeFactory { store, config -> createRuntime(store, config) },
-    private val output: (String) -> Unit = ::println,
+    private val configLoader: () -> CliConfig = { CliConfigStore().loadOrCreate() },
+    private val clientFactory: (String) -> OpenEdenServerApi = ::createServerClient,
+    private val input: CliInput = StdinCliInput(),
+    private val output: (String) -> Unit = ::print,
 ) {
-    constructor(
-        runtimeFactory: () -> RuntimeHandle,
-        storeFactory: () -> SessionStateStore,
-        output: (String) -> Unit,
-    ) : this(
-        configLoader = { LocalRuntimeConfig.fromEnv(mapOf("OPENEDEN_OPENAI_API_KEY" to "sk-test")) },
-        storeFactory = { storeFactory() },
-        runtimeFactory = RuntimeFactory { _, _ -> runtimeFactory() },
-        output = output,
-    )
-
     suspend fun run(args: List<String>): Int {
-        val parsed = parseCommand(args) ?: return usage()
-        val config = configLoader()
-        return when (parsed) {
-            is ParsedCommand.Chat -> chat(parsed, config)
-            is ParsedCommand.State -> state(parsed, config)
+        val config = runCatching { configLoader() }.getOrElse {
+            output("configuration error: ${it.message}\n")
+            return 2
         }
-    }
-
-    private suspend fun chat(command: ParsedCommand.Chat, config: LocalRuntimeConfig): Int {
-        val chatConfig = config.requireProviderCredentials()
-        val userId = command.user ?: chatConfig.localUserId
-        val store = storeFactory(chatConfig)
-        val runtime = runtimeFactory.create(store, chatConfig)
-        val result = runtime.handle(LocalRuntimeRequest(userId = userId, text = command.message))
-        if (command.debug) {
-            output("response=${result.response.orEmpty()}")
-            output("traceTags=${result.traceTags.sorted()}")
-            output("vector=${result.updatedVector.toList()}")
-            output("omega=${result.omega.value}")
-            output("evolutionIndex=${result.evolutionIndex}")
-            if (result.validationErrors.isNotEmpty()) {
-                output("validationErrors=${result.validationErrors}")
-            }
-        } else {
-            output(result.response.orEmpty())
-        }
-        return 0
-    }
-
-    private suspend fun state(command: ParsedCommand.State, config: LocalRuntimeConfig): Int {
-        val userId = command.user ?: config.localUserId
-        val sessionId = "${OpenEdenRuntimePipeline.LOCAL_PLATFORM}:$userId"
-        val state = storeFactory(config).read(sessionId)
-        output("sessionId=${state.sessionId}")
-        output("vector=${state.vector.toList()}")
-        output("omega=${state.omega.value}")
-        output("shockState=${state.shockState}")
-        output("evolutionIndex=${state.evolutionIndex}")
-        return 0
-    }
-
-    private fun parseCommand(args: List<String>): ParsedCommand? {
-        if (args.isEmpty()) return null
-        var parsed: ParsedCommand? = null
+        val client = clientFactory(config.serverUrl)
         return try {
-            OpenEdenRootCommand { parsed = it }.main(args)
-            parsed
-        } catch (error: CliktError) {
-            output(error.message ?: "Invalid command")
-            null
+            check(client.health()) {
+                "OpenEden server is unavailable at ${config.serverUrl}; start :server:run first"
+            }
+            if (args.isEmpty()) repl(client, config.userId) else compatibilityCommand(args, client, config.userId)
+        } catch (error: Throwable) {
+            output("server error: ${error.message ?: "unavailable"}\n")
+            1
+        } finally {
+            client.close()
         }
     }
 
-    private fun usage(): Int = fail("Usage: openeden chat --message <text> [--user <id>] [--debug] | openeden state [--user <id>]")
+    private suspend fun repl(client: OpenEdenServerApi, userId: String): Int {
+        output("OpenEden connected.\nType /help for commands.\n")
+        while (true) {
+            output("> ")
+            val line = input.readLine() ?: return 0
+            when {
+                line.isBlank() -> Unit
+                line == "/exit" -> return 0
+                line == "/help" -> output("/state  /help  /exit\n")
+                line == "/state" -> printState(client.state(userId))
+                line.startsWith("/") -> output("unknown command: ${line.substringBefore(' ')}\n")
+                else -> printChat(client.chat(userId, line))
+            }
+        }
+    }
 
-    private fun fail(message: String): Int {
-        output(message)
-        return 2
+    private suspend fun compatibilityCommand(
+        args: List<String>,
+        client: OpenEdenServerApi,
+        defaultUserId: String,
+    ): Int {
+        var parsed: ParsedCommand? = null
+        try {
+            OpenEdenRootCommand { parsed = it }.main(args)
+        } catch (error: CliktError) {
+            output("${error.message ?: "invalid command"}\n")
+            return 2
+        }
+        return when (val command = parsed) {
+            is ParsedCommand.Chat -> {
+                printChat(client.chat(command.user ?: defaultUserId, command.message))
+                0
+            }
+            is ParsedCommand.State -> {
+                printState(client.state(command.user ?: defaultUserId))
+                0
+            }
+            null -> 2
+        }
+    }
+
+    private fun printChat(response: ChatResponse) {
+        if (response.status == "completed") output("${response.response.orEmpty()}\n")
+        else output("${response.error ?: "request failed"}\n")
+    }
+
+    private fun printState(state: PublicState) {
+        output(
+            "sessionId=${state.sessionId} status=${state.status} omega=${state.omega} " +
+                "shockActive=${state.shockActive}\n",
+        )
     }
 }
 
 suspend fun main(args: Array<String>) {
+    configureUtf8Console()
     exitProcess(OpenEdenCli().run(args.toList()))
 }
 
-private fun openStore(config: LocalRuntimeConfig): SqlDelightSessionStateStore {
-    createParentDirectory(config.runtimeDbPath)
-    return SqlDelightSessionStateStore.open(config.runtimeDbPath)
+private fun configureUtf8Console() {
+    System.setOut(PrintStream(System.out, true, Charsets.UTF_8))
+    System.setErr(PrintStream(System.err, true, Charsets.UTF_8))
 }
 
-private fun createRuntime(store: SessionStateStore, config: LocalRuntimeConfig): RuntimeHandle {
-    val writer = VectorWriteService(store)
-    val artifact = config.localModelArtifactPath
-        ?.let(::resolvePath)
-        ?.let(LocalModelArtifactLoader::read)
-    val models = createModels(config, artifact)
-    val pipeline = OpenEdenRuntimePipeline.local(
-        personaConfig = PersonaFileLoader.load(resolvePath(config.personaPath)),
-        store = store,
-        vectorWriteService = writer,
-        inferenceExecutor = JvmInferenceExecutor(),
-        quantizer = models.first,
-        memoryEmbeddingModel = models.second,
-        memoryStore = SqlDelightMemoryRepository.open(config.runtimeDbPath, models.second),
-        diaryTaskStore = SqlDelightDiaryTaskStore.open(config.runtimeDbPath),
-        traceStore = SqlDelightTraceStore.open(config.runtimeDbPath),
-        llmClient = OpenAiResponsesLlmClient(
-            apiKey = requireNotNull(config.llm.openAiApiKey),
-            model = config.llm.model,
-            baseUrl = config.llm.openAiBaseUrl,
-        ),
+private fun createServerClient(url: String): OpenEdenServerClient =
+    OpenEdenServerClient(
+        baseUrl = url,
+        httpClient = HttpClient(CIO) {
+            install(ContentNegotiation) { json() }
+        },
     )
-    return PipelineRuntimeHandle(pipeline)
-}
-
-private fun createModels(
-    config: LocalRuntimeConfig,
-    artifact: io.openeden.model.LocalModelArtifact?,
-): Pair<io.openeden.codebook.CodebookQuantizer, io.openeden.memory.MemoryEmbeddingModel> = when (config.modelBackend) {
-    "artifact" -> artifact?.let { it.codebookQuantizer() to it.memoryEmbeddingModel() }
-        ?: error("OPENEDEN_LOCAL_MODEL_ARTIFACT is required when OPENEDEN_MODEL_BACKEND=artifact")
-    "djl" -> {
-        val local = requireNotNull(artifact) {
-            "OPENEDEN_LOCAL_MODEL_ARTIFACT is required when OPENEDEN_MODEL_BACKEND=djl"
-        }
-        val vqPath = requireExisting(config.djlVqVaeModelPath, "OPENEDEN_DJL_VQVAE_MODEL_PATH")
-        val textPath = requireExisting(config.djlTextModelPath, "OPENEDEN_DJL_TEXT_MODEL_PATH")
-        val emotionalPath = requireExisting(config.djlEmotionalModelPath, "OPENEDEN_DJL_EMOTIONAL_MODEL_PATH")
-        val runner = DjlVqVaeCodebookModelRunner.fromModelPath(
-            modelPath = vqPath,
-            modelName = config.djlModelName,
-            engineName = config.djlEngineName,
-            inputDimension = 9,
-            codebook = local.vqVae.codebook,
-            topK = local.vqVae.topK,
-        )
-        VqVaeCodebookQuantizer(
-            modelRunner = runner,
-            dictionary = CodebookDictionary.parseCsv(local.codebookCsv),
-        ) to DjlMemoryEmbeddingModel.fromModelPaths(
-            textModelPath = textPath,
-            emotionalModelPath = emotionalPath,
-            textModelName = config.djlModelName,
-            emotionalModelName = config.djlModelName,
-            engineName = config.djlEngineName,
-            textInputDimension = local.textEmbedding.bucketSize,
-        )
-    }
-    else -> error("Unsupported OPENEDEN_MODEL_BACKEND: ${config.modelBackend}")
-}
-
-private fun requireExisting(path: Path?, envName: String): Path {
-    val configured = requireNotNull(path) { "$envName is required when OPENEDEN_MODEL_BACKEND=djl" }
-    val resolved = if (Files.exists(configured)) configured else Path.of("").toAbsolutePath().resolve(configured)
-    require(Files.isRegularFile(resolved)) { "$envName does not point to a file: $resolved" }
-    return resolved
-}
-
-private fun resolvePath(path: Path): Path =
-    if (Files.exists(path)) path else Path.of("").toAbsolutePath().resolve(path)
-
-private fun createParentDirectory(path: Path) {
-    path.parent?.let { Files.createDirectories(it) }
-}
 
 private sealed interface ParsedCommand {
-    data class Chat(
-        val message: String,
-        val user: String?,
-        val debug: Boolean,
-    ) : ParsedCommand
-
-    data class State(
-        val user: String?,
-    ) : ParsedCommand
+    data class Chat(val message: String, val user: String?) : ParsedCommand
+    data class State(val user: String?) : ParsedCommand
 }
 
 private class OpenEdenRootCommand(
@@ -233,10 +150,9 @@ private class ChatCliCommand(
 ) : CliktCommand(name = "chat") {
     private val message by option("--message").required()
     private val user by option("--user")
-    private val debug by option("--debug").flag(default = false)
 
     override fun run() {
-        onParsed(ParsedCommand.Chat(message = message, user = user, debug = debug))
+        onParsed(ParsedCommand.Chat(message = message, user = user))
     }
 }
 

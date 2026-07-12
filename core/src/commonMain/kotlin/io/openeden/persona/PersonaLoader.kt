@@ -13,6 +13,7 @@ object MapPersonaLoader {
 
     // Distilled behavior + style guidance. Optional so personas without it (e.g. default.yaml) stay valid.
     private val optionalPromptSections = listOf(
+        "persona.identity",
         "persona.behavior",
         "style.observed_summary",
         "style.source_language_notes",

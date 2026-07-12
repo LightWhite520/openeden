@@ -31,6 +31,13 @@ import io.openeden.trace.TraceContext
 import io.openeden.trace.TraceSpan
 import io.openeden.trace.TraceStatus
 import io.openeden.trace.TraceStore
+import io.openeden.relationship.DeterministicUserAffectAnalyzer
+import io.openeden.relationship.RelationshipEvidence
+import io.openeden.relationship.RelationshipState
+import io.openeden.relationship.RelationshipStateStore
+import io.openeden.relationship.InMemoryRelationshipStateStore
+import io.openeden.relationship.UserAffectAnalyzer
+import io.openeden.relationship.UserAffectInfluenceMapper
 import kotlin.time.Clock
 
 /** Distinguishes real user turns from proactive heartbeat turns. Heartbeat turns still evolve the
@@ -42,7 +49,7 @@ data class DevelopmentMessageRequest(
     val scopeId: String,
     val userId: String,
     val text: String,
-    val emotionConfidence: Float,
+    val emotionConfidence: Float = 0.0f,
     val emotionDelta: VectorDelta = VectorDelta.Zero,
     val source: TurnSource = TurnSource.USER,
 )
@@ -76,6 +83,9 @@ class DevelopmentMessagePipeline(
     private val turnGate: SessionTurnGate,
     private val diaryTaskStore: DiaryTaskStore?,
     private val traceStore: TraceStore?,
+    private val userAffectAnalyzer: UserAffectAnalyzer,
+    private val relationshipStore: RelationshipStateStore,
+    private val affectInfluenceMapper: UserAffectInfluenceMapper,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     suspend fun handle(request: DevelopmentMessageRequest): DevelopmentMessageResult {
@@ -102,14 +112,49 @@ class DevelopmentMessagePipeline(
         }
         trace(traceContext, "centroid", attributes = mapOf("updated" to (centroid != initial.origin).toString()))
         val current = store.read(sessionId)
+        var relationshipDegraded = false
+        val relationship = if (request.source == TurnSource.USER) {
+            try {
+                relationshipStore.readOrCreate(sessionId, request.userId, nowMs())
+            } catch (_: Throwable) {
+                relationshipDegraded = true
+                RelationshipState.neutral(sessionId, request.userId, nowMs())
+            }
+        } else null
+        if (relationship != null) trace(
+            traceContext,
+            "relationship_load",
+            tags = setOf(if (relationshipDegraded) TraceTag.RelationshipDegraded else TraceTag.RelationshipLoaded),
+        )
+        val observedAffect = if (request.source == TurnSource.USER) {
+            inferenceExecutor.run { userAffectAnalyzer.analyze(request.text) }
+        } else {
+            io.openeden.relationship.UserAffectState.Uncertain
+        }
+        val emotionSignal = if (request.emotionConfidence > 0.0f || request.emotionDelta != VectorDelta.Zero) {
+            EmotionSignal(request.emotionDelta, request.emotionConfidence)
+        } else {
+            observedAffect.toEmotionSignal(affectInfluenceMapper)
+        }
+        trace(
+            traceContext,
+            "user_affect_inference",
+            tags = if (emotionSignal.confidence < PRETICK_SKIP_CONFIDENCE) {
+                setOf(TraceTag.UserAffectFallback)
+            } else {
+                setOf(TraceTag.UserAffectInferred)
+            },
+            attributes = mapOf("confidence" to emotionSignal.confidence.toString()),
+        )
+        trace(traceContext, "user_affect_mapping", tags = setOf(TraceTag.UserAffectMapped))
         val preTick = PreTickEngine.apply(
             original = current.vector,
-            signal = EmotionSignal(delta = request.emotionDelta, confidence = request.emotionConfidence),
+            signal = emotionSignal,
         )
         trace(
             traceContext,
             "pre_tick",
-            attributes = mapOf("skipped" to preTick.skipped.toString(), "confidence" to request.emotionConfidence.toString()),
+            attributes = mapOf("skipped" to preTick.skipped.toString(), "confidence" to emotionSignal.confidence.toString()),
         )
         val inference = inferenceExecutor.run {
             val dissonance = preTick.preTicked.derivedDissonance()
@@ -131,12 +176,16 @@ class DevelopmentMessagePipeline(
             memoryRetriever.retrieve(
                 RetrievalRequest(
                     sessionId = sessionId,
+                    userId = request.userId,
                     userInput = request.text,
                     currentVector = preTick.preTicked,
                     origin = current.origin,
                     mode = inference.retrievalMode,
                 ),
             )
+        }.let { result ->
+            val recent = memoryStore?.recent(sessionId, RECENT_HISTORY_LIMIT).orEmpty()
+            result.copy(recentMemories = recent)
         }
         trace(traceContext, "retrieval", tags = retrievalResult.traceTags, attributes = mapOf("mode" to retrievalResult.mode.name))
         val prompt = promptBuilder.build(
@@ -150,6 +199,8 @@ class DevelopmentMessagePipeline(
                 omegaState = current.omega,
                 shockState = current.shockState,
                 userInput = request.text,
+                userAffect = observedAffect,
+                relationshipState = relationship,
             ),
         )
         trace(traceContext, "prompt_construction")
@@ -172,7 +223,7 @@ class DevelopmentMessagePipeline(
             val detectedShock = inferenceExecutor.run {
                 ShockStateEngine.detectFromLlmOutput(
                     vectorDelta = validation.delta,
-                    emotionConfidence = request.emotionConfidence,
+                    emotionConfidence = emotionSignal.confidence,
                     internalLogic = validation.output?.internalLogic.orEmpty(),
                 )
             }
@@ -194,6 +245,26 @@ class DevelopmentMessagePipeline(
             VectorWriteResult(state = current, traceTags = emptySet())
         }
         trace(traceContext, "state_commit", tags = write.traceTags)
+
+        val relationshipWrite = if (request.source == TurnSource.USER && validation.isValid && relationship != null) {
+            val evidence = relationshipEvidence(request.text)
+            val updated = if (evidence != null) {
+                relationship.apply(evidence, nowMs())
+            } else {
+                relationship.copy(
+                    familiarity = (relationship.familiarity + 0.005f).coerceAtMost(1.0f),
+                    updatedAtMs = nowMs(),
+                )
+            }
+            try {
+                relationshipStore.write(updated)
+                setOf(TraceTag.RelationshipUpdated)
+            } catch (_: Throwable) {
+                setOf(TraceTag.RelationshipDegraded)
+            }
+        } else {
+            emptySet()
+        }
 
         val sourceTags = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
 
@@ -242,6 +313,7 @@ class DevelopmentMessagePipeline(
                 write.traceTags +
                 diaryOutcome.traceTags +
                 memoryTraceTags +
+                relationshipWrite +
                 centroidTags +
                 sourceTags,
             prompt = prompt,
@@ -351,6 +423,8 @@ class DevelopmentMessagePipeline(
     }
 
     companion object {
+        private const val RECENT_HISTORY_LIMIT = 8
+
         fun create(
             personaConfig: PersonaConfig,
             llmClient: LlmClient = DevelopmentLlmStub(),
@@ -368,6 +442,9 @@ class DevelopmentMessagePipeline(
                 memoryStore = memoryStore,
                 fallback = StoredOriginCentroidProvider(store),
             ),
+            userAffectAnalyzer: UserAffectAnalyzer = DeterministicUserAffectAnalyzer(),
+            relationshipStore: RelationshipStateStore = InMemoryRelationshipStateStore(),
+            affectInfluenceMapper: UserAffectInfluenceMapper = UserAffectInfluenceMapper.Default,
         ): DevelopmentMessagePipeline {
             return DevelopmentMessagePipeline(
                 personaConfig = personaConfig,
@@ -385,8 +462,18 @@ class DevelopmentMessagePipeline(
                 turnGate = SessionTurnGate(vectorWriteService.mutexRegistry),
                 diaryTaskStore = diaryTaskStore,
                 traceStore = traceStore,
+                userAffectAnalyzer = userAffectAnalyzer,
+                relationshipStore = relationshipStore,
+                affectInfluenceMapper = affectInfluenceMapper,
             )
         }
+    }
+
+    private fun relationshipEvidence(text: String): RelationshipEvidence? = when {
+        text.contains(Regex("不要|别这样|请停|不想说")) -> RelationshipEvidence.BOUNDARY_REQUEST
+        text.contains(Regex("对不起|抱歉|误会|修正")) -> RelationshipEvidence.REPAIR
+        text.contains(Regex("你记得|一直都|每次都")) -> RelationshipEvidence.REPEATED_CONSISTENCY
+        else -> null
     }
 }
 

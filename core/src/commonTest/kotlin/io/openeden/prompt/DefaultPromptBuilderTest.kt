@@ -32,6 +32,13 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `build injects explicit identity from persona data`() = runTest {
+        val built = DefaultPromptBuilder().build(promptInput())
+
+        assertContains(built.personaText, "identity from data")
+    }
+
+    @Test
     fun `growth mode selects sub state patch from persona data`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput(evolutionIndex = 15))
 
@@ -105,6 +112,8 @@ class DefaultPromptBuilderTest {
                 "logical_core",
                 "bio_core_state",
                 "runtime_state",
+                "observed_user_state",
+                "relationship_context",
                 "memory_retrieval",
                 "required_output_schema",
             ),
@@ -121,6 +130,7 @@ class DefaultPromptBuilderTest {
             mode = personaMode,
             evolutionThresholds = EvolutionThresholds(threshold1 = 10, threshold2 = 20),
             promptSections = mapOf(
+                PromptSectionKeys.Identity to "identity from data",
                 PromptSectionKeys.PersonaBase to "base persona from data",
                 PromptSectionKeys.PersonaBehavior to "behavior rules from data",
                 PromptSectionKeys.OutputLayerRules to "output rules from data",

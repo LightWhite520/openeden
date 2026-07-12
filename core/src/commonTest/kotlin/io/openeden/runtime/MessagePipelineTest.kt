@@ -142,6 +142,30 @@ class MessagePipelineTest {
         assertTrue(executor.calls >= 4)
     }
 
+    @Test
+    fun `explicit affect signal uses its confidence for kernel trace`() = runTest {
+        val traces = io.openeden.trace.InMemoryTraceStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            traceStore = traces,
+        )
+
+        pipeline.handle(
+            DevelopmentMessageRequest(
+                platform = "QQ",
+                scopeId = "100",
+                userId = "u1",
+                text = "hello",
+                emotionConfidence = 0.8f,
+                emotionDelta = VectorDelta(p = -0.1f),
+            ),
+        )
+
+        val affectSpan = traces.snapshot().single { it.stage == "user_affect_inference" }
+        assertContains(affectSpan.tags, TraceTag.UserAffectInferred)
+        assertTrue(TraceTag.UserAffectFallback !in affectSpan.tags)
+    }
+
     private fun testPersonaConfig(): PersonaConfig = PersonaConfig(
         mode = PersonaMode.GROWTH,
         evolutionThresholds = EvolutionThresholds(10, 30),

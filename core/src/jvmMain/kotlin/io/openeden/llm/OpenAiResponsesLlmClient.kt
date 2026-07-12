@@ -1,42 +1,45 @@
 package io.openeden.llm
 
+import io.ktor.client.*
+import io.ktor.client.engine.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
 import io.openeden.prompt.BuiltPrompt
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.float
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.*
+
+import io.ktor.util.logging.KtorSimpleLogger
+
+private val log = KtorSimpleLogger("io.openeden.llm.OpenAiResponsesLlmClient")
 
 class OpenAiResponsesLlmClient(
     private val apiKey: String,
     private val model: String,
+    private val reasoningEffort: ReasoningEffort = ReasoningEffort.MEDIUM,
     private val baseUrl: String = "https://api.openai.com/v1",
     private val httpClient: HttpClient = httpClient(CIO.create()),
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) : LlmClient {
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+        log.info("Prompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
         val response = httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             bearerAuth(apiKey)
             contentType(ContentType.Application.Json)
             setBody(
                 ResponsesRequest(
                     model = model,
-                    input = listOf(prompt.systemText, prompt.personaText, prompt.userText).joinToString("\n\n"),
+                    reasoning = ResponsesReasoning(reasoningEffort.value),
+                    input = listOf(
+                        ResponsesInputMessage(role = "system", content = prompt.systemText),
+                        ResponsesInputMessage(role = "developer", content = prompt.personaText),
+                        ResponsesInputMessage(role = "user", content = prompt.userText),
+                    ),
                     text = TextFormat(
                         format = JsonSchemaFormat(
                             type = "json_schema",
@@ -58,11 +61,13 @@ class OpenAiResponsesLlmClient(
             ?: body.output.orEmpty().flatMap { it.content.orEmpty() }.firstNotNullOfOrNull { it.text }
             ?: throw IllegalStateException("OpenAI Responses API response did not contain output text")
         val root = json.parseToJsonElement(outputText).jsonObject
-        return LlmOutput(
+        val llmOutput = LlmOutput(
             internalLogic = root.getValue("internal_logic").jsonPrimitive.content,
             vectorDelta = root.getValue("vector_delta").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.float },
             response = root.getValue("response").jsonPrimitive.content,
         )
+        log.info("\n$llmOutput")
+        return llmOutput
     }
 
     companion object {
@@ -79,8 +84,30 @@ class OpenAiResponsesLlmClient(
     }
 }
 
+enum class ReasoningEffort(val value: String) {
+    LOW("low"),
+    MEDIUM("medium"),
+    HIGH("high");
+
+    companion object {
+        fun parse(value: String): ReasoningEffort = entries.firstOrNull { it.value == value.trim().lowercase() }
+            ?: error("Unsupported reasoning effort '$value'; expected low, medium, or high")
+    }
+}
+
 @Serializable
-private data class ResponsesRequest(val model: String, val input: String, val text: TextFormat)
+private data class ResponsesRequest(
+    val model: String,
+    val reasoning: ResponsesReasoning,
+    val input: List<ResponsesInputMessage>,
+    val text: TextFormat,
+)
+
+@Serializable
+private data class ResponsesReasoning(val effort: String)
+
+@Serializable
+private data class ResponsesInputMessage(val role: String, val content: String)
 
 @Serializable
 private data class TextFormat(val format: JsonSchemaFormat)

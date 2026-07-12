@@ -58,7 +58,19 @@ class InMemoryMemoryPalace(
                 mode = request.mode,
                 injectionLabel = RetrievalModeSelector.injectionLabel(request.mode),
                 memories = selected,
-                traceTags = if (selected.isEmpty()) emptySet() else setOf(TraceTag.MemoryRetrieved),
+                recentMemories = entries.asReversed()
+                    .asSequence()
+                    .filter { it.sessionId == request.sessionId }
+                    .take(maxResults)
+                    .map { entry ->
+                        MemorySnippet(id = entry.id, content = entry.content, metadata = entry.metadata)
+                    }
+                    .toList()
+                    .asReversed(),
+                traceTags = buildSet {
+                    if (selected.isNotEmpty()) add(TraceTag.MemoryRetrieved)
+                    if (selected.any { it.metadata.userId == request.userId }) add(TraceTag.IdentityAffinityApplied)
+                },
             )
         }
 
@@ -69,8 +81,17 @@ class InMemoryMemoryPalace(
                 .filter { it.sessionId == sessionId && "daily" in it.tags && "stable" in it.tags }
                 .take(limit)
                 .map { it.metadata.snapshot8D }
-                .toList()
+            .toList()
         }
+
+    override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> =
+        entries.asReversed()
+            .asSequence()
+            .filter { it.sessionId == sessionId }
+            .take(limit.coerceAtLeast(0))
+            .map { entry -> MemorySnippet(id = entry.id, content = entry.content, metadata = entry.metadata) }
+            .toList()
+            .asReversed()
 
     private suspend fun rank(
         candidates: List<MemoryEntry>,
@@ -89,7 +110,8 @@ class InMemoryMemoryPalace(
                 val semantic = cosine(querySemantic, entry.semanticEmbedding)
                 val emotion = cosine(queryEmotion, entry.emotionalEmbedding)
                 val momentum = momentumImpact(entry.metadata)
-                val score = alpha * semantic + beta * emotion + 0.15f * momentum
+                val identityAffinity = identityAffinity(entry, request.userId)
+                val score = alpha * semantic + beta * emotion + 0.15f * momentum + identityAffinity
                 MemorySnippet(
                     id = entry.id,
                     content = entry.content,
@@ -122,6 +144,15 @@ class InMemoryMemoryPalace(
         private fun momentumImpact(metadata: MemoryMetadata): Float {
             val delta = metadata.deltaVec
             return (abs(delta.p) + abs(delta.v)).coerceIn(0.0f, 1.0f)
+        }
+
+        private fun identityAffinity(entry: MemoryEntry, userId: String): Float {
+            if (userId.isBlank() || entry.metadata.userId != userId) return 0.0f
+            return when (entry.room) {
+                MemoryRoom.PROFILE_ROOM -> 0.12f
+                MemoryRoom.EVENT_ROOM -> 0.06f
+                else -> 0.02f
+            }
         }
 
         private fun normalize(values: FloatArray): List<Float> {

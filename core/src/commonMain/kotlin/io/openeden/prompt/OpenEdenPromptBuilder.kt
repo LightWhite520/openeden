@@ -6,6 +6,9 @@ import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.persona.PersonaSubStateSelector
+import io.openeden.relationship.RelationshipState
+import io.openeden.relationship.SemanticLevel
+import io.openeden.relationship.UserAffectState
 
 class DefaultPromptBuilder(
     private val renderer: PromptRenderer = PromptRenderer(),
@@ -29,7 +32,10 @@ object OpenEdenPromptDocumentFactory {
                     "rules" to array(
                         "You must obey the JSON output schema exactly.",
                         "Use the Bio-Core semantic definitions as runtime constraints.",
+                        "The persona identity is authoritative when the user asks who you are.",
+                        "Use recent_turns only when present as the immediate conversation history; do not treat the current user input as a previous turn.",
                         "Do not infer personality from raw numeric vectors.",
+                        "Observed user state is an uncertain observation, not a diagnosis or undisputed fact; allow the user to correct it.",
                         "Treat dissonance as a derived runtime signal, not as a stored vector dimension.",
                         "The response field is the only user-visible final output.",
                     )
@@ -47,7 +53,9 @@ object OpenEdenPromptDocumentFactory {
                     "omega" to input.omegaState.value.promptFloat()
                     "shock_state" to shockStateObject(input)
                 }
-                "memory_retrieval" to memoryRetrievalObject(input.retrievalResult)
+                "observed_user_state" to userAffectObject(input.userAffect)
+                "relationship_context" to relationshipObject(input.relationshipState)
+                "memory_retrieval" to memoryRetrievalObject(input)
                 "required_output_schema" {
                     "internal_logic" to "Traceable reasoning process based on current Codebook state"
                     "vector_delta" {
@@ -64,6 +72,7 @@ object OpenEdenPromptDocumentFactory {
                 }
             }
             "persona" {
+                personaSection("identity", input.personaConfig, PromptSectionKeys.Identity)
                 personaSection("base", input.personaConfig, PromptSectionKeys.PersonaBase)
                 personaSection("behavior", input.personaConfig, PromptSectionKeys.PersonaBehavior)
                 personaSection("sub_state_patch", input.personaConfig, subState.sectionKey())
@@ -130,12 +139,49 @@ object OpenEdenPromptDocumentFactory {
             }
         }
 
-    private fun PromptObjectBuilder.memoryRetrievalObject(retrievalResult: RetrievalResult): PromptObject =
-        obj {
-            "selected_mode" to retrievalResult.mode.name
-            "injection_label" to retrievalResult.injectionLabel
-            "memories" to array(retrievalResult.memories.map(::memorySnippetObject))
+    private fun userAffectObject(state: UserAffectState): PromptObject = PromptObjectBuilder().obj {
+        "valence" to state.semanticLevel(state.valence).name
+        "arousal" to state.semanticLevel(state.arousal).name
+        "dominance" to state.semanticLevel(state.dominance).name
+        "connection_need" to state.semanticLevel(state.connectionNeed).name
+        "openness" to state.semanticLevel(state.openness).name
+        "confidence" to state.semanticLevel(state.confidence).name
+    }
+
+    private fun relationshipObject(state: RelationshipState?): PromptObject = PromptObjectBuilder().obj {
+        fun level(value: Float): String = when {
+            state == null -> SemanticLevel.UNKNOWN.name
+            value < 0.3f -> SemanticLevel.LOW.name
+            value > 0.6f -> SemanticLevel.HIGH.name
+            else -> SemanticLevel.MEDIUM.name
         }
+        "familiarity" to level(state?.familiarity ?: 0.0f)
+        "trust" to level(state?.trust ?: 0.0f)
+        "safety" to level(state?.safety ?: 0.0f)
+        "boundary_sensitivity" to level(state?.boundarySensitivity ?: 0.0f)
+        "unresolved_tension" to level(state?.unresolvedTension ?: 0.0f)
+    }
+
+    private fun PromptObjectBuilder.memoryRetrievalObject(input: PromptInput): PromptObject {
+        val recentLimit = if (input.userInput.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS
+        val recent = input.retrievalResult.recentMemories.takeLast(recentLimit)
+        val recentIds = recent.mapTo(hashSetOf()) { it.id }
+        val relevant = input.retrievalResult.memories
+            .filterNot { it.id in recentIds }
+            .take((MAX_CONTEXT_MEMORIES - recent.size).coerceAtLeast(0))
+        return obj {
+            "selected_mode" to input.retrievalResult.mode.name
+            "injection_label" to input.retrievalResult.injectionLabel
+            "recent_turns" to array(recent.map(::memorySnippetObject))
+            "memories" to array(relevant.map(::memorySnippetObject))
+        }
+    }
+
+    private fun String.requiresRecentContext(): Boolean =
+        contains(Regex("刚刚|刚才|上一句|上一次|之前|前面|刚才说了什么|刚刚说了什么|记得吗"))
+
+    private const val RECENT_CONTEXT_TURNS = 2
+    private const val MAX_CONTEXT_MEMORIES = 6
 
     private fun memorySnippetObject(memory: MemorySnippet): PromptObject =
         PromptObject(
@@ -155,6 +201,7 @@ object OpenEdenPromptDocumentFactory {
 }
 
 object PromptSectionKeys {
+    const val Identity = "persona.identity"
     const val PersonaBase = "persona.base"
     const val PersonaBehavior = "persona.behavior"
     const val OutputLayerRules = "output.layer.rules"

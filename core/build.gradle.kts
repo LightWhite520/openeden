@@ -23,6 +23,7 @@ kotlin {
         }
 
         jvmMain.dependencies {
+            implementation("com.knuddels:jtokkit:1.1.0")
             implementation(libs.djl.api)
             implementation(libs.djl.pytorch.engine)
             implementation(ktorLibs.client.contentNegotiation)
