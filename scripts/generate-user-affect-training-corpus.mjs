@@ -183,10 +183,10 @@ for (let start = 0; start < prompts.length; start += batchSize) {
     };
     const unique = await ensureUniqueFinalItem(result, acceptedTextOwners, async (conflicting) => {
       if (dryRun) throw new Error(`Dry-run final text conflict for ${request.sampleId}`);
-      const repaired = await reviewCandidates(
+      const repaired = await completeWithRetries(
         escalationModel,
-        [{ request, item: conflicting }],
-        "uniqueness_repair",
+        [request],
+        (requests) => generationPrompt(requests, [...knownTexts, conflicting.text]),
       );
       const valid = validateItem(repaired.get(request.sampleId), request, { requireGateJustification: true });
       appendStage(escalatedPath, valid);
