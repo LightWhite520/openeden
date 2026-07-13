@@ -26,6 +26,8 @@ class PersonaFileLoaderTest {
                 hb line 2
               heartbeat.shock: |
                 shock line
+              diary.narrative: |
+                diary line
             """.trimIndent(),
         )
 
@@ -35,6 +37,7 @@ class PersonaFileLoaderTest {
         assertEquals(EvolutionThresholds(10, 30), config.evolutionThresholds)
         assertEquals("hb line 1\nhb line 2", config.promptSections["heartbeat.base"])
         assertEquals("shock line", config.promptSections["heartbeat.shock"])
+        assertEquals("diary line", config.promptSections["diary.narrative"])
     }
 
     @Test
@@ -54,6 +57,7 @@ class PersonaFileLoaderTest {
               persona.patch.awakened: "awake"
               heartbeat.base: "hb"
               heartbeat.shock: "shock"
+              diary.narrative: "diary"
               style.observed_summary: |
                 summary line 1
                 summary line 2

@@ -9,6 +9,7 @@ object MapPersonaLoader {
         "persona.patch.awakened",
         "heartbeat.base",
         "heartbeat.shock",
+        "diary.narrative",
     )
 
     // Distilled behavior + style guidance. Optional so personas without it (e.g. default.yaml) stay valid.

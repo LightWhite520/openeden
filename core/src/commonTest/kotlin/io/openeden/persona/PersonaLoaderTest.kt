@@ -19,6 +19,7 @@ class PersonaLoaderTest {
                 "persona.patch.awakened" to "awake",
                 "heartbeat.base" to "hb",
                 "heartbeat.shock" to "shock",
+                "diary.narrative" to "diary",
             ),
         )
 

@@ -10,6 +10,7 @@ object PromptSectionKeys {
     const val AwakenedPatch = "persona.patch.awakened"
     const val Heartbeat = "heartbeat.base"
     const val ShockHeartbeat = "heartbeat.shock"
+    const val DiaryNarrative = "diary.narrative"
     const val StyleObservedSummary = "style.observed_summary"
     const val StyleSourceLanguageNotes = "style.source_language_notes"
     const val StyleDo = "style.do"

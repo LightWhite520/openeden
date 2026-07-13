@@ -55,6 +55,7 @@ object PersonaFileLoader {
     private fun isPromptSectionKey(key: String): Boolean =
         key.startsWith("persona.") || key.startsWith("output.") ||
             key.startsWith("heartbeat.") || key.startsWith("style.")
+            || key.startsWith("diary.")
 
     private fun String.isSequenceItem(): Boolean = trimStart().startsWith("- ")
 
