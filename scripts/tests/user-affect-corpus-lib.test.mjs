@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import {
+  auditCorpus,
   buildRequests,
   countBy,
   generationPrompt,
   needsEscalation,
   needsStandardReview,
+  readDurableState,
   validateItem,
 } from "../user-affect-corpus-lib.mjs";
 
@@ -26,6 +28,13 @@ test("8192 requests cover five confidence bands", () => {
     explicit: 1638,
   });
   assert.ok(requests.filter((item) => item.nearRuntimeGate).length >= 2048);
+});
+
+test("request mechanisms are quota-balanced", () => {
+  const counts = Object.values(countBy(buildRequests(50, 0xaffec726), "mechanism"));
+
+  assert.equal(counts.length, 12);
+  assert.equal(Math.max(...counts) - Math.min(...counts) <= 1, true);
 });
 
 test("confidence prompt defines text observability", () => {
@@ -67,6 +76,7 @@ test("validation rejects confidence outside requested band", () => {
 
 test("dry-run CLI routes generated request-item pairs", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "openeden-affect-corpus-"));
+  const auditPath = path.join(directory, "audit.json");
   const result = spawnSync(process.execPath, [
     "scripts/generate-user-affect-training-corpus.mjs",
     "--samples", "10",
@@ -74,10 +84,54 @@ test("dry-run CLI routes generated request-item pairs", () => {
     "--dry-run",
     "--raw", path.join(directory, "raw.jsonl"),
     "--manifest", path.join(directory, "manifest.json"),
+    "--audit", auditPath,
   ], { cwd: process.cwd(), encoding: "utf8" });
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /accepted=10\/10/);
+  assert.equal(existsSync(auditPath), true);
+  assert.equal(existsSync(path.join(directory, "raw.generated.jsonl")), true);
+  assert.equal(existsSync(path.join(directory, "raw.reviewed.jsonl")), true);
+  assert.equal(existsSync(path.join(directory, "raw.escalated.jsonl")), true);
+  const audit = JSON.parse(readFileSync(auditPath, "utf8"));
+  assert.equal(audit.sampleCount, 10);
+  assert.equal(audit.nearGateCount >= 3, true);
+
+  const auditOnly = spawnSync(process.execPath, [
+    "scripts/generate-user-affect-training-corpus.mjs",
+    "--samples", "10",
+    "--audit-only",
+    "--raw", path.join(directory, "raw.jsonl"),
+    "--manifest", path.join(directory, "manifest.json"),
+    "--audit", auditPath,
+  ], { cwd: process.cwd(), encoding: "utf8" });
+  assert.equal(auditOnly.status, 0, auditOnly.stderr);
+  assert.match(auditOnly.stdout, /audit_ok=10/);
+});
+
+test("audit rejects duplicate normalized text", () => {
+  const requests = buildRequests(5, 11);
+  const records = requests.map((entry, index) => recordFor(entry, `这是第${index}条用于审计的不同中文文本。`));
+  records[1].text = `  ${records[0].text}  `;
+
+  assert.throws(() => auditCorpus(records, requests), /duplicate normalized text/i);
+});
+
+test("audit rejects a missing confidence band quota", () => {
+  const requests = buildRequests(10, 11);
+  const records = requests.slice(0, 9).map((entry, index) => recordFor(entry, `这是第${index}条用于审计的不同中文文本。`));
+
+  assert.throws(() => auditCorpus(records, requests), /sample count/i);
+});
+
+test("durable state only completes final records", () => {
+  const state = readDurableState([
+    { stage: "generated", sampleId: "UAV2_000000" },
+    { stage: "final", sampleId: "UAV2_000001" },
+  ]);
+
+  assert.deepEqual([...state.completedIds], ["UAV2_000001"]);
+  assert.equal(state.generated.has("UAV2_000000"), true);
 });
 
 function request(confidenceBand, mechanisms) {
@@ -111,5 +165,16 @@ function item(confidence, overrides = {}) {
     openness: 0.5,
     confidence,
     ...overrides,
+  };
+}
+
+function recordFor(requested, text) {
+  return {
+    ...item(requested.targetConfidence, { sampleId: requested.sampleId, text }),
+    confidenceBand: requested.confidenceBand,
+    mechanism: requested.mechanism,
+    mechanisms: requested.mechanisms,
+    nearRuntimeGate: requested.nearRuntimeGate,
+    finalLabelModel: "gpt-5.4-mini",
   };
 }

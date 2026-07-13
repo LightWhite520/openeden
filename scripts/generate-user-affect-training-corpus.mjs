@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  auditCorpus,
   buildRequests,
   DIMENSIONS,
   generationPrompt,
@@ -24,42 +25,86 @@ const endpoint = args.endpoint ?? process.env.OPENEDEN_AFFECT_LABEL_ENDPOINT;
 const apiKey = args.apiKey ?? process.env.OPENEDEN_AFFECT_LABEL_API_KEY;
 const rawPath = resolve(args.raw ?? "data/training/user-affect-v2.raw.jsonl");
 const manifestPath = resolve(args.manifest ?? "data/training/user-affect-v2.corpus-manifest.json");
+const auditPath = resolve(args.audit ?? "data/training/user-affect-v2.audit.json");
+const generatedPath = resolve(args.generated ?? stagePath(rawPath, "generated"));
+const reviewedPath = resolve(args.reviewed ?? stagePath(rawPath, "reviewed"));
+const escalatedPath = resolve(args.escalated ?? stagePath(rawPath, "escalated"));
 const dryRun = args.dryRun === true;
+const auditOnly = args.auditOnly === true;
 
-if (!dryRun && (!endpoint || !apiKey)) {
+if (!dryRun && !auditOnly && (!endpoint || !apiKey)) {
   throw new Error("Set OPENEDEN_AFFECT_LABEL_ENDPOINT and OPENEDEN_AFFECT_LABEL_API_KEY.");
 }
 ensureParent(rawPath);
 ensureParent(manifestPath);
+ensureParent(auditPath);
+ensureParent(generatedPath);
+ensureParent(reviewedPath);
+ensureParent(escalatedPath);
 
 const prompts = buildRequests(sampleCount, seed);
 const requestById = new Map(prompts.map((request) => [request.sampleId, request]));
 const existing = readCorpus(rawPath, requestById);
-const knownTexts = new Set([...existing.values()].map((entry) => entry.text));
+if (auditOnly) {
+  const records = [...existing.values()].sort((left, right) => left.sampleId.localeCompare(right.sampleId));
+  const audit = auditCorpus(records, prompts);
+  fs.writeFileSync(auditPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+  console.log(`audit_ok=${records.length}`);
+  process.exit(0);
+}
+const generatedStage = readStageFile(generatedPath, requestById, false);
+const reviewedStage = readStageFile(reviewedPath, requestById, true);
+const escalatedStage = readStageFile(escalatedPath, requestById, true);
+const knownTexts = new Set(
+  [...existing.values(), ...generatedStage.values()].map((entry) => entry.text),
+);
 for (let start = 0; start < prompts.length; start += batchSize) {
   const batch = prompts.slice(start, start + batchSize).filter(({ sampleId }) => !existing.has(sampleId));
   if (batch.length === 0) continue;
-  const generatedItems = dryRun
-    ? dryRunItems(batch)
-    : await completeWithRetries(generatorModel, batch, (requests) => generationPrompt(requests, [...knownTexts]));
+  const generatedItems = new Map(batch
+    .filter(({ sampleId }) => generatedStage.has(sampleId))
+    .map(({ sampleId }) => [sampleId, generatedStage.get(sampleId)]));
+  const generationMissing = batch.filter(({ sampleId }) => !generatedItems.has(sampleId));
+  const newlyGenerated = generationMissing.length === 0
+    ? new Map()
+    : dryRun
+      ? dryRunItems(generationMissing)
+      : await completeWithRetries(generatorModel, generationMissing, (requests) => generationPrompt(requests, [...knownTexts]));
+  for (const [sampleId, item] of newlyGenerated) generatedItems.set(sampleId, item);
   const generated = [];
   for (const request of batch) {
     const item = await validUniqueGeneration(request, generatedItems.get(request.sampleId), knownTexts);
     generated.push({ request, item });
+    if (!generatedStage.has(request.sampleId)) {
+      appendStage(generatedPath, item);
+      generatedStage.set(request.sampleId, item);
+    }
   }
 
   const standardCandidates = generated.filter(({ request, item }) => needsStandardReview(request, item));
-  const standardResults = dryRun
-    ? new Map(standardCandidates.map(({ request, item }) => [request.sampleId, { ...item, gateJustification: "dry-run textual evidence" }]))
-    : await reviewCandidates(standardModel, standardCandidates, "standard");
+  const standardResults = new Map(standardCandidates
+    .filter(({ request }) => reviewedStage.has(request.sampleId))
+    .map(({ request }) => [request.sampleId, reviewedStage.get(request.sampleId)]));
+  const standardMissing = standardCandidates.filter(({ request }) => !standardResults.has(request.sampleId));
+  const newStandardResults = standardMissing.length === 0
+    ? new Map()
+    : dryRun
+      ? new Map(standardMissing.map(({ request, item }) => [request.sampleId, { ...item, gateJustification: "dry-run textual evidence" }]))
+      : await reviewCandidates(standardModel, standardMissing, "standard");
+  for (const [sampleId, item] of newStandardResults) standardResults.set(sampleId, item);
   const reviewed = generated.map(({ request, item }) => {
     const candidate = standardResults.get(request.sampleId);
     if (!candidate) return { request, generated: item, reviewed: item, failedReviews: 0 };
     try {
+      const valid = validateItem(candidate, request, { requireGateJustification: true });
+      if (!reviewedStage.has(request.sampleId)) {
+        appendStage(reviewedPath, valid);
+        reviewedStage.set(request.sampleId, valid);
+      }
       return {
         request,
         generated: item,
-        reviewed: validateItem(candidate, request, { requireGateJustification: true }),
+        reviewed: valid,
         failedReviews: 0,
       };
     } catch {
@@ -69,9 +114,23 @@ for (let start = 0; start < prompts.length; start += batchSize) {
 
   const escalationCandidates = reviewed.filter(({ request, generated: first, reviewed: second, failedReviews }) =>
     needsEscalation(first, second, request, failedReviews));
-  const escalationResults = dryRun
-    ? new Map(escalationCandidates.map(({ request, reviewed: item }) => [request.sampleId, { ...item, gateJustification: "dry-run escalation evidence" }]))
-    : await reviewCandidates(escalationModel, escalationCandidates.map(({ request, reviewed: item }) => ({ request, item })), "escalation");
+  const escalationResults = new Map(escalationCandidates
+    .filter(({ request }) => escalatedStage.has(request.sampleId))
+    .map(({ request }) => [request.sampleId, escalatedStage.get(request.sampleId)]));
+  const escalationMissing = escalationCandidates.filter(({ request }) => !escalationResults.has(request.sampleId));
+  const newEscalationResults = escalationMissing.length === 0
+    ? new Map()
+    : dryRun
+      ? new Map(escalationMissing.map(({ request, reviewed: item }) => [request.sampleId, { ...item, gateJustification: "dry-run escalation evidence" }]))
+      : await reviewCandidates(escalationModel, escalationMissing.map(({ request, reviewed: item }) => ({ request, item })), "escalation");
+  for (const { request } of escalationMissing) {
+    const raw = newEscalationResults.get(request.sampleId);
+    if (!raw) continue;
+    const valid = validateItem(raw, request, { requireGateJustification: true });
+    appendStage(escalatedPath, valid);
+    escalatedStage.set(request.sampleId, valid);
+    escalationResults.set(request.sampleId, valid);
+  }
 
   const finalized = reviewed.map(({ request, generated: first, reviewed: second }) => {
     const escalated = escalationResults.get(request.sampleId);
@@ -108,6 +167,8 @@ const records = [...existing.values()]
   .filter((item) => item.sampleId.startsWith("UAV2_"))
   .sort((left, right) => left.sampleId.localeCompare(right.sampleId))
   .slice(0, sampleCount);
+const audit = auditCorpus(records, prompts);
+fs.writeFileSync(auditPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
 fs.writeFileSync(manifestPath, `${JSON.stringify({
   schemaVersion: 2,
   sampleCount: records.length,
@@ -123,6 +184,7 @@ fs.writeFileSync(manifestPath, `${JSON.stringify({
   generatedAt: new Date().toISOString(),
 }, null, 2)}\n`, "utf8");
 console.log(`raw_corpus=${records.length}`);
+console.log(`audit=${path.relative(ROOT, auditPath)}`);
 
 async function completeWithRetries(modelName, requests, promptFactory) {
   let failure;
@@ -204,6 +266,20 @@ function readCorpus(filePath, requests) {
   }));
 }
 
+function readStageFile(filePath, requests, requireGateJustification) {
+  if (!fs.existsSync(filePath)) return new Map();
+  return new Map(fs.readFileSync(filePath, "utf8").split(/\r?\n/u).filter(Boolean).map((line) => {
+    const item = JSON.parse(line);
+    const request = requests.get(item.sampleId);
+    if (!request) throw new Error(`Unknown sample in stage file: ${item.sampleId}`);
+    return [item.sampleId, validateItem(item, request, { requireGateJustification })];
+  }));
+}
+
+function appendStage(filePath, item) {
+  fs.appendFileSync(filePath, `${JSON.stringify(item)}\n`, "utf8");
+}
+
 function dryRunItems(batch) {
   return new Map(batch.map(({ sampleId, mechanism, targetConfidence }) => [sampleId, {
     sampleId,
@@ -236,4 +312,9 @@ function parseArgs(argv) {
 function positiveInt(value, fallback) { const parsed = value == null ? fallback : Number.parseInt(value, 10); if (!Number.isInteger(parsed) || parsed <= 0) throw new Error("Expected a positive integer"); return parsed; }
 function resolve(file) { return path.resolve(ROOT, file); }
 function ensureParent(file) { fs.mkdirSync(path.dirname(file), { recursive: true }); }
+function stagePath(filePath, stage) {
+  return filePath.endsWith(".raw.jsonl")
+    ? filePath.replace(/\.raw\.jsonl$/u, `.${stage}.jsonl`)
+    : filePath.replace(/\.jsonl$/u, `.${stage}.jsonl`);
+}
 function sleep(ms) { return new Promise((resolveSleep) => setTimeout(resolveSleep, ms)); }

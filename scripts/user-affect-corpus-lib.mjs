@@ -52,7 +52,7 @@ export function buildRequests(count, seed) {
     const targetConfidence = nearRuntimeGate
       ? nearGateConfidence(band.id, index)
       : band.min + (band.max - band.min) * (0.15 + random() * 0.70);
-    const mechanism = MECHANISMS[Math.floor(random() * MECHANISMS.length)];
+    const mechanism = MECHANISMS[(index + (seed >>> 0)) % MECHANISMS.length];
     return {
       sampleId: `UAV2_${String(index).padStart(6, "0")}`,
       confidenceBand: band.id,
@@ -131,6 +131,67 @@ export function validateItem(item, request, { requireGateJustification = false }
   };
 }
 
+export function auditCorpus(records, requests, { challengeTexts = new Set() } = {}) {
+  if (records.length !== requests.length) {
+    throw new Error(`Corpus sample count ${records.length} does not match expected ${requests.length}`);
+  }
+  const expectedByBand = countBy(requests, "confidenceBand");
+  const actualByBand = countBy(records, "confidenceBand");
+  if (JSON.stringify(actualByBand) !== JSON.stringify(expectedByBand)) {
+    throw new Error(`Corpus confidence band quota mismatch: ${JSON.stringify(actualByBand)}`);
+  }
+  const ids = new Set();
+  const normalizedTexts = new Set();
+  for (const record of records) {
+    if (ids.has(record.sampleId)) throw new Error(`Duplicate sample ID: ${record.sampleId}`);
+    ids.add(record.sampleId);
+    const normalized = normalizeText(record.text);
+    if (normalizedTexts.has(normalized)) throw new Error(`Duplicate normalized text: ${record.sampleId}`);
+    if (challengeTexts.has(normalized)) throw new Error(`Challenge-set leakage: ${record.sampleId}`);
+    normalizedTexts.add(normalized);
+  }
+  const minimumNearGate = Math.ceil(records.length * 0.25);
+  const nearGateCount = records.filter((record) => distanceToGate(record.confidence) <= 0.05).length;
+  if (nearGateCount < minimumNearGate) {
+    throw new Error(`Near-gate quota ${nearGateCount} is below ${minimumNearGate}`);
+  }
+  const mechanisms = countBy(records, "mechanism");
+  const minimumMechanismCount = Math.floor(records.length / MECHANISMS.length / 2);
+  for (const mechanism of MECHANISMS) {
+    if ((mechanisms[mechanism] ?? 0) < minimumMechanismCount) {
+      throw new Error(`Mechanism quota is low for ${mechanism}`);
+    }
+  }
+  const modelCalls = countBy(records, "finalLabelModel");
+  const escalatedCount = records.filter((record) => record.finalLabelModel === "gpt-5.6-sol").length;
+  return {
+    schemaVersion: 2,
+    sampleCount: records.length,
+    confidenceBands: actualByBand,
+    mechanisms,
+    nearGateCount,
+    modelCalls,
+    escalationRate: records.length === 0 ? 0 : escalatedCount / records.length,
+  };
+}
+
+export function readDurableState(records) {
+  const state = {
+    generated: new Map(),
+    reviewed: new Map(),
+    escalated: new Map(),
+    final: new Map(),
+    completedIds: new Set(),
+  };
+  for (const record of records) {
+    const sampleId = record.sampleId ?? record.item?.sampleId;
+    if (!sampleId || !(record.stage in state) || !(state[record.stage] instanceof Map)) continue;
+    state[record.stage].set(sampleId, record.item ?? record);
+    if (record.stage === "final") state.completedIds.add(sampleId);
+  }
+  return state;
+}
+
 function nearGateConfidence(bandId, index) {
   const offset = (index % 41) / 1000;
   if (bandId === "low") return 0.499 - offset;
@@ -150,6 +211,10 @@ function distanceToGate(value) {
 
 function crossesGate(left, right) {
   return [0.5, 0.65].some((gate) => (left < gate && right >= gate) || (right < gate && left >= gate));
+}
+
+function normalizeText(value) {
+  return String(value).normalize("NFKC").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
 function round4(value) {

@@ -32,6 +32,9 @@ data/runtime/
 data/models/codebook-base-model*/
 data/training/*.raw*.jsonl
 data/training/*.samples.json
+data/training/user-affect-v2.generated.jsonl
+data/training/user-affect-v2.reviewed.jsonl
+data/training/user-affect-v2.escalated.jsonl
 
 # Private copyrighted/local corpora
 private_corpus/
