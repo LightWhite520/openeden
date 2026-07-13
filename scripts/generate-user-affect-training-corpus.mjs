@@ -10,6 +10,7 @@ import {
   claimUniqueText,
   DIMENSIONS,
   generationPrompt,
+  generationRetryModel,
   needsEscalation,
   needsStandardReview,
   validateItem,
@@ -215,23 +216,29 @@ async function completeWithRetries(modelName, requests, promptFactory) {
 
 async function validUniqueGeneration(request, initial, textOwners, excludedTexts) {
   let candidate = initial;
+  let failure;
   for (let attempt = 1; attempt <= 12; attempt += 1) {
     try {
       const next = validateItem(candidate, request);
       claimUniqueText(next.text, request.sampleId, textOwners);
       return next;
-    } catch {
+    } catch (error) {
+      failure = error;
       // Retry only the malformed item; completed corpus rows remain durable.
     }
     if (dryRun) throw new Error(`Dry-run generated an invalid item ${request.sampleId}`);
     const replacement = await completeWithRetries(
-      generatorModel,
+      generationRetryModel(attempt, {
+        generator: generatorModel,
+        standard: standardModel,
+        escalation: escalationModel,
+      }),
       [request],
       (requests) => generationPrompt(requests, [...excludedTexts]),
     );
     candidate = replacement.get(request.sampleId);
   }
-  throw new Error(`Could not produce a valid unique text for ${request.sampleId}`);
+  throw new Error(`Could not produce a valid unique text for ${request.sampleId}: ${failure?.message ?? "unknown validation failure"}`);
 }
 
 async function reviewCandidates(modelName, candidates, tier) {

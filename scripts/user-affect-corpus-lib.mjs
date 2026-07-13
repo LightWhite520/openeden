@@ -85,6 +85,12 @@ export function claimUniqueText(text, sampleId, owners) {
   owners.set(normalized, sampleId);
 }
 
+export function generationRetryModel(attempt, models) {
+  if (attempt <= 4) return models.generator;
+  if (attempt <= 8) return models.standard;
+  return models.escalation;
+}
+
 export function generationPrompt(batch, excludedTexts) {
   const responseSkeleton = {
     items: batch.map(({ sampleId }) => ({

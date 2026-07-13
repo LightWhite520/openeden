@@ -12,6 +12,7 @@ import {
   claimUniqueText,
   countBy,
   generationPrompt,
+  generationRetryModel,
   needsEscalation,
   needsStandardReview,
   readDurableState,
@@ -69,6 +70,16 @@ test("text ownership permits resume and rejects another sample", () => {
     () => claimUniqueText("我今天真的很累！", "UAV2_000002", owners),
     /duplicate normalized text/i,
   );
+});
+
+test("repeated invalid generation escalates models", () => {
+  const models = { generator: "mini", standard: "standard", escalation: "sol" };
+
+  assert.equal(generationRetryModel(1, models), "mini");
+  assert.equal(generationRetryModel(4, models), "mini");
+  assert.equal(generationRetryModel(5, models), "standard");
+  assert.equal(generationRetryModel(8, models), "standard");
+  assert.equal(generationRetryModel(9, models), "sol");
 });
 
 test("5.5 reviews low confidence and hard mechanisms", () => {
