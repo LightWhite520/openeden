@@ -8,7 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $javaHome = 'F:\SDK\JDK21'
-$baseUrl = 'http://127.0.0.1:8080'
+$port = $null
+$baseUrl = $null
 $sessionUser = "production-smoke-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "openeden-production-$([Guid]::NewGuid().ToString('N'))"
 $dbPath = Join-Path $tempRoot 'runtime.db'
@@ -43,6 +44,12 @@ function Resolve-ModelPath([string]$name, [string]$defaultRelative) {
     [Environment]::SetEnvironmentVariable($name, (Resolve-Path $path).Path, 'Process')
 }
 
+function Get-FreePort {
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try { return ([Net.IPEndPoint]$listener.LocalEndpoint).Port } finally { $listener.Stop() }
+}
+
 function Wait-Http([string]$uri, [int]$timeoutSeconds) {
     $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
     do {
@@ -71,6 +78,7 @@ function Start-Server([int]$timeoutSeconds = $StartupTimeoutSeconds) {
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.Environment['JAVA_HOME'] = $javaHome
+    $psi.Environment['OPENEDEN_SERVER_PORT'] = [string]$port
     $psi.Environment['OPENEDEN_RUNTIME_DB_PATH'] = $dbPath
     $psi.Environment['OPENEDEN_MODEL_BACKEND'] = 'djl'
     $psi.Environment['OPENEDEN_DIARY_DELTA_THRESHOLD'] = '0.01'
@@ -96,6 +104,8 @@ try {
     if (-not (Test-Path (Join-Path $javaHome 'bin\java.exe'))) { throw "JDK21 not found at $javaHome" }
     if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) { throw 'sqlite3 is required for production verification.' }
     Import-DotEnv
+    $port = Get-FreePort
+    $baseUrl = "http://127.0.0.1:$port"
     Require-Setting 'OPENEDEN_OPENAI_API_KEY'
     Resolve-ModelPath 'OPENEDEN_DJL_VQVAE_MODEL_PATH' 'data/models/djl/vqvae'
     Resolve-ModelPath 'OPENEDEN_DJL_TEXT_MODEL_PATH' 'data/models/djl/text'
