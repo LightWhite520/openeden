@@ -139,6 +139,7 @@ export function generationPrompt(batch, excludedTexts) {
       connectionNeed: 0.0,
       openness: 0.0,
       confidence: 0.0,
+      gateJustification: "门槛邻域填写文本证据，否则填写空字符串",
     })),
   };
   return [
@@ -147,6 +148,7 @@ export function generationPrompt(batch, excludedTexts) {
     "confidence 表示：仅根据这段用户文本，能否可靠推断另外五个情绪维度。它不是标注者对自己答案的信心，也不是情绪强度。",
     "直接且内部一致的情绪表达可高 confidence；事实陈述、信息不足、反讽、引用、否定情绪词、混合信号和依赖上下文的表达应低 confidence。",
     "所有六个值必须是 [0,1] 内有限数。文本必须是 8 到 80 个字符的自然简体中文第一人称用户消息。",
+    "当 confidence 距离 0.5 或 0.65 不超过 0.05 时，gateJustification 必须简述文本证据为何位于门槛这一侧。",
     "不得包含姓名、电话、地址、诊断、人格扮演、助手回复或对标签的解释。每条文本必须唯一。",
     excludedTexts.length > 0 ? `不得重复这些文本：${JSON.stringify(excludedTexts.slice(-128))}` : "",
     `逐条严格遵守 confidenceRange、targetConfidence、mechanism 和 nearRuntimeGate：${JSON.stringify(batch)}`,

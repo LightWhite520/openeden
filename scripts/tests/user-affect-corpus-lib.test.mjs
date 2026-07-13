@@ -65,6 +65,7 @@ test("generation prompt never presents a conflicting sample ID", () => {
 
   assert.match(prompt, /UAV2_000059/);
   assert.doesNotMatch(prompt, /UAV2_000000/);
+  assert.match(prompt, /gateJustification/);
 });
 
 test("chat completions URL accepts base or full endpoint", () => {
