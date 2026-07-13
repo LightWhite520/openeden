@@ -46,6 +46,14 @@ test("confidence prompt defines text observability", () => {
   assert.doesNotMatch(prompt, /annotation reliability/i);
 });
 
+test("generation prompt never presents a conflicting sample ID", () => {
+  const requested = buildRequests(100, 7)[59];
+  const prompt = generationPrompt([requested], []);
+
+  assert.match(prompt, /UAV2_000059/);
+  assert.doesNotMatch(prompt, /UAV2_000000/);
+});
+
 test("chat completions URL accepts base or full endpoint", () => {
   assert.equal(chatCompletionsUrl("https://example.test/v1"), "https://example.test/v1/chat/completions");
   assert.equal(chatCompletionsUrl("https://example.test/v1/"), "https://example.test/v1/chat/completions");

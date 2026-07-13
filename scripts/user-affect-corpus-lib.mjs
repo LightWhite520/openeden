@@ -86,9 +86,21 @@ export function claimUniqueText(text, sampleId, owners) {
 }
 
 export function generationPrompt(batch, excludedTexts) {
+  const responseSkeleton = {
+    items: batch.map(({ sampleId }) => ({
+      sampleId,
+      text: "在这里生成对应的简体中文用户文本",
+      valence: 0.0,
+      arousal: 0.0,
+      dominance: 0.0,
+      connectionNeed: 0.0,
+      openness: 0.0,
+      confidence: 0.0,
+    })),
+  };
   return [
     "生成一批用于中文用户情绪观测模型的监督样本。只返回严格 JSON。",
-    "格式：{\"items\":[{\"sampleId\":\"UAV2_000000\",\"text\":\"简体中文用户文本\",\"valence\":0.0,\"arousal\":0.0,\"dominance\":0.0,\"connectionNeed\":0.0,\"openness\":0.0,\"confidence\":0.0}]}",
+    `必须原样保留下列全部 sampleId，并按此骨架填充：${JSON.stringify(responseSkeleton)}`,
     "confidence 表示：仅根据这段用户文本，能否可靠推断另外五个情绪维度。它不是标注者对自己答案的信心，也不是情绪强度。",
     "直接且内部一致的情绪表达可高 confidence；事实陈述、信息不足、反讽、引用、否定情绪词、混合信号和依赖上下文的表达应低 confidence。",
     "所有六个值必须是 [0,1] 内有限数。文本必须是 8 到 80 个字符的自然简体中文第一人称用户消息。",
