@@ -172,7 +172,9 @@ Default bindings:
 | `Ctrl+C` | Cancel active generation; otherwise clear the current editor buffer |
 | `Ctrl+D` | Exit only when the editor is empty |
 | `Ctrl+T` | Toggle inline and full-screen modes |
-| `Ctrl+I` | Toggle diagnostics when authorized |
+| `Alt+I` | Toggle diagnostics when authorized |
+
+`Ctrl+I` is indistinguishable from Tab in terminal input, so diagnostics uses the distinct `Alt+I` shortcut and leaves completion intact.
 
 Bracketed paste inserts literal text and never submits automatically. Multiline pasted text remains one editor buffer until the user explicitly submits it.
 
@@ -232,7 +234,7 @@ If a strict stream fails after provisional response text has been shown, the cli
 
 Diagnostics have two independent gates:
 
-1. The CLI panel is hidden on every launch and appears only after `/inspect on` or `Ctrl+I`.
+1. The CLI panel is hidden on every launch and appears only after `/inspect on` or `Alt+I`.
 2. The server diagnostic endpoint is disabled by default and requires explicit authorization when enabled.
 
 Add a dedicated diagnostic endpoint rather than expanding normal chat events. Server configuration uses an explicit enable flag and a diagnostic credential supplied separately to the CLI. Credentials are read from environment or a protected secret source and are not written to normal terminal output or chat history.

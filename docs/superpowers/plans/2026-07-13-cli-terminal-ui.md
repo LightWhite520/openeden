@@ -565,7 +565,7 @@ widgets["openeden-toggle-diagnostics"] = Widget { eventChannel.trySend(CliTermin
 widgets["openeden-newline"] = Widget { lineReader.buffer.write("\n"); true }
 ```
 
-Bind `Esc`, `Ctrl+T`, `Ctrl+I`, and `Alt+Enter` in a dedicated keymap. Run `readLine()` only on `Dispatchers.IO.limitedParallelism(1)`, translate `UserInterruptException` and `EndOfFileException`, and close the event channel in `finally`.
+Bind `Esc`, `Ctrl+T`, `Alt+I`, and `Alt+Enter` in a dedicated keymap. Run `readLine()` only on `Dispatchers.IO.limitedParallelism(1)`, translate `UserInterruptException` and `EndOfFileException`, and close the event channel in `finally`.
 
 - [ ] **Step 5: Run tests and verify no global console mutation remains**
 
@@ -1310,7 +1310,7 @@ In Windows Terminal PowerShell and CMD, verify:
 1. Type and edit: 你好，OpenEden 👋
 2. Paste a multiline Chinese Markdown/code block; confirm it does not auto-submit.
 3. Stream a response and cancel with Esc and Ctrl+C.
-4. Toggle full-screen with Ctrl+T and diagnostics with Ctrl+I.
+4. Toggle full-screen with Ctrl+T and diagnostics with Alt+I.
 5. Resize below 80x24 and confirm safe inline fallback.
 6. Exit with Ctrl+D and confirm cursor, echo, and terminal screen are restored.
 ```
