@@ -35,6 +35,14 @@ function Require-Setting([string]$name) {
     }
 }
 
+function Resolve-ModelPath([string]$name, [string]$defaultRelative) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ([string]::IsNullOrWhiteSpace($value)) { $value = $defaultRelative }
+    $path = if ([IO.Path]::IsPathRooted($value)) { $value } else { Join-Path $root $value }
+    if (-not (Test-Path $path)) { throw "Model path for $name was not found: $path" }
+    [Environment]::SetEnvironmentVariable($name, (Resolve-Path $path).Path, 'Process')
+}
+
 function Wait-Http([string]$uri, [int]$timeoutSeconds) {
     $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
     do {
@@ -89,10 +97,10 @@ try {
     if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) { throw 'sqlite3 is required for production verification.' }
     Import-DotEnv
     Require-Setting 'OPENEDEN_OPENAI_API_KEY'
-    Require-Setting 'OPENEDEN_DJL_VQVAE_MODEL_PATH'
-    Require-Setting 'OPENEDEN_DJL_TEXT_MODEL_PATH'
-    Require-Setting 'OPENEDEN_DJL_EMOTIONAL_MODEL_PATH'
-    Require-Setting 'OPENEDEN_DJL_AFFECT_MODEL_PATH'
+    Resolve-ModelPath 'OPENEDEN_DJL_VQVAE_MODEL_PATH' 'data/models/djl/vqvae'
+    Resolve-ModelPath 'OPENEDEN_DJL_TEXT_MODEL_PATH' 'data/models/djl/text'
+    Resolve-ModelPath 'OPENEDEN_DJL_EMOTIONAL_MODEL_PATH' 'data/models/djl/emotional'
+    Resolve-ModelPath 'OPENEDEN_DJL_AFFECT_MODEL_PATH' 'data/models/djl/affect'
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
     Start-Server
