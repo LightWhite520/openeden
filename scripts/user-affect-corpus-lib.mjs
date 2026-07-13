@@ -78,6 +78,13 @@ export function chatCompletionsUrl(endpoint) {
   return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
 }
 
+export function claimUniqueText(text, sampleId, owners) {
+  const normalized = normalizeAffectText(text);
+  const owner = owners.get(normalized);
+  if (owner && owner !== sampleId) throw new Error(`Duplicate normalized text: ${sampleId} conflicts with ${owner}`);
+  owners.set(normalized, sampleId);
+}
+
 export function generationPrompt(batch, excludedTexts) {
   return [
     "生成一批用于中文用户情绪观测模型的监督样本。只返回严格 JSON。",
@@ -151,7 +158,7 @@ export function auditCorpus(records, requests, { challengeTexts = new Set() } = 
   for (const record of records) {
     if (ids.has(record.sampleId)) throw new Error(`Duplicate sample ID: ${record.sampleId}`);
     ids.add(record.sampleId);
-    const normalized = normalizeText(record.text);
+    const normalized = normalizeAffectText(record.text);
     if (normalizedTexts.has(normalized)) throw new Error(`Duplicate normalized text: ${record.sampleId}`);
     if (challengeTexts.has(normalized)) throw new Error(`Challenge-set leakage: ${record.sampleId}`);
     normalizedTexts.add(normalized);
@@ -219,7 +226,7 @@ function crossesGate(left, right) {
   return [0.5, 0.65].some((gate) => (left < gate && right >= gate) || (right < gate && left >= gate));
 }
 
-function normalizeText(value) {
+export function normalizeAffectText(value) {
   return String(value).normalize("NFKC").toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 

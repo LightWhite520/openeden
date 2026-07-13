@@ -9,6 +9,7 @@ import {
   auditCorpus,
   buildRequests,
   chatCompletionsUrl,
+  claimUniqueText,
   countBy,
   generationPrompt,
   needsEscalation,
@@ -49,6 +50,17 @@ test("chat completions URL accepts base or full endpoint", () => {
   assert.equal(chatCompletionsUrl("https://example.test/v1"), "https://example.test/v1/chat/completions");
   assert.equal(chatCompletionsUrl("https://example.test/v1/"), "https://example.test/v1/chat/completions");
   assert.equal(chatCompletionsUrl("https://example.test/v1/chat/completions"), "https://example.test/v1/chat/completions");
+});
+
+test("text ownership permits resume and rejects another sample", () => {
+  const owners = new Map();
+  claimUniqueText(" 我今天真的很累。 ", "UAV2_000001", owners);
+  claimUniqueText("我今天真的很累", "UAV2_000001", owners);
+
+  assert.throws(
+    () => claimUniqueText("我今天真的很累！", "UAV2_000002", owners),
+    /duplicate normalized text/i,
+  );
 });
 
 test("5.5 reviews low confidence and hard mechanisms", () => {

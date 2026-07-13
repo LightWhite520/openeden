@@ -7,6 +7,7 @@ import {
   auditCorpus,
   buildRequests,
   chatCompletionsUrl,
+  claimUniqueText,
   DIMENSIONS,
   generationPrompt,
   needsEscalation,
@@ -56,9 +57,18 @@ if (auditOnly) {
 const generatedStage = readStageFile(generatedPath, requestById, false);
 const reviewedStage = readStageFile(reviewedPath, requestById, true);
 const escalatedStage = readStageFile(escalatedPath, requestById, true);
-const knownTexts = new Set(
-  [...existing.values(), ...generatedStage.values()].map((entry) => entry.text),
-);
+const knownTexts = new Set();
+const generatedTextOwners = new Map();
+const acceptedTextOwners = new Map();
+for (const entry of existing.values()) {
+  knownTexts.add(entry.text);
+  claimUniqueText(entry.text, entry.sampleId, generatedTextOwners);
+  claimUniqueText(entry.text, entry.sampleId, acceptedTextOwners);
+}
+for (const entry of generatedStage.values()) {
+  knownTexts.add(entry.text);
+  claimUniqueText(entry.text, entry.sampleId, generatedTextOwners);
+}
 for (let start = 0; start < prompts.length; start += batchSize) {
   const batch = prompts.slice(start, start + batchSize).filter(({ sampleId }) => !existing.has(sampleId));
   if (batch.length === 0) continue;
@@ -74,8 +84,9 @@ for (let start = 0; start < prompts.length; start += batchSize) {
   for (const [sampleId, item] of newlyGenerated) generatedItems.set(sampleId, item);
   const generated = [];
   for (const request of batch) {
-    const item = await validUniqueGeneration(request, generatedItems.get(request.sampleId), knownTexts);
+    const item = await validUniqueGeneration(request, generatedItems.get(request.sampleId), generatedTextOwners, knownTexts);
     generated.push({ request, item });
+    knownTexts.add(item.text);
     if (!generatedStage.has(request.sampleId)) {
       appendStage(generatedPath, item);
       generatedStage.set(request.sampleId, item);
@@ -141,7 +152,7 @@ for (let start = 0; start < prompts.length; start += batchSize) {
     const finalLabelModel = escalated
       ? escalationModel
       : standardResults.has(request.sampleId) ? standardModel : generatorModel;
-    return {
+    const result = {
       ...finalItem,
       confidenceBand: request.confidenceBand,
       mechanism: request.mechanism,
@@ -154,6 +165,8 @@ for (let start = 0; start < prompts.length; start += batchSize) {
       escalatedBy: escalated ? escalationModel : null,
       generatedConfidence: first.confidence,
     };
+    claimUniqueText(result.text, result.sampleId, acceptedTextOwners);
+    return result;
   });
   fs.appendFileSync(rawPath, `${finalized.map(JSON.stringify).join("\n")}\n`, "utf8");
   for (const item of finalized) {
@@ -200,12 +213,13 @@ async function completeWithRetries(modelName, requests, promptFactory) {
   throw failure;
 }
 
-async function validUniqueGeneration(request, initial, knownTexts) {
+async function validUniqueGeneration(request, initial, textOwners, excludedTexts) {
   let candidate = initial;
   for (let attempt = 1; attempt <= 12; attempt += 1) {
     try {
       const next = validateItem(candidate, request);
-      if (!knownTexts.has(next.text)) return next;
+      claimUniqueText(next.text, request.sampleId, textOwners);
+      return next;
     } catch {
       // Retry only the malformed item; completed corpus rows remain durable.
     }
@@ -213,7 +227,7 @@ async function validUniqueGeneration(request, initial, knownTexts) {
     const replacement = await completeWithRetries(
       generatorModel,
       [request],
-      (requests) => generationPrompt(requests, [...knownTexts]),
+      (requests) => generationPrompt(requests, [...excludedTexts]),
     );
     candidate = replacement.get(request.sampleId);
   }
