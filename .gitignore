@@ -18,6 +18,7 @@ out/
 .codex/
 .codegraph/
 graphify-out/
+.superpowers/
 
 # Runtime and logs
 *.log
