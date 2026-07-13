@@ -99,7 +99,21 @@ function Start-Server([int]$timeoutSeconds = $StartupTimeoutSeconds) {
 function Stop-Server {
     if ($null -ne $script:server -and -not $server.HasExited) {
         $server.CloseMainWindow()
-        if (-not $server.WaitForExit(15000)) { $server.Kill($true); $server.WaitForExit() }
+        if (-not $server.WaitForExit(15000)) {
+            & taskkill.exe /PID $server.Id /T /F 2>$null | Out-Null
+            $server.WaitForExit(10000)
+        }
+        if (-not $server.HasExited) {
+            & taskkill.exe /PID $server.Id /T /F 2>$null | Out-Null
+        }
+    }
+    if ($null -ne $port) {
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        do {
+            $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+            if ($null -eq $listener) { break }
+            Start-Sleep -Milliseconds 250
+        } while ([DateTime]::UtcNow -lt $deadline)
     }
     $script:server = $null
 }
