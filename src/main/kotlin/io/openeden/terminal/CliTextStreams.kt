@@ -9,6 +9,7 @@ import java.io.PrintWriter
 import java.io.PushbackInputStream
 import java.io.Reader
 import java.nio.charset.StandardCharsets
+import java.util.Objects
 
 data class CliTextStreams(
     val reader: Reader,
@@ -46,6 +47,8 @@ private class Utf8BomStrippingInputStream(input: InputStream) : InputStream() {
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        Objects.checkFromIndexSize(offset, length, buffer.size)
+        if (length == 0) return 0
         checkBom()
         return source.read(buffer, offset, length)
     }
@@ -61,18 +64,16 @@ private class Utf8BomStrippingInputStream(input: InputStream) : InputStream() {
         val prefix = ByteArray(UTF8_BOM.size)
         var count = 0
         while (count < prefix.size) {
-            val read = source.read(prefix, count, prefix.size - count)
-            when {
-                read > 0 -> count += read
-                read < 0 -> break
-                else -> {
-                    val byte = source.read()
-                    if (byte < 0) break
-                    prefix[count++] = byte.toByte()
-                }
+            val byte = source.read()
+            if (byte < 0) break
+            prefix[count] = byte.toByte()
+            if (prefix[count] != UTF8_BOM[count]) {
+                source.unread(prefix, 0, count + 1)
+                return
             }
+            count += 1
         }
-        if (count != UTF8_BOM.size || !prefix.contentEquals(UTF8_BOM)) {
+        if (count != UTF8_BOM.size) {
             if (count > 0) source.unread(prefix, 0, count)
         }
     }
