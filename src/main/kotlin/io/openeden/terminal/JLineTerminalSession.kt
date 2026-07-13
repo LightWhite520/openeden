@@ -44,6 +44,8 @@ class JLineTerminalSession private constructor(
 ) : TerminalSession {
     private val collectionStarted = AtomicBoolean(false)
     private val lifecycleLock = Any()
+    @Volatile
+    private var shutdownStarted = false
     private var displayState = DisplayState.INLINE
 
     override fun events(): Flow<CliTerminalEvent> = channelFlow {
@@ -53,19 +55,22 @@ class JLineTerminalSession private constructor(
 
         val readerJob = launch(readDispatcher) {
             try {
-                while (currentCoroutineContext().isActive) {
+                while (currentCoroutineContext().isActive && !shutdownStarted) {
                     try {
                         val line = readLine()
                         if (line == null) {
-                            eventQueue.send(CliTerminalEvent.EndOfFile)
+                            enqueue(CliTerminalEvent.EndOfFile)
                             break
                         }
-                        eventQueue.send(CliTerminalEvent.Submit(line))
+                        enqueue(CliTerminalEvent.Submit(line))
                     } catch (_: UserInterruptException) {
-                        eventQueue.send(CliTerminalEvent.Cancel)
+                        enqueue(CliTerminalEvent.Cancel)
                     } catch (_: EndOfFileException) {
-                        eventQueue.send(CliTerminalEvent.EndOfFile)
+                        enqueue(CliTerminalEvent.EndOfFile)
                         break
+                    } catch (error: Throwable) {
+                        if (shutdownStarted) break
+                        throw error
                     }
                 }
             } finally {
@@ -121,6 +126,7 @@ class JLineTerminalSession private constructor(
 
     override fun close() = synchronized(lifecycleLock) {
         if (displayState == DisplayState.CLOSED) return@synchronized
+        shutdownStarted = true
         eventQueue.close()
         var failure: Throwable? = null
         fun attempt(operation: () -> Unit) {
@@ -144,6 +150,13 @@ class JLineTerminalSession private constructor(
         displayState = DisplayState.CLOSED
         failure?.let { throw it }
         Unit
+    }
+
+    private fun enqueue(event: CliTerminalEvent) {
+        val result = eventQueue.trySend(event)
+        if (result.isFailure && !shutdownStarted) {
+            throw result.exceptionOrNull() ?: IllegalStateException("Terminal event queue rejected an event")
+        }
     }
 
     private fun exitDisplayBestEffortLocked(): Throwable? {
@@ -337,7 +350,7 @@ class JLineTerminalSession private constructor(
                 bind(Reference(NEWLINE_WIDGET), KeyMap.alt("\r"), KeyMap.alt("\n"))
                 bind(Reference(CANCEL_WIDGET), KeyMap.esc(), KeyMap.ctrl('C'))
                 bind(Reference(TOGGLE_MODE_WIDGET), KeyMap.ctrl('T'))
-                bind(Reference(TOGGLE_DIAGNOSTICS_WIDGET), KeyMap.ctrl('I'))
+                bind(Reference(TOGGLE_DIAGNOSTICS_WIDGET), KeyMap.alt('i'))
             }
             lineReader.keyMaps[KEYMAP_NAME] = dedicated
             check(lineReader.setKeyMap(KEYMAP_NAME)) { "Unable to activate OpenEden keymap" }
@@ -361,7 +374,7 @@ private class RealTerminalLifecycleOperations(
     private val terminal: Terminal,
     private val savedAttributes: Attributes?,
 ) : TerminalLifecycleOperations {
-    override fun hasFullScreenCapabilities(): Boolean = REQUIRED_CAPABILITIES.all { capability ->
+    override fun hasFullScreenCapabilities(): Boolean = TerminalFullScreenCapabilities.required.all { capability ->
         terminal.getStringCapability(capability) != null
     }
 
@@ -369,7 +382,7 @@ private class RealTerminalLifecycleOperations(
 
     override fun hideCursor() = putRequired(Capability.cursor_invisible)
 
-    override fun showCursor() = putRequired(Capability.cursor_visible)
+    override fun showCursor() = putRequired(TerminalFullScreenCapabilities.cursorRestore)
 
     override fun exitAlternateScreen() = putRequired(Capability.exit_ca_mode)
 
@@ -385,14 +398,5 @@ private class RealTerminalLifecycleOperations(
 
     private fun putRequired(capability: Capability) {
         check(terminal.puts(capability)) { "Terminal failed to apply capability $capability" }
-    }
-
-    private companion object {
-        val REQUIRED_CAPABILITIES = listOf(
-            Capability.enter_ca_mode,
-            Capability.exit_ca_mode,
-            Capability.cursor_invisible,
-            Capability.cursor_visible,
-        )
     }
 }

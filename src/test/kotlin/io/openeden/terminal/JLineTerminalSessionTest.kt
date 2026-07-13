@@ -2,10 +2,12 @@ package io.openeden.terminal
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import org.jline.keymap.KeyMap
 import org.jline.reader.EndOfFileException
@@ -15,6 +17,7 @@ import org.jline.reader.UserInterruptException
 import org.jline.terminal.Terminal
 import org.jline.terminal.TerminalBuilder
 import org.jline.terminal.impl.AbstractTerminal
+import org.jline.utils.InfoCmp.Capability
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.PipedInputStream
@@ -23,6 +26,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.FileAlreadyExistsException
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -85,7 +90,11 @@ class JLineTerminalSessionTest {
             assertEquals(Reference("openeden-cancel"), keys.getBound(KeyMap.esc()))
             assertEquals(Reference("openeden-cancel"), keys.getBound(KeyMap.ctrl('C')))
             assertEquals(Reference("openeden-toggle-mode"), keys.getBound(KeyMap.ctrl('T')))
-            assertEquals(Reference("openeden-toggle-diagnostics"), keys.getBound(KeyMap.ctrl('I')))
+            assertEquals(
+                session.lineReader.keyMaps.getValue(LineReader.EMACS).getBound("\t"),
+                keys.getBound("\t"),
+            )
+            assertEquals(Reference("openeden-toggle-diagnostics"), keys.getBound(KeyMap.alt('i')))
             assertEquals(
                 session.lineReader.keyMaps.getValue(LineReader.EMACS).getBound(KeyMap.ctrl('D')),
                 keys.getBound(KeyMap.ctrl('D')),
@@ -267,6 +276,54 @@ class JLineTerminalSessionTest {
     }
 
     @Test
+    fun `external close makes a late reader result a graceful shutdown`() = runTest {
+        val terminal = testTerminal()
+        val readStarted = CountDownLatch(1)
+        val releaseRead = CountDownLatch(1)
+        val reads = AtomicInteger()
+        val session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = false,
+            readLine = {
+                if (reads.getAndIncrement() > 0) throw IllegalStateException("terminal closed")
+                readStarted.countDown()
+                releaseRead.await()
+                "late line"
+            },
+        )
+        val collected = async { runCatching { session.events().toList() } }
+        yield()
+        withContext(Dispatchers.IO) {
+            assertTrue(readStarted.await(2, TimeUnit.SECONDS))
+        }
+
+        session.close()
+        releaseRead.countDown()
+
+        val result = collected.await()
+        assertTrue(result.isSuccess)
+        assertTrue(result.getOrThrow().isEmpty())
+    }
+
+    @Test
+    fun `unexpected reader failure still propagates`() = runTest {
+        val terminal = testTerminal()
+        val session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = false,
+            readLine = { throw IllegalStateException("reader failed") },
+        )
+
+        val error = assertFailsWith<IllegalStateException> { session.events().toList() }
+
+        assertEquals("reader failed", error.message)
+    }
+
+    @Test
     fun `full screen requires rich support and capabilities and is idempotent`() {
         val unsupported = recordingSession(richSupported = false, capabilities = true)
         assertFalse(unsupported.session.enterFullScreen())
@@ -288,6 +345,13 @@ class JLineTerminalSessionTest {
             supported.operations.calls,
         )
         supported.session.close()
+    }
+
+    @Test
+    fun `full screen restores the normal cursor capability`() {
+        assertEquals(Capability.cursor_normal, TerminalFullScreenCapabilities.cursorRestore)
+        assertTrue(TerminalFullScreenCapabilities.required.contains(Capability.cursor_normal))
+        assertFalse(TerminalFullScreenCapabilities.required.contains(Capability.cursor_visible))
     }
 
     @Test
@@ -357,7 +421,21 @@ class JLineTerminalSessionTest {
                 { warning -> windowsWarnings += warning },
             ),
         )
-        assertEquals(listOf("JLine JNI terminal unavailable; using plain line mode."), windowsWarnings)
+        assertTrue(windowsWarnings.isEmpty())
+
+        val interactiveWindowsWarnings = mutableListOf<String>()
+        assertFalse(
+            TerminalRichModePolicy.isSupported(
+                "Windows 11",
+                "xterm-256color",
+                "exec",
+                { warning -> interactiveWindowsWarnings += warning },
+            ),
+        )
+        assertEquals(
+            listOf("JLine JNI terminal unavailable; using plain line mode."),
+            interactiveWindowsWarnings,
+        )
 
         val nonWindowsWarnings = mutableListOf<String>()
         assertFalse(
