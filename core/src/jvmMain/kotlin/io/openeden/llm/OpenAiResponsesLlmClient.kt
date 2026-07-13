@@ -25,7 +25,7 @@ class OpenAiResponsesLlmClient(
     private val baseUrl: String = "https://api.openai.com/v1",
     private val httpClient: HttpClient = httpClient(CIO.create()),
     private val json: Json = Json { ignoreUnknownKeys = true },
-) : LlmClient {
+) : LlmClient, AutoCloseable {
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
         log.info("Prompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
         val response = httpClient.post("${baseUrl.trimEnd('/')}/responses") {
@@ -69,6 +69,8 @@ class OpenAiResponsesLlmClient(
         log.info("\n$llmOutput")
         return llmOutput
     }
+
+    override fun close() = httpClient.close()
 
     companion object {
         fun httpClient(engine: HttpClientEngine, installTimeout: Boolean = true): HttpClient = HttpClient(engine) {

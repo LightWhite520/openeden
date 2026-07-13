@@ -18,6 +18,9 @@ import io.openeden.runtime.SessionStateStore
 import io.openeden.runtime.DurableDiaryWorker
 import io.openeden.runtime.DiaryNarrativeGenerator
 import io.openeden.runtime.DiaryWorkerScheduler
+import io.openeden.runtime.DiaryTriggerCoordinator
+import io.openeden.runtime.CheckpointedDiaryDataSource
+import io.openeden.runtime.LlmDiaryNarrativeGenerator
 import io.openeden.model.LocalModelArtifactLoader
 import io.openeden.model.LocalModelArtifact
 import io.openeden.codebook.CodebookDictionary
@@ -46,6 +49,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -71,14 +76,17 @@ fun Application.configureRuntime() {
     val inferenceExecutor = JvmInferenceExecutor()
     val models = loadRuntimeModels(serverConfig)
     val memoryStore = SqlDelightMemoryRepository.open(serverConfig.runtimeDbPath, models.embeddingModel)
+    val persona = PersonaFileLoader.load(serverConfig.personaPath)
+    val llmClient = OpenAiResponsesLlmClient(
+        apiKey = serverConfig.apiKey, model = serverConfig.model,
+        reasoningEffort = serverConfig.reasoningEffort, baseUrl = serverConfig.baseUrl,
+    )
+    val diaryCoordinator = DiaryTriggerCoordinator(
+        diaryTaskStore, diaryTaskStore, memoryStore,
+        io.openeden.runtime.DiaryTriggerConfig(serverConfig.diaryDeltaThreshold, serverConfig.diaryElapsedHours * 60L * 60L * 1000L),
+    )
     val pipeline = DevelopmentMessagePipeline.create(
-        personaConfig = PersonaFileLoader.load(serverConfig.personaPath),
-        llmClient = OpenAiResponsesLlmClient(
-            apiKey = serverConfig.apiKey,
-            model = serverConfig.model,
-            reasoningEffort = serverConfig.reasoningEffort,
-            baseUrl = serverConfig.baseUrl,
-        ),
+        personaConfig = persona, llmClient = llmClient,
         store = store,
         vectorWriteService = writer,
         inferenceExecutor = inferenceExecutor,
@@ -89,6 +97,7 @@ fun Application.configureRuntime() {
         traceStore = traceStore,
         relationshipStore = relationshipStore,
         userAffectAnalyzer = models.userAffectAnalyzer,
+        diaryTriggerCoordinator = diaryCoordinator,
     )
     attributes.put(PipelineKey, pipeline)
     attributes.put(SessionStateStoreKey, store)
@@ -97,25 +106,14 @@ fun Application.configureRuntime() {
     val diaryWorker = DurableDiaryWorker(
         taskStore = diaryTaskStore,
         memoryStore = memoryStore,
-        generator = DiaryNarrativeGenerator { task ->
-            val content = "Diary event: ${task.reason}"
-            MemoryEntry(
-                id = "narrative:${task.id}",
-                sessionId = task.sessionId,
-                content = content,
-                room = MemoryRoom.EVENT_ROOM,
-                kind = MemoryKind.NARRATIVE,
-                semanticEmbedding = models.embeddingModel.embed(content),
-                emotionalEmbedding = models.embeddingModel.embed(BioVector.Neutral),
-                metadata = MemoryMetadata(
-                    snapshot8D = BioVector.Neutral,
-                    omegaState = 0.0f,
-                    deltaVec = io.openeden.bio.VectorDelta.Zero,
-                    snapshotOrigin = BioVector.Neutral,
-                    userId = "diary-worker",
-                ),
-            )
-        },
+        generator = DiaryNarrativeGenerator(LlmDiaryNarrativeGenerator(
+            persona, store,
+            CheckpointedDiaryDataSource(diaryTaskStore, memoryStore) { session, after, through, limit ->
+                memoryStore.rawMemoryRange(session, after, through, minOf(limit, serverConfig.diaryMaxRawMemories)).map { entry ->
+                    io.openeden.memory.MemorySnippet(entry.id, entry.content, entry.metadata)
+                }
+            }, models.quantizer, inferenceExecutor, llmClient, models.embeddingModel, serverConfig.diaryMaxRawMemories,
+        )::generate),
     )
     val diaryJob = DiaryWorkerScheduler(
         taskStore = diaryTaskStore,
@@ -123,6 +121,12 @@ fun Application.configureRuntime() {
         sessionIds = { store.sessionIds() },
         nowMs = { System.currentTimeMillis() },
     ).start(scope)
+    val elapsedJob = scope.launch {
+        while (true) {
+            diaryCoordinator.flushElapsedSessions(System.currentTimeMillis())
+            kotlinx.coroutines.delay(serverConfig.diaryScanIntervalMs)
+        }
+    }
     val scheduler = HeartbeatScheduler(
         pipeline = pipeline,
         store = store,
@@ -142,16 +146,19 @@ fun Application.configureRuntime() {
     log.info("OpenEden heartbeat scheduler started")
 
     monitor.subscribe(ApplicationStopping) {
-        job.cancel()
-        tickJob.cancel()
-        diaryJob.cancel()
-        scope.cancel()
-        store.close()
-        memoryStore.close()
-        diaryTaskStore.close()
-        traceStore.close()
-        relationshipStore.close()
-        log.info("OpenEden runtime stopped")
+        job.cancel(); tickJob.cancel(); diaryJob.cancel(); elapsedJob.cancel()
+        scope.launch {
+            joinAll(job, tickJob, diaryJob, elapsedJob)
+            scope.cancel()
+            store.close()
+            memoryStore.close()
+            diaryTaskStore.close()
+            traceStore.close()
+            relationshipStore.close()
+            llmClient.close()
+            models.close()
+            log.info("OpenEden runtime stopped")
+        }
     }
 }
 
@@ -167,7 +174,8 @@ private data class RuntimeModels(
     val quantizer: CodebookQuantizer,
     val embeddingModel: MemoryEmbeddingModel,
     val userAffectAnalyzer: UserAffectAnalyzer,
-)
+    val closers: List<AutoCloseable> = emptyList(),
+) : AutoCloseable { override fun close() = closers.asReversed().forEach { runCatching { it.close() } } }
 
 private fun loadRuntimeModels(config: ServerRuntimeConfig): RuntimeModels {
     val artifact = requireNotNull(loadLocalArtifact(config)) {
@@ -184,25 +192,28 @@ private fun loadRuntimeModels(config: ServerRuntimeConfig): RuntimeModels {
                 codebook = artifact.vqVae.codebook,
                 topK = artifact.vqVae.topK,
             )
+            val embedding = DjlMemoryEmbeddingModel.fromModelPaths(
+                textModelPath = config.djlTextModelPath,
+                emotionalModelPath = config.djlEmotionalModelPath,
+                textModelName = config.djlModelName,
+                emotionalModelName = config.djlModelName,
+                engineName = config.djlEngine,
+                textInputDimension = artifact.textEmbedding.bucketSize,
+            )
+            val affect = DjlTextAffectAnalyzer.fromModelPath(
+                modelPath = config.djlAffectModelPath,
+                modelName = config.djlModelName,
+                engineName = config.djlEngine,
+                textInputDimension = artifact.textEmbedding.bucketSize,
+            )
             RuntimeModels(
                 quantizer = VqVaeCodebookQuantizer(
                     modelRunner = runner,
                     dictionary = CodebookDictionary.parseCsv(artifact.codebookCsv),
                 ),
-                embeddingModel = DjlMemoryEmbeddingModel.fromModelPaths(
-                    textModelPath = config.djlTextModelPath,
-                    emotionalModelPath = config.djlEmotionalModelPath,
-                    textModelName = config.djlModelName,
-                    emotionalModelName = config.djlModelName,
-                    engineName = config.djlEngine,
-                    textInputDimension = artifact.textEmbedding.bucketSize,
-                ),
-                userAffectAnalyzer = DjlTextAffectAnalyzer.fromModelPath(
-                    modelPath = config.djlAffectModelPath,
-                    modelName = config.djlModelName,
-                    engineName = config.djlEngine,
-                    textInputDimension = artifact.textEmbedding.bucketSize,
-                ),
+                embeddingModel = embedding,
+                userAffectAnalyzer = affect,
+                closers = listOf(runner, embedding, affect),
             )
         }
         else -> error("Unsupported OPENEDEN_MODEL_BACKEND")
@@ -237,6 +248,10 @@ private data class ServerRuntimeConfig(
     val djlEngine: String,
     val djlModelName: String,
     val heartbeatOwner: HeartbeatOwner?,
+    val diaryDeltaThreshold: Float,
+    val diaryElapsedHours: Long,
+    val diaryScanIntervalMs: Long,
+    val diaryMaxRawMemories: Int,
 )
 
 private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationConfig): ServerRuntimeConfig {
@@ -269,5 +284,9 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         } else {
             null
         },
+        diaryDeltaThreshold = optional("openeden.diary.deltaThreshold", "0.25").toFloat(),
+        diaryElapsedHours = optional("openeden.diary.elapsedHours", "5").toLong(),
+        diaryScanIntervalMs = optional("openeden.diary.scanIntervalSeconds", "60").toLong().coerceAtLeast(1L) * 1000L,
+        diaryMaxRawMemories = optional("openeden.diary.maxRawMemories", "32").toInt().coerceAtLeast(1),
     )
 }

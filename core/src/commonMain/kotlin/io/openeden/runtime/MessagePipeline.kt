@@ -55,6 +55,7 @@ class DevelopmentMessagePipeline(
     private val centroidProvider: HomeostasisCentroidProvider,
     private val turnGate: SessionTurnGate,
     private val diaryTaskStore: DiaryTaskStore?,
+    private val diaryTriggerCoordinator: DiaryTriggerCoordinator?,
     private val traceStore: TraceStore?,
     private val userAffectAnalyzer: UserAffectAnalyzer,
     private val relationshipStore: RelationshipStateStore,
@@ -219,7 +220,7 @@ class DevelopmentMessagePipeline(
         }
         trace(traceContext, "state_commit", tags = write.traceTags)
 
-        val relationshipWrite = if (request.source == TurnSource.USER && validation.isValid && relationship != null) {
+        val relationshipWrite: Set<String> = if (request.source == TurnSource.USER && validation.isValid && relationship != null) {
             val evidence = relationshipEvidence(request.text)
             val updated = if (evidence != null) {
                 relationship.apply(evidence, nowMs())
@@ -231,19 +232,19 @@ class DevelopmentMessagePipeline(
             }
             try {
                 relationshipStore.write(updated)
-                setOf(TraceTag.RelationshipUpdated)
+                setOf<String>(TraceTag.RelationshipUpdated)
             } catch (_: Throwable) {
-                setOf(TraceTag.RelationshipDegraded)
+                setOf<String>(TraceTag.RelationshipDegraded)
             }
         } else {
-            emptySet()
+            emptySet<String>()
         }
 
-        val sourceTags = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
+        val sourceTags: Set<String> = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
 
-        val diaryOutcome = diaryOutcome(sessionId, validation.delta)
+        var diaryOutcome = DiaryOutcome("not_triggered", emptySet())
         val memoryTraceTags = if (validation.isValid && validation.delta != null && validation.output != null) {
-            inferenceExecutor.run {
+            inferenceExecutor.run<MemoryWriteOutcome> {
                 writeMemories(
                     request = request,
                     sessionId = sessionId,
@@ -252,21 +253,25 @@ class DevelopmentMessagePipeline(
                     omega = write.state.omega,
                     delta = validation.delta,
                     response = validation.output.response,
-                    diaryOutcome = diaryOutcome,
                 )
             }
         } else {
-            emptySet()
+            MemoryWriteOutcome(null, emptySet())
         }
-        trace(traceContext, "memory_write", tags = memoryTraceTags)
+        if (validation.isValid && validation.delta != null && validation.delta.toList().any { kotlin.math.abs(it) > 0.0f } && validation.output != null && memoryTraceTags.rawMemoryId != null) {
+            val tags = diaryTriggerCoordinator?.onVectorDelta(sessionId, memoryTraceTags.rawMemoryId, validation.delta, nowMs())
+                ?: diaryQueue.tryEnqueue(DiaryEvent(sessionId, "development", "vector_delta"))
+            diaryOutcome = DiaryOutcome(if (tags.isEmpty()) "enqueued" else "overflow", tags)
+        }
+        trace(traceContext, "memory_write", tags = memoryTraceTags.traceTags)
         val updatedOrigin = memoryStore?.let {
             inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
         }
-        val centroidTags = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
+        val centroidTags: Set<String> = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
             vectorWriteService.updateLocked(sessionId) { it.copy(origin = updatedOrigin) }
             setOf(TraceTag.CentroidUpdated)
         } else {
-            emptySet()
+            emptySet<String>()
         }
         trace(traceContext, "diary_publish", tags = diaryOutcome.traceTags, attributes = mapOf("outcome" to diaryOutcome.label))
 
@@ -285,7 +290,7 @@ class DevelopmentMessagePipeline(
                 retrievalResult.traceTags +
                 write.traceTags +
                 diaryOutcome.traceTags +
-                memoryTraceTags +
+                memoryTraceTags.traceTags +
                 relationshipWrite +
                 centroidTags +
                 sourceTags,
@@ -328,31 +333,6 @@ class DevelopmentMessagePipeline(
         }
     }
 
-    private suspend fun diaryOutcome(sessionId: String, delta: VectorDelta?): DiaryOutcome =
-        if (delta != null && delta.toList().any { kotlin.math.abs(it) > 0.0f }) {
-            val traceTags = diaryTaskStore?.enqueue(
-                DiaryTask(
-                    id = "$sessionId:${nowMs()}:diary",
-                    sessionId = sessionId,
-                    sourceMemoryId = null,
-                    reason = "vector_delta",
-                    availableAtMs = nowMs(),
-                ),
-            ) ?: diaryQueue.tryEnqueue(
-                DiaryEvent(
-                    sessionId = sessionId,
-                    traceId = "development",
-                    reason = "vector_delta",
-                ),
-            )
-            DiaryOutcome(
-                label = if (traceTags.isEmpty()) "enqueued" else "overflow",
-                traceTags = traceTags,
-            )
-        } else {
-            DiaryOutcome(label = "not_triggered", traceTags = emptySet())
-        }
-
     private suspend fun writeMemories(
         request: DevelopmentMessageRequest,
         sessionId: String,
@@ -361,9 +341,8 @@ class DevelopmentMessagePipeline(
         omega: OmegaState,
         delta: VectorDelta,
         response: String,
-        diaryOutcome: DiaryOutcome,
-    ): Set<String> {
-        val store = memoryStore ?: return emptySet()
+    ): MemoryWriteOutcome {
+        val store = memoryStore ?: return MemoryWriteOutcome(null, emptySet())
         val metadata = io.openeden.memory.MemoryMetadata(
             snapshot8D = preTicked,
             omegaState = omega.value,
@@ -372,14 +351,15 @@ class DevelopmentMessagePipeline(
             userId = request.userId,
         )
         val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
+        val rawId = "$sessionId:${nowMs()}:raw"
         val rawTags = if (omega.value < 0.75f && delta.toList().all { kotlin.math.abs(it) <= 0.05f }) {
             setOf("daily", "stable")
         } else {
-            emptySet()
+            emptySet<String>()
         }
         val rawTrace = store.write(
             MemoryEntry(
-                id = "$sessionId:${nowMs()}:raw",
+                id = rawId,
                 sessionId = sessionId,
                 content = rawContent,
                 room = MemoryRoom.EVENT_ROOM,
@@ -392,7 +372,7 @@ class DevelopmentMessagePipeline(
         )
         // Diary generation is consumed by the asynchronous worker after the RAW commit. The user
         // turn must never create a NARRATIVE memory synchronously or wait for Diary inference.
-        return rawTrace
+        return MemoryWriteOutcome(rawId, rawTrace)
     }
 
     companion object {
@@ -410,6 +390,7 @@ class DevelopmentMessagePipeline(
             promptBuilder: PromptBuilder = DefaultPromptBuilder(),
             diaryQueue: SessionDiaryQueue = SessionDiaryQueue(),
             diaryTaskStore: DiaryTaskStore? = null,
+            diaryTriggerCoordinator: DiaryTriggerCoordinator? = null,
             traceStore: TraceStore? = null,
             centroidProvider: HomeostasisCentroidProvider = SlidingWindowHomeostasisCentroidProvider(
                 memoryStore = memoryStore,
@@ -434,6 +415,7 @@ class DevelopmentMessagePipeline(
                 centroidProvider = centroidProvider,
                 turnGate = SessionTurnGate(vectorWriteService.mutexRegistry),
                 diaryTaskStore = diaryTaskStore,
+                diaryTriggerCoordinator = diaryTriggerCoordinator,
                 traceStore = traceStore,
                 userAffectAnalyzer = userAffectAnalyzer,
                 relationshipStore = relationshipStore,
@@ -454,6 +436,8 @@ private data class DiaryOutcome(
     val label: String,
     val traceTags: Set<String>,
 )
+
+private data class MemoryWriteOutcome(val rawMemoryId: String?, val traceTags: Set<String>)
 
 private data class PipelineInferenceResult(
     val dissonance: Float,
