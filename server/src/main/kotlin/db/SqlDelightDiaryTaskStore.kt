@@ -73,6 +73,14 @@ class SqlDelightDiaryTaskStore(
         } }
     }
 
+    override suspend fun completeWithCheckpointIfOwned(taskId: String, leaseToken: String, checkpoint: DiaryCheckpoint): Boolean =
+        withContext(Dispatchers.IO) { database.transactionWithResult {
+            queries.completeDiaryTask(taskId, leaseToken)
+            if (queries.selectChanges().executeAsOne() != 1L) return@transactionWithResult false
+            queries.upsertDiaryCheckpoint(checkpointSession(taskId), checkpoint.lastCoveredRawMemoryId, checkpoint.lastSuccessfulDiaryAtMs, checkpoint.lastNarrativeMemoryId)
+            true
+        } }
+
     override suspend fun read(sessionId: String): DiaryCheckpoint? = withContext(Dispatchers.IO) {
         queries.selectDiaryCheckpoint(sessionId) { covered, at, narrative -> DiaryCheckpoint(covered, at, narrative) }.executeAsOneOrNull()
     }
@@ -109,6 +117,16 @@ class SqlDelightDiaryTaskStore(
             task.id, task.sessionId, task.sourceMemoryId, task.reason, task.status.name,
             task.attempts.toLong(), createdAtMsFromId(task.id), task.availableAtMs, task.leaseExpiresAtMs, task.leaseToken, task.lastError,
         )
+    }
+
+    override suspend fun fail(taskId: String, leaseToken: String, nowMs: Long, error: String, maxAttempts: Int) {
+        withContext(Dispatchers.IO) {
+            val task = queries.selectDiaryTask(taskId, ::map).executeAsOneOrNull() ?: return@withContext
+            val attempts = task.attempts + 1
+            val status = if (attempts >= maxAttempts) DiaryTaskStatus.DEAD else DiaryTaskStatus.PENDING
+            val delay = 1000L * (1L shl min(attempts, 10))
+            queries.failDiaryTaskOwned(status.name, attempts.toLong(), nowMs + delay, error.take(500), taskId, leaseToken)
+        }
     }
 
     private fun checkpointSession(taskId: String): String =

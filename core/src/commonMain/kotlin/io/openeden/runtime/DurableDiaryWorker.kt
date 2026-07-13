@@ -23,7 +23,7 @@ class DurableDiaryWorker(
                 "Diary generator must produce NARRATIVE memory"
             }
             memoryStore.write(narrative)
-            taskStore.completeWithCheckpoint(
+            val completed = taskStore.completeWithCheckpointIfOwned(
                 task.id, task.leaseToken ?: "",
                 DiaryCheckpoint(
                     lastCoveredRawMemoryId = task.sourceMemoryId,
@@ -31,11 +31,11 @@ class DurableDiaryWorker(
                     lastNarrativeMemoryId = narrative.id,
                 ),
             )
-            true
+            completed
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            taskStore.fail(task.id, nowMs, error.message ?: error::class.simpleName.orEmpty())
+            taskStore.fail(task.id, task.leaseToken ?: "", nowMs, error.message ?: error::class.simpleName.orEmpty())
             false
         }
     }

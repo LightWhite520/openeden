@@ -17,6 +17,12 @@ interface DiaryTaskStore {
     suspend fun completeWithCheckpoint(taskId: String, leaseToken: String, checkpoint: DiaryCheckpoint) {
         complete(taskId, leaseToken)
     }
+    suspend fun completeWithCheckpointIfOwned(taskId: String, leaseToken: String, checkpoint: DiaryCheckpoint): Boolean {
+        completeWithCheckpoint(taskId, leaseToken, checkpoint)
+        return true
+    }
     suspend fun fail(taskId: String, nowMs: Long, error: String, maxAttempts: Int = 5)
+    suspend fun fail(taskId: String, leaseToken: String, nowMs: Long, error: String, maxAttempts: Int = 5) =
+        fail(taskId, nowMs, error, maxAttempts)
     suspend fun recoverExpired(nowMs: Long)
 }

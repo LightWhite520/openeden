@@ -154,6 +154,9 @@ SELECT changes();
 failDiaryTask:
 UPDATE diary_tasks SET status = ?, attempts = ?, available_at_ms = ?, lease_expires_at_ms = NULL, lease_token = NULL, last_error = ? WHERE id = ?;
 
+failDiaryTaskOwned:
+UPDATE diary_tasks SET status = ?, attempts = ?, available_at_ms = ?, lease_expires_at_ms = NULL, lease_token = NULL, last_error = ? WHERE id = ? AND status = 'RUNNING' AND lease_token = ?;
+
 recoverExpiredDiaryTasks:
 UPDATE diary_tasks SET status = 'PENDING', lease_expires_at_ms = NULL, lease_token = NULL
 WHERE status = 'RUNNING' AND lease_expires_at_ms IS NOT NULL AND lease_expires_at_ms <= ?;
