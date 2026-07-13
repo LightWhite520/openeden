@@ -1,15 +1,9 @@
 package io.openeden.terminal
 
-data class CommandCandidate(
-    val value: String,
-    val description: String,
-    val shortcut: String? = null,
-)
-
 class CliCommandParser {
     fun parse(input: String): CliCommand {
-        val trimmed = input.trim()
-        val tokens = if (trimmed.isEmpty()) emptyList() else trimmed.split(WHITESPACE)
+        val trimmed = input.trim { char -> char.isCommandWhitespace() }
+        val tokens = tokenize(trimmed)
         val name = tokens.firstOrNull().orEmpty()
 
         return when (name) {
@@ -26,14 +20,14 @@ class CliCommandParser {
     fun complete(input: String): List<CommandCandidate> {
         if (!input.startsWith('/')) return emptyList()
 
-        val separatorIndex = input.indexOfFirst(Char::isWhitespace)
+        val separatorIndex = input.indexOfFirst { char -> char.isCommandWhitespace() }
         if (separatorIndex < 0) {
             return ROOT_CANDIDATES.filter { candidate -> candidate.value.startsWith(input) }
         }
 
         val command = input.substring(0, separatorIndex)
-        val argument = input.substring(separatorIndex).trimStart()
-        if (argument.any(Char::isWhitespace)) return emptyList()
+        val argument = input.substring(separatorIndex).trimStart { char -> char.isCommandWhitespace() }
+        if (argument.any { char -> char.isCommandWhitespace() }) return emptyList()
 
         val candidates = ARGUMENT_CANDIDATES[command] ?: return emptyList()
         if (candidates.any { candidate -> candidate.value == argument }) return emptyList()
@@ -69,8 +63,22 @@ class CliCommandParser {
         return command
     }
 
+    private fun tokenize(input: String): List<String> {
+        if (input.isEmpty()) return emptyList()
+
+        val tokens = mutableListOf<String>()
+        var tokenStart = 0
+        input.forEachIndexed { index, char ->
+            if (char.isCommandWhitespace()) {
+                if (tokenStart < index) tokens += input.substring(tokenStart, index)
+                tokenStart = index + 1
+            }
+        }
+        if (tokenStart < input.length) tokens += input.substring(tokenStart)
+        return tokens
+    }
+
     private companion object {
-        val WHITESPACE = Regex("\\s+")
         const val MODE_USAGE = "Usage: /mode inline|full"
         const val INSPECT_USAGE = "Usage: /inspect on|off"
 
@@ -95,3 +103,5 @@ class CliCommandParser {
         )
     }
 }
+
+private fun Char.isCommandWhitespace(): Boolean = isWhitespace()

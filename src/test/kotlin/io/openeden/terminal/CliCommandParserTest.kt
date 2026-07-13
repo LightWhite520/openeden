@@ -24,6 +24,12 @@ class CliCommandParserTest {
     }
 
     @Test
+    fun `parse and completion share unicode whitespace semantics`() {
+        assertEquals(CliCommand.Mode(CliMode.FULL_SCREEN), parser.parse("/mode\u2003full"))
+        assertEquals(listOf("full"), parser.complete("/mode\u2003f").map { it.value })
+    }
+
+    @Test
     fun `parse recognizes inspect arguments`() {
         assertEquals(CliCommand.Inspect(visible = true), parser.parse("/inspect on"))
         assertEquals(CliCommand.Inspect(visible = false), parser.parse("/inspect off"))
