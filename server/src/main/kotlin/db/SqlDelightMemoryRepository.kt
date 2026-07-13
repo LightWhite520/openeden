@@ -57,8 +57,9 @@ class SqlDelightMemoryRepository(
 
     override suspend fun write(entry: MemoryEntry): Set<String> = write(entry, "unknown")
 
-    suspend fun readById(id: String): StoredMemory? =
+    suspend fun readById(id: String): StoredMemory? = withContext(Dispatchers.IO) {
         queries.selectById(id, ::mapRow).executeAsOneOrNull()
+    }
 
     /** Ordered RAW-only cursor range, with an exclusive lower and inclusive upper bound. */
     suspend fun rawMemoryRange(
@@ -76,8 +77,9 @@ class SqlDelightMemoryRepository(
         }
     }
 
-    override suspend fun sessionsWithRawMemories(): Set<String> =
+    override suspend fun sessionsWithRawMemories(): Set<String> = withContext(Dispatchers.IO) {
         queries.selectRawSessions().executeAsList().toSet()
+    }
 
     override suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor? =
         withContext(Dispatchers.IO) { queries.selectLatestRawMemory(sessionId, ::mapRow).executeAsOneOrNull()?.entry }?.let {
@@ -89,14 +91,16 @@ class SqlDelightMemoryRepository(
             DiaryRawMemoryCursor(it.id, createdAtMsFromId(it.id))
         }
 
-    override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> =
+    override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> = withContext(Dispatchers.IO) {
         queries.selectStable(sessionId, limit.toLong(), ::mapVector).executeAsList()
+    }
 
-    override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> =
+    override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> = withContext(Dispatchers.IO) {
         queries.selectRecent(sessionId, limit.toLong(), ::mapRow)
             .executeAsList()
             .map { stored -> MemorySnippet(id = stored.entry.id, content = stored.entry.content, metadata = stored.entry.metadata) }
             .asReversed()
+    }
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
         ensureIndexed(request.sessionId)
@@ -118,7 +122,7 @@ class SqlDelightMemoryRepository(
     private suspend fun ensureIndexed(sessionId: String) {
         loadMutex.withLock {
             if (sessionId in loadedSessions) return
-            val entries = queries.selectBySession(sessionId, ::mapRow).executeAsList().map { it.entry }
+            val entries = withContext(Dispatchers.IO) { queries.selectBySession(sessionId, ::mapRow).executeAsList().map { it.entry } }
             var indexed = true
             try {
                 index.rebuild(entries)

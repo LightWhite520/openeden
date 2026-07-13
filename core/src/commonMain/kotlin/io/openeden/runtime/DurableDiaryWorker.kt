@@ -24,7 +24,7 @@ class DurableDiaryWorker(
             }
             memoryStore.write(narrative)
             taskStore.completeWithCheckpoint(
-                task.id,
+                task.id, task.leaseToken ?: "",
                 DiaryCheckpoint(
                     lastCoveredRawMemoryId = task.sourceMemoryId,
                     lastSuccessfulDiaryAtMs = nowMs,

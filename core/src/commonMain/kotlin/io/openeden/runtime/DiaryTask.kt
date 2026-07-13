@@ -9,5 +9,6 @@ data class DiaryTask(
     val attempts: Int = 0,
     val availableAtMs: Long = 0L,
     val leaseExpiresAtMs: Long? = null,
+    val leaseToken: String? = null,
     val lastError: String? = null,
 )

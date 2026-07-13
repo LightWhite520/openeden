@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import java.sql.SQLException
+import java.util.UUID
 
 class SqlDelightDiaryTaskStore(
     private val database: Database,
@@ -47,20 +48,24 @@ class SqlDelightDiaryTaskStore(
             retry { database.transactionWithResult {
                 val candidate = queries.selectPendingDiaryTask(sessionId, nowMs, ::map).executeAsOneOrNull() ?: return@transactionWithResult null
                 val expires = nowMs + leaseMs
-                queries.markDiaryTaskRunning(expires, candidate.id)
+                val token = UUID.randomUUID().toString()
+                queries.markDiaryTaskRunning(expires, token, candidate.id)
+                if (queries.selectChanges().executeAsOne() == 0L) return@transactionWithResult null
                 queries.selectDiaryTask(candidate.id, ::map).executeAsOneOrNull()
-                    ?.takeIf { it.status == DiaryTaskStatus.RUNNING && it.leaseExpiresAtMs == expires }
+                    ?.takeIf { it.status == DiaryTaskStatus.RUNNING && it.leaseExpiresAtMs == expires && it.leaseToken == token }
             } }
         }
     }
 
-    override suspend fun complete(taskId: String) {
-        withContext(Dispatchers.IO) { queries.completeDiaryTask(taskId) }
+    override suspend fun complete(taskId: String) { error("Lease token required") }
+    override suspend fun complete(taskId: String, leaseToken: String) {
+        withContext(Dispatchers.IO) { queries.completeDiaryTask(taskId, leaseToken) }
     }
 
-    override suspend fun completeWithCheckpoint(taskId: String, checkpoint: DiaryCheckpoint) {
+    override suspend fun completeWithCheckpoint(taskId: String, leaseToken: String, checkpoint: DiaryCheckpoint) {
         withContext(Dispatchers.IO) { database.transaction {
-            queries.completeDiaryTask(taskId)
+            queries.completeDiaryTask(taskId, leaseToken)
+            if (queries.selectChanges().executeAsOne() == 0L) return@transaction
             queries.upsertDiaryCheckpoint(
                 checkpointSession(taskId), checkpoint.lastCoveredRawMemoryId,
                 checkpoint.lastSuccessfulDiaryAtMs, checkpoint.lastNarrativeMemoryId,
@@ -99,12 +104,10 @@ class SqlDelightDiaryTaskStore(
     private fun insert(task: DiaryTask, replace: Boolean) {
         if (replace) queries.insertDiaryTaskIfAbsent(
             task.id, task.sessionId, task.sourceMemoryId, task.reason, task.status.name,
-            task.attempts.toLong(), createdAtMsFromId(task.id),
-            task.availableAtMs, task.leaseExpiresAtMs, task.lastError,
+            task.attempts.toLong(), createdAtMsFromId(task.id), task.availableAtMs, task.leaseExpiresAtMs, task.leaseToken, task.lastError,
         ) else queries.insertDiaryTask(
             task.id, task.sessionId, task.sourceMemoryId, task.reason, task.status.name,
-            task.attempts.toLong(), createdAtMsFromId(task.id),
-            task.availableAtMs, task.leaseExpiresAtMs, task.lastError,
+            task.attempts.toLong(), createdAtMsFromId(task.id), task.availableAtMs, task.leaseExpiresAtMs, task.leaseToken, task.lastError,
         )
     }
 
@@ -121,6 +124,7 @@ class SqlDelightDiaryTaskStore(
         attempts: Long,
         availableAtMs: Long,
         leaseExpiresAtMs: Long?,
+        leaseToken: String?,
         lastError: String?,
     ): DiaryTask = DiaryTask(
         id = id,
@@ -131,6 +135,7 @@ class SqlDelightDiaryTaskStore(
         attempts = attempts.toInt(),
         availableAtMs = availableAtMs,
         leaseExpiresAtMs = leaseExpiresAtMs,
+        leaseToken = leaseToken,
         lastError = lastError,
     )
 

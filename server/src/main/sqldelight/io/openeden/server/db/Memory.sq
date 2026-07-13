@@ -120,42 +120,46 @@ CREATE TABLE diary_tasks (
     created_at_ms INTEGER NOT NULL,
     available_at_ms INTEGER NOT NULL,
     lease_expires_at_ms INTEGER,
+    lease_token TEXT,
     last_error TEXT
 );
 
 insertDiaryTask:
-INSERT INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, last_error)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, lease_token, last_error)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 insertDiaryTaskIfAbsent:
-INSERT OR IGNORE INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, last_error)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR IGNORE INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, lease_token, last_error)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 countActiveDiaryTasks:
 SELECT COUNT(*) FROM diary_tasks
 WHERE session_id = ? AND status IN ('PENDING', 'RUNNING');
 
 selectPendingDiaryTask:
-SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, last_error
+SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, lease_token, last_error
 FROM diary_tasks
 WHERE session_id = ? AND status = 'PENDING' AND available_at_ms <= ?
 ORDER BY created_at_ms ASC LIMIT 1;
 
 markDiaryTaskRunning:
-UPDATE diary_tasks SET status = 'RUNNING', lease_expires_at_ms = ? WHERE id = ? AND status = 'PENDING';
+UPDATE diary_tasks SET status = 'RUNNING', lease_expires_at_ms = ?, lease_token = ? WHERE id = ? AND status = 'PENDING';
 
 completeDiaryTask:
-UPDATE diary_tasks SET status = 'DONE', lease_expires_at_ms = NULL WHERE id = ?;
+UPDATE diary_tasks SET status = 'DONE', lease_expires_at_ms = NULL, lease_token = NULL WHERE id = ? AND status = 'RUNNING' AND lease_token = ?;
+
+selectChanges:
+SELECT changes();
 
 failDiaryTask:
-UPDATE diary_tasks SET status = ?, attempts = ?, available_at_ms = ?, lease_expires_at_ms = NULL, last_error = ? WHERE id = ?;
+UPDATE diary_tasks SET status = ?, attempts = ?, available_at_ms = ?, lease_expires_at_ms = NULL, lease_token = NULL, last_error = ? WHERE id = ?;
 
 recoverExpiredDiaryTasks:
-UPDATE diary_tasks SET status = 'PENDING', lease_expires_at_ms = NULL
+UPDATE diary_tasks SET status = 'PENDING', lease_expires_at_ms = NULL, lease_token = NULL
 WHERE status = 'RUNNING' AND lease_expires_at_ms IS NOT NULL AND lease_expires_at_ms <= ?;
 
 selectDiaryTask:
-SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, last_error
+SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, lease_token, last_error
 FROM diary_tasks WHERE id = ?;
 
 CREATE TABLE diary_checkpoints (
