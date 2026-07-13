@@ -81,7 +81,19 @@ FROM memory_entries
 LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
 WHERE memory_entries.session_id = ?
   AND memory_entries.kind = 'RAW'
-ORDER BY memory_entries.created_at_ms ASC, memory_entries.id ASC;
+  AND (? = '' OR memory_entries.created_at_ms > ? OR (memory_entries.created_at_ms = ? AND memory_entries.id > ?))
+  AND (? = '' OR memory_entries.created_at_ms < ? OR (memory_entries.created_at_ms = ? AND memory_entries.id <= ?))
+ORDER BY memory_entries.created_at_ms ASC, memory_entries.id ASC
+LIMIT ?;
+
+selectLatestRawMemory:
+SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
+       memory_embeddings.emotional_json, memory_embeddings.status
+FROM memory_entries
+LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
+WHERE memory_entries.session_id = ? AND memory_entries.kind = 'RAW'
+ORDER BY memory_entries.created_at_ms DESC, memory_entries.id DESC
+LIMIT 1;
 
 selectRawSessions:
 SELECT DISTINCT session_id FROM memory_entries WHERE kind = 'RAW';

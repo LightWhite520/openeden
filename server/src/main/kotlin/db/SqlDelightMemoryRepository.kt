@@ -23,6 +23,8 @@ import io.openeden.runtime.DiaryRawMemoryCursor
 import io.openeden.runtime.DiaryRawMemorySource
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
@@ -45,20 +47,12 @@ class SqlDelightMemoryRepository(
     private val loadMutex = Mutex()
 
     suspend fun write(entry: MemoryEntry, modelId: String): Set<String> {
-        writeEntry(entry)
-        queries.upsertEmbedding(
-            memory_id = entry.id,
-            model_id = modelId,
-            semantic_json = json.encodeToString(entry.semanticEmbedding),
-            emotional_json = json.encodeToString(entry.emotionalEmbedding),
-            status = "READY",
-        )
-        try {
-            index.insert(entry)
-        } catch (_: Throwable) {
-            index.markDirty()
+        return withContext(Dispatchers.IO) {
+            writeEntry(entry)
+            queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
+            try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
+            setOf(io.openeden.trace.TraceTag.MemoryWritten)
         }
-        return setOf(io.openeden.trace.TraceTag.MemoryWritten)
     }
 
     override suspend fun write(entry: MemoryEntry): Set<String> = write(entry, "unknown")
@@ -73,23 +67,26 @@ class SqlDelightMemoryRepository(
         throughId: String?,
         limit: Int,
     ): List<MemoryEntry> {
-        val ordered = queries.selectRawMemoryRange(sessionId, ::mapRow).executeAsList()
-        val start = afterId?.let { id -> ordered.indexOfFirst { it.entry.id == id }.let { if (it < 0) 0 else it + 1 } } ?: 0
-        val end = throughId?.let { id -> ordered.indexOfFirst { it.entry.id == id }.let { if (it < 0) ordered.size else it + 1 } } ?: ordered.size
-        return ordered.subList(start.coerceAtMost(end), end.coerceAtMost(ordered.size)).take(limit.coerceAtLeast(0)).map { it.entry }
+        if (limit <= 0) return emptyList()
+        return withContext(Dispatchers.IO) {
+            val afterMs = afterId?.let(::createdAtMsFromId)
+            val throughMs = throughId?.let(::createdAtMsFromId)
+            queries.selectRawMemoryRange(sessionId, afterId ?: "", afterMs ?: 0L, afterMs ?: 0L, afterId ?: "", throughId ?: "", throughMs ?: 0L, throughMs ?: 0L, throughId ?: "", limit.toLong(), ::mapRow)
+                .executeAsList().map { it.entry }
+        }
     }
 
     override suspend fun sessionsWithRawMemories(): Set<String> =
         queries.selectRawSessions().executeAsList().toSet()
 
     override suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor? =
-        queries.selectRawMemoryRange(sessionId, ::mapRow).executeAsList().lastOrNull()?.entry?.let {
-            DiaryRawMemoryCursor(it.id, it.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L)
+        withContext(Dispatchers.IO) { queries.selectLatestRawMemory(sessionId, ::mapRow).executeAsOneOrNull()?.entry }?.let {
+            DiaryRawMemoryCursor(it.id, createdAtMsFromId(it.id))
         }
 
     override suspend fun firstRawMemoryAfter(sessionId: String, coveredRawMemoryId: String?): DiaryRawMemoryCursor? =
         rawMemoryRange(sessionId, coveredRawMemoryId, null, 1).firstOrNull()?.let {
-            DiaryRawMemoryCursor(it.id, it.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L)
+            DiaryRawMemoryCursor(it.id, createdAtMsFromId(it.id))
         }
 
     override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> =
@@ -146,7 +143,7 @@ class SqlDelightMemoryRepository(
             kind = entry.kind.name,
             content = entry.content,
             tags_json = json.encodeToString(entry.tags.toList()),
-            created_at_ms = entry.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L,
+            created_at_ms = createdAtMsFromId(entry.id),
             snapshot_l = snapshot.l.toDouble(), snapshot_p = snapshot.p.toDouble(),
             snapshot_e = snapshot.e.toDouble(), snapshot_s = snapshot.s.toDouble(),
             snapshot_tau = snapshot.tau.toDouble(), snapshot_v = snapshot.v.toDouble(),

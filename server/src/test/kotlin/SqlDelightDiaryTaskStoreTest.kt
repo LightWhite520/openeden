@@ -6,6 +6,9 @@ import io.openeden.runtime.DiaryCheckpoint
 import io.openeden.server.db.SqlDelightDiaryTaskStore
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.Dispatchers
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -18,8 +21,8 @@ class SqlDelightDiaryTaskStoreTest {
 
     @AfterTest
     fun cleanup() {
-        Files.list(tempDir).use { stream -> stream.forEach { Files.deleteIfExists(it) } }
-        Files.deleteIfExists(tempDir)
+        runCatching { Files.list(tempDir).use { stream -> stream.forEach { Files.deleteIfExists(it) } } }
+        runCatching { Files.deleteIfExists(tempDir) }
     }
 
     @Test
@@ -72,6 +75,18 @@ class SqlDelightDiaryTaskStoreTest {
         }
         assertEquals(1, store.countActive("S"))
         store.close()
+    }
+
+    @Test
+    fun `competing workers lease a task at most once`() = runTest {
+        SqlDelightDiaryTaskStore.open(dbPath).use { it.enqueue(DiaryTask("S:1700000000000:task", "S", null, "delta")) }
+        val stores = listOf(SqlDelightDiaryTaskStore.open(dbPath), SqlDelightDiaryTaskStore.open(dbPath))
+        try {
+            val leases = stores.map { store -> async(Dispatchers.IO) { store.leaseNext("S", 1_700_000_000_001L, 10_000L) } }.awaitAll()
+            assertEquals(1, leases.count { it != null })
+        } finally {
+            stores.forEach { it.close() }
+        }
     }
 
     private inline fun <T> SqlDelightDiaryTaskStore.use(block: (SqlDelightDiaryTaskStore) -> T): T =

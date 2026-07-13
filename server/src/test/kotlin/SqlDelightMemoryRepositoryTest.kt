@@ -64,11 +64,13 @@ class SqlDelightMemoryRepositoryTest {
             semanticEmbedding = emptyList(), emotionalEmbedding = emptyList(),
         )
         SqlDelightMemoryRepository.open(dbPath).use { repository ->
-            repository.write(entry("raw:001", MemoryKind.RAW))
-            repository.write(entry("narrative:002", MemoryKind.NARRATIVE))
-            repository.write(entry("raw:003", MemoryKind.RAW))
-            val rows = repository.rawMemoryRange("QQ:42", "raw:001", "raw:003", 10)
-            assertEquals(listOf("raw:003"), rows.map { it.id })
+            repository.write(entry("QQ:42:1000:raw", MemoryKind.RAW))
+            repository.write(entry("QQ:42:2000:narrative", MemoryKind.NARRATIVE))
+            repository.write(entry("QQ:42:3000:raw", MemoryKind.RAW))
+            repository.write(entry("QQ:42:4000:raw", MemoryKind.RAW))
+            val rows = repository.rawMemoryRange("QQ:42", "QQ:42:1000:raw", "QQ:42:3000:raw", 10)
+            assertEquals(listOf("QQ:42:3000:raw"), rows.map { it.id })
+            assertEquals(4000L, repository.latestRawMemory("QQ:42")?.createdAtMs)
         }
     }
 
