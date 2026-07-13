@@ -4,8 +4,10 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryStore
 import kotlinx.coroutines.CancellationException
 
+data class DiaryNarrativeResult(val entry: MemoryEntry, val coveredRawMemoryId: String)
+
 fun interface DiaryNarrativeGenerator {
-    suspend fun generate(task: DiaryTask): MemoryEntry
+    suspend fun generate(task: DiaryTask): DiaryNarrativeResult
 }
 
 class DurableDiaryWorker(
@@ -18,7 +20,9 @@ class DurableDiaryWorker(
     suspend fun processNext(sessionId: String, nowMs: Long): Boolean = gate.withSession(sessionId) {
         val task = taskStore.leaseNext(sessionId, nowMs, leaseMs) ?: return@withSession false
         try {
-            val narrative = generator.generate(task)
+            val result = generator.generate(task)
+            val narrative = result.entry
+            require(result.coveredRawMemoryId.isNotBlank()) { "Diary result coverage bound is required" }
             require(narrative.kind == io.openeden.memory.MemoryKind.NARRATIVE) {
                 "Diary generator must produce NARRATIVE memory"
             }
@@ -26,7 +30,7 @@ class DurableDiaryWorker(
             val completed = taskStore.completeWithCheckpointIfOwned(
                 task.id, task.leaseToken ?: "",
                 DiaryCheckpoint(
-                    lastCoveredRawMemoryId = task.sourceMemoryId,
+                    lastCoveredRawMemoryId = result.coveredRawMemoryId,
                     lastSuccessfulDiaryAtMs = nowMs,
                     lastNarrativeMemoryId = narrative.id,
                 ),

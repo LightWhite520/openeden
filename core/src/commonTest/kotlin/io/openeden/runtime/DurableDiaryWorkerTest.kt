@@ -21,7 +21,7 @@ class DurableDiaryWorkerTest {
             taskStore = taskStore,
             memoryStore = memory,
             generator = DiaryNarrativeGenerator { task ->
-                MemoryEntry(
+                DiaryNarrativeResult(MemoryEntry(
                     id = "narrative:1",
                     sessionId = task.sessionId,
                     content = "distilled narrative",
@@ -36,7 +36,7 @@ class DurableDiaryWorkerTest {
                         BioVector.Neutral,
                         "diary",
                     ),
-                )
+                ), "raw:actual")
             },
         )
 
