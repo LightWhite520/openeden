@@ -85,6 +85,16 @@ export function chatCompletionsUrl(endpoint) {
   return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
 }
 
+export function resolveModelPlan(options = {}) {
+  const generator = options.generatorModel ?? options.model ?? "gpt-5.4-mini";
+  const standard = options.standardModel ?? "gpt-5.5";
+  return {
+    generator,
+    standard,
+    escalation: options.escalationModel ?? standard,
+  };
+}
+
 export function claimUniqueText(text, sampleId, owners) {
   const normalized = normalizeAffectText(text);
   const owner = owners.get(normalized);
@@ -233,7 +243,7 @@ export function auditCorpus(records, requests, { challengeTexts = new Set() } = 
     }
   }
   const modelCalls = countBy(records, "finalLabelModel");
-  const escalatedCount = records.filter((record) => record.finalLabelModel === "gpt-5.6-sol").length;
+  const escalatedCount = records.filter((record) => Boolean(record.escalatedBy)).length;
   return {
     schemaVersion: 2,
     sampleCount: records.length,

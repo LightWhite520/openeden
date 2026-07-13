@@ -14,6 +14,7 @@ import {
   generationRetryModel,
   needsEscalation,
   needsStandardReview,
+  resolveModelPlan,
   sanitizeGeneratedStage,
   selectRequestRange,
   validateItem,
@@ -24,9 +25,10 @@ const args = parseArgs(process.argv.slice(2));
 const sampleCount = positiveInt(args.samples, 8192);
 const batchSize = positiveInt(args.batch, 16);
 const seed = positiveInt(args.seed, 0xaffec726);
-const generatorModel = args.generatorModel ?? args.model ?? "gpt-5.4-mini";
-const standardModel = args.standardModel ?? "gpt-5.5";
-const escalationModel = args.escalationModel ?? "gpt-5.6-sol";
+const modelPlan = resolveModelPlan(args);
+const generatorModel = modelPlan.generator;
+const standardModel = modelPlan.standard;
+const escalationModel = modelPlan.escalation;
 const endpoint = args.endpoint ?? process.env.OPENEDEN_AFFECT_LABEL_ENDPOINT;
 const apiKey = args.apiKey ?? process.env.OPENEDEN_AFFECT_LABEL_API_KEY;
 const rawPath = resolve(args.raw ?? "data/training/user-affect-v2.raw.jsonl");

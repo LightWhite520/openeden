@@ -17,6 +17,7 @@ import {
   needsEscalation,
   needsStandardReview,
   readDurableState,
+  resolveModelPlan,
   selectRequestRange,
   sanitizeGeneratedStage,
   validateItem,
@@ -118,14 +119,22 @@ test("final text conflict is repaired before acceptance", async () => {
   assert.equal(repairCalls, 1);
 });
 
-test("repeated invalid generation escalates models", () => {
-  const models = { generator: "mini", standard: "standard", escalation: "sol" };
+test("default model plan keeps escalation on gpt-5.5", () => {
+  assert.deepEqual(resolveModelPlan({}), {
+    generator: "gpt-5.4-mini",
+    standard: "gpt-5.5",
+    escalation: "gpt-5.5",
+  });
+});
+
+test("repeated invalid generation escalates review tiers", () => {
+  const models = { generator: "mini", standard: "standard", escalation: "standard" };
 
   assert.equal(generationRetryModel(1, models), "mini");
   assert.equal(generationRetryModel(4, models), "mini");
   assert.equal(generationRetryModel(5, models), "standard");
   assert.equal(generationRetryModel(8, models), "standard");
-  assert.equal(generationRetryModel(9, models), "sol");
+  assert.equal(generationRetryModel(9, models), "standard");
 });
 
 test("5.5 reviews low confidence and hard mechanisms", () => {
@@ -134,7 +143,7 @@ test("5.5 reviews low confidence and hard mechanisms", () => {
   assert.equal(needsStandardReview(request("explicit", ["direct_disclosure"]), item(0.90)), false);
 });
 
-test("5.6-sol receives cross-gate and large-disagreement cases", () => {
+test("escalation review receives cross-gate and large-disagreement cases", () => {
   assert.equal(needsEscalation(item(0.49), item(0.52), request("low", ["sarcasm"])), true);
   assert.equal(needsEscalation(item(0.42), item(0.44), request("low", ["direct_disclosure"])), false);
   assert.equal(
@@ -147,7 +156,7 @@ test("5.6-sol receives cross-gate and large-disagreement cases", () => {
   );
 });
 
-test("5.6-sol receives compound hard cases and repeated review failures", () => {
+test("escalation review receives compound hard cases and repeated review failures", () => {
   assert.equal(needsEscalation(item(0.55), item(0.56), request("gate_transition", ["sarcasm", "negation", "missing_context"])), true);
   assert.equal(needsEscalation(item(0.55), item(0.56), request("gate_transition", ["direct_disclosure"]), 2), true);
 });
@@ -206,6 +215,17 @@ test("audit rejects a missing confidence band quota", () => {
   const records = requests.slice(0, 9).map((entry, index) => recordFor(entry, `这是第${index}条用于审计的不同中文文本。`));
 
   assert.throws(() => auditCorpus(records, requests), /sample count/i);
+});
+
+test("audit counts escalation provenance independently of model name", () => {
+  const requests = buildRequests(10, 11);
+  const records = requests.map((entry, index) => recordFor(entry, `这是第${index}条用于升级审计的不同中文文本。`));
+  records[0].finalLabelModel = "gpt-5.5";
+  records[0].escalatedBy = "gpt-5.5";
+
+  const audit = auditCorpus(records, requests);
+
+  assert.equal(audit.escalationRate, 0.1);
 });
 
 test("durable state only completes final records", () => {

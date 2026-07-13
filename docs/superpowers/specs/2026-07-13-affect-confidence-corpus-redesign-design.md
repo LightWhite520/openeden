@@ -38,8 +38,8 @@ ambiguity mechanisms. `gpt-5.5` acts as the normal quality adjudicator for:
 - All sarcasm, quotation, negation, mixed-affect, and context-dependent cases.
 - A deterministic audit sample from the remaining high-confidence records.
 
-`gpt-5.6-sol` is reserved for escalation. It is called only when at least one
-of these conditions holds:
+`gpt-5.5` also performs escalation as a second independent adjudication pass.
+That pass runs only when at least one of these conditions holds:
 
 - Generator and `gpt-5.5` differ by more than `0.15` on any affect dimension.
 - Their confidence labels fall on opposite sides of the `0.5` or `0.65` gate.
@@ -55,9 +55,10 @@ uniqueness, and content validation. API retries are bounded and durable output
 is appended only after validation.
 
 Model names are configurable. Defaults are `gpt-5.4-mini` for generation and
-`gpt-5.5` for normal adjudication, with `gpt-5.6-sol` as the escalation model.
-The manifest records aggregate call counts per model so cost and escalation
-rates are auditable. Credentials are read only from environment variables and
+`gpt-5.5` for both normal adjudication and the independent escalation pass. The
+manifest records aggregate call counts per model, while each final record's
+`escalatedBy` field makes escalation rates auditable even when both review tiers
+use the same model. Credentials are read only from environment variables and
 never written to corpus files, manifests, logs, or Git history.
 
 ## Corpus Shape

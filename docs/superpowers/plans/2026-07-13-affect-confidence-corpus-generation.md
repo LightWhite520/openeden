@@ -4,7 +4,7 @@
 
 **Goal:** Generate and audit 8,192 new Chinese user-affect records whose confidence labels match the runtime's text-observability gates.
 
-**Architecture:** A testable JavaScript library creates deterministic confidence strata and coverage requests, validates model responses, and routes reviews through `gpt-5.4-mini`, `gpt-5.5`, and escalation-only `gpt-5.6-sol`. The CLI appends validated stage records durably, resumes by sample ID, then writes a non-sensitive manifest and audit report. No model training or JVM runtime changes are in scope.
+**Architecture:** A testable JavaScript library creates deterministic confidence strata and coverage requests, validates model responses, generates with `gpt-5.4-mini`, and routes both normal and independent escalation reviews through `gpt-5.5`. The CLI appends validated stage records durably, resumes by sample ID, then writes a non-sensitive manifest and audit report. No model training or JVM runtime changes are in scope.
 
 **Tech Stack:** Node.js ESM, built-in `node:test`, OpenAI-compatible chat-completions HTTP endpoint, JSONL.
 
@@ -101,7 +101,7 @@ test("5.5 reviews low confidence and hard mechanisms", () => {
   assert.equal(needsStandardReview(request("explicit", "direct_disclosure"), item(0.90)), false);
 });
 
-test("5.6-sol only receives escalation cases", () => {
+test("independent adjudication only receives escalation cases", () => {
   assert.equal(needsEscalation(item(0.49), item(0.52), request("low", "sarcasm")), true);
   assert.equal(needsEscalation(item(0.42), item(0.44), request("low", "direct_disclosure")), false);
   assert.equal(needsEscalation(item(0.70, { valence: 0.2 }), item(0.70, { valence: 0.36 }), request("moderate", "mixed")), true);
@@ -151,8 +151,8 @@ const escalations = reviewed.filter(({ request, generated, reviewed, failures })
 const finalEscalations = await reviewWithModel(escalationModel, escalations);
 ```
 
-Defaults are `gpt-5.4-mini`, `gpt-5.5`, and `gpt-5.6-sol`; CLI flags may override
-them. API keys remain environment-only.
+Defaults are `gpt-5.4-mini` for generation and `gpt-5.5` for both review tiers;
+CLI flags may override them. API keys remain environment-only.
 
 - [ ] **Step 6: Run tests**
 
@@ -197,7 +197,7 @@ Expected: FAIL because audit and durable-stage parsing are absent.
 
 - [ ] **Step 3: Implement durable stage files**
 
-Append generation, 5.5 review, 5.6-sol escalation, and final acceptance to
+Append generation, 5.5 review, independent 5.5 escalation, and final acceptance to
 separate ignored JSONL files. On resume, a sample is complete only when its
 final record exists and validates against its deterministic request.
 
@@ -212,7 +212,7 @@ export function auditCorpus(records, requests) {
     mechanisms: countBy(records, "mechanism"),
     nearGateCount: records.filter((item) => distanceToGate(item.confidence) <= 0.05).length,
     modelCalls: countBy(records, "finalLabelModel"),
-    escalationRate: records.filter((item) => item.finalLabelModel === "gpt-5.6-sol").length / records.length,
+    escalationRate: records.filter((item) => item.escalatedBy != null).length / records.length,
   };
 }
 ```
@@ -261,7 +261,7 @@ Expected: exit code 0 and no credential value in output.
 
 - [ ] **Step 2: Generate with tiered labeling**
 
-Run: `node scripts/generate-user-affect-training-corpus.mjs --samples 8192 --batch 16 --generator-model gpt-5.4-mini --standard-model gpt-5.5 --escalation-model gpt-5.6-sol --raw data/training/user-affect-v2.raw.jsonl --manifest data/training/user-affect-v2.corpus-manifest.json --audit data/training/user-affect-v2.audit.json`
+Run: `node scripts/generate-user-affect-training-corpus.mjs --samples 8192 --batch 32 --generator-model gpt-5.4-mini --standard-model gpt-5.5 --escalation-model gpt-5.5 --raw data/training/user-affect-v2.raw.jsonl --manifest data/training/user-affect-v2.corpus-manifest.json --audit data/training/user-affect-v2.audit.json`
 
 Expected: generation resumes safely after transient failures and reaches `accepted=8192/8192`.
 
