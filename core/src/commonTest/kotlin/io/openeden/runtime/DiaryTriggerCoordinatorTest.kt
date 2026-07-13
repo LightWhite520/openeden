@@ -25,12 +25,13 @@ class DiaryTriggerCoordinatorTest {
         val store = RecordingDiaryTaskStore()
         val checkpoints = InMemoryDiaryCheckpointStore()
         val raw = InMemoryDiaryRawMemorySource()
-        raw.put("S", "raw-2", 1L)
-        checkpoints.put("S", DiaryCheckpoint(lastCoveredRawMemoryId = "raw-1", lastSuccessfulDiaryAtMs = 0L))
+        raw.put("S", "raw-1", 1L)
+        raw.put("S", "raw-2", 2L)
+        raw.first = DiaryRawMemoryCursor("raw-1", 1L)
         val coordinator = DiaryTriggerCoordinator(store, checkpoints, raw)
 
-        assertTrue(coordinator.flushElapsedSessions(5L * 60 * 60 * 1000 - 1).isEmpty())
-        val result = coordinator.flushElapsedSessions(5L * 60 * 60 * 1000)
+        assertTrue(coordinator.flushElapsedSessions(5L * 60 * 60 * 1000).isEmpty())
+        val result = coordinator.flushElapsedSessions(5L * 60 * 60 * 1000 + 1)
         assertTrue(result.containsKey("S"))
         assertEquals("elapsed", store.tasks.single().reason)
     }
@@ -54,6 +55,10 @@ private class RecordingDiaryTaskStore : DiaryTaskStore {
         tasks += task
         return emptySet()
     }
+    override suspend fun enqueueIfAbsent(task: DiaryTask): Set<String> {
+        if (tasks.any { it.id == task.id }) return emptySet()
+        return enqueue(task)
+    }
     override suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask? = null
     override suspend fun complete(taskId: String) = Unit
     override suspend fun fail(taskId: String, nowMs: Long, error: String, maxAttempts: Int) = Unit
@@ -69,7 +74,9 @@ private class InMemoryDiaryCheckpointStore : DiaryCheckpointStore {
 
 private class InMemoryDiaryRawMemorySource : DiaryRawMemorySource {
     private val values = mutableMapOf<String, DiaryRawMemoryCursor>()
+    var first: DiaryRawMemoryCursor? = null
     override suspend fun sessionsWithRawMemories(): Set<String> = values.keys
     override suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor? = values[sessionId]
+    override suspend fun firstRawMemoryAfter(sessionId: String, coveredRawMemoryId: String?): DiaryRawMemoryCursor? = first ?: values[sessionId]
     fun put(sessionId: String, id: String, createdAtMs: Long) { values[sessionId] = DiaryRawMemoryCursor(id, createdAtMs) }
 }

@@ -20,4 +20,8 @@ data class DiaryRawMemoryCursor(
 interface DiaryRawMemorySource {
     suspend fun sessionsWithRawMemories(): Set<String>
     suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor?
+
+    /** Returns the first raw entry strictly after the checkpoint, for elapsed eligibility. */
+    suspend fun firstRawMemoryAfter(sessionId: String, coveredRawMemoryId: String?): DiaryRawMemoryCursor? =
+        latestRawMemory(sessionId)
 }

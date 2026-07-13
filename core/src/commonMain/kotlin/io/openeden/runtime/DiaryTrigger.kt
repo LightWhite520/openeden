@@ -6,12 +6,10 @@ import kotlin.math.abs
 data class DiaryTriggerConfig(
     val deltaThreshold: Float = 0.25f,
     val elapsedIntervalMs: Long = 5L * 60L * 60L * 1000L,
-    val maxPendingTasksPerSession: Int = 8,
 ) {
     init {
         require(deltaThreshold in 0.0f..1.0f) { "deltaThreshold must be in [0, 1]" }
         require(elapsedIntervalMs > 0L) { "elapsedIntervalMs must be positive" }
-        require(maxPendingTasksPerSession in 1..8) { "maxPendingTasksPerSession must be in [1, 8]" }
     }
 }
 
@@ -45,7 +43,8 @@ class DiaryTriggerCoordinator(
             val latest = rawMemorySource.latestRawMemory(sessionId) ?: continue
             val checkpoint = checkpointStore.read(sessionId)
             if (checkpoint?.lastCoveredRawMemoryId == latest.id) continue
-            val baseline = checkpoint?.lastSuccessfulDiaryAtMs ?: latest.createdAtMs
+            val firstUncovered = rawMemorySource.firstRawMemoryAfter(sessionId, checkpoint?.lastCoveredRawMemoryId) ?: continue
+            val baseline = checkpoint?.lastSuccessfulDiaryAtMs ?: firstUncovered.createdAtMs
             if (nowMs - baseline < config.elapsedIntervalMs) continue
             result[sessionId] = enqueue(sessionId, REASON_ELAPSED, latest.id, nowMs)
         }
