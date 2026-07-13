@@ -104,6 +104,7 @@ try {
     } while ($done -lt 1 -and [DateTime]::UtcNow -lt $deadline)
     if ($done -lt 1) { throw 'Diary task did not complete before timeout.' }
     $beforeEvolution = [int64](Invoke-Sql "SELECT evolution_index FROM session_state WHERE session_id='CLI:$sessionUser';")
+    $beforeVector = Invoke-Sql "SELECT vector_json FROM session_state WHERE session_id='CLI:$sessionUser';"
     $beforeRaw = [int](Invoke-Sql "SELECT COUNT(*) FROM memory_entries WHERE session_id='CLI:$sessionUser' AND kind='RAW';")
     $narrative = [int](Invoke-Sql "SELECT COUNT(*) FROM memory_entries WHERE session_id='CLI:$sessionUser' AND kind='NARRATIVE';")
     $checkpoint = Invoke-Sql "SELECT COUNT(*) FROM diary_checkpoints WHERE session_id='CLI:$sessionUser';"
@@ -115,6 +116,7 @@ try {
     $stateAfterRestart = Invoke-RestMethod "$baseUrl/api/v1/state?userId=$sessionUser"
     $afterEvolution = [int64](Invoke-Sql "SELECT evolution_index FROM session_state WHERE session_id='CLI:$sessionUser';")
     if ($afterEvolution -ne $beforeEvolution) { throw 'Evolution index changed across restart.' }
+    if ((Invoke-Sql "SELECT vector_json FROM session_state WHERE session_id='CLI:$sessionUser';") -ne $beforeVector) { throw 'Vector changed across restart.' }
     if ($stateAfterRestart.omega -ne $stateBeforeRestart.omega) { throw 'Omega changed across restart.' }
     if ([int](Invoke-Sql "SELECT COUNT(*) FROM diary_tasks WHERE session_id='CLI:$sessionUser' AND status='RUNNING';") -ne 0) { throw 'A Diary task remained RUNNING after restart.' }
     Invoke-Chat 'production diary post-restart turn' | Out-Null
