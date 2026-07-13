@@ -56,6 +56,8 @@ is appended only after validation.
 
 Model names are configurable. Defaults are `gpt-5.4-mini` for generation and
 `gpt-5.5` for both normal adjudication and the independent escalation pass. The
+generator uses low reasoning effort, while both `gpt-5.5` passes use medium
+reasoning effort. The
 manifest records aggregate call counts per model, while each final record's
 `escalatedBy` field makes escalation rates auditable even when both review tiers
 use the same model. Credentials are read only from environment variables and

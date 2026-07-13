@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   auditCorpus,
   buildRequests,
+  chatCompletionBody,
   chatCompletionsUrl,
   claimUniqueText,
   countBy,
@@ -73,6 +74,11 @@ test("chat completions URL accepts base or full endpoint", () => {
   assert.equal(chatCompletionsUrl("https://example.test/v1"), "https://example.test/v1/chat/completions");
   assert.equal(chatCompletionsUrl("https://example.test/v1/"), "https://example.test/v1/chat/completions");
   assert.equal(chatCompletionsUrl("https://example.test/v1/chat/completions"), "https://example.test/v1/chat/completions");
+});
+
+test("chat completion requests use model-specific reasoning effort", () => {
+  assert.equal(chatCompletionBody("gpt-5.4-mini", "prompt").reasoning_effort, "low");
+  assert.equal(chatCompletionBody("gpt-5.5", "prompt").reasoning_effort, "medium");
 });
 
 test("text ownership permits resume and rejects another sample", () => {
@@ -189,6 +195,12 @@ test("dry-run CLI routes generated request-item pairs", () => {
   const audit = JSON.parse(readFileSync(auditPath, "utf8"));
   assert.equal(audit.sampleCount, 10);
   assert.equal(audit.nearGateCount >= 3, true);
+  const manifest = JSON.parse(readFileSync(path.join(directory, "manifest.json"), "utf8"));
+  assert.deepEqual(manifest.reasoningEffort, {
+    generator: "low",
+    standard: "medium",
+    escalation: "medium",
+  });
 
   const auditOnly = spawnSync(process.execPath, [
     "scripts/generate-user-affect-training-corpus.mjs",

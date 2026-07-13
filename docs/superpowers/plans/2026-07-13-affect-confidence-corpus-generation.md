@@ -152,7 +152,8 @@ const finalEscalations = await reviewWithModel(escalationModel, escalations);
 ```
 
 Defaults are `gpt-5.4-mini` for generation and `gpt-5.5` for both review tiers;
-CLI flags may override them. API keys remain environment-only.
+the generator uses low reasoning effort and both review tiers use medium.
+CLI flags may override model names. API keys remain environment-only.
 
 - [ ] **Step 6: Run tests**
 

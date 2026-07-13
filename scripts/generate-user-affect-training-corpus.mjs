@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   auditCorpus,
   buildRequests,
+  chatCompletionBody,
   chatCompletionsUrl,
   claimUniqueText,
   DIMENSIONS,
@@ -14,6 +15,7 @@ import {
   generationRetryModel,
   needsEscalation,
   needsStandardReview,
+  reasoningEffortForModel,
   resolveModelPlan,
   sanitizeGeneratedStage,
   selectRequestRange,
@@ -231,6 +233,11 @@ fs.writeFileSync(manifestPath, `${JSON.stringify({
     standard: standardModel,
     escalation: escalationModel,
   },
+  reasoningEffort: {
+    generator: reasoningEffortForModel(generatorModel),
+    standard: reasoningEffortForModel(standardModel),
+    escalation: reasoningEffortForModel(escalationModel),
+  },
   rawCorpus: path.relative(ROOT, rawPath),
   dimensions: DIMENSIONS,
   generatedAt: new Date().toISOString(),
@@ -291,7 +298,7 @@ async function completeBatch(modelName, requests, prompt) {
   const response = await fetch(chatCompletionsUrl(endpoint), {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: modelName, temperature: 0.25, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify(chatCompletionBody(modelName, prompt)),
   });
   const body = await response.text();
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${body.slice(0, 300)}`);

@@ -85,6 +85,19 @@ export function chatCompletionsUrl(endpoint) {
   return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
 }
 
+export function chatCompletionBody(model, prompt) {
+  return {
+    model,
+    temperature: 0.25,
+    reasoning_effort: reasoningEffortForModel(model),
+    messages: [{ role: "user", content: prompt }],
+  };
+}
+
+export function reasoningEffortForModel(model) {
+  return model === "gpt-5.4-mini" ? "low" : "medium";
+}
+
 export function resolveModelPlan(options = {}) {
   const generator = options.generatorModel ?? options.model ?? "gpt-5.4-mini";
   const standard = options.standardModel ?? "gpt-5.5";
