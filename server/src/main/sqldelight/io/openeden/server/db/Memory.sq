@@ -103,6 +103,10 @@ insertDiaryTask:
 INSERT INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, last_error)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+insertDiaryTaskIfAbsent:
+INSERT OR IGNORE INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, last_error)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
 countActiveDiaryTasks:
 SELECT COUNT(*) FROM diary_tasks
 WHERE session_id = ? AND status IN ('PENDING', 'RUNNING');

@@ -33,4 +33,16 @@ class SqlDelightDiaryTaskStoreTest {
         assertEquals(DiaryTaskStatus.PENDING, store.readById("task:0")?.status)
         store.close()
     }
+
+    @Test
+    fun `idempotent enqueue ignores duplicate deterministic task id`() = runTest {
+        val store = SqlDelightDiaryTaskStore.open(dbPath)
+        val task = DiaryTask("S|vector_delta|raw-1", "S", "raw-1", "vector_delta")
+
+        assertTrue(store.enqueueIfAbsent(task).isEmpty())
+        assertTrue(store.enqueueIfAbsent(task.copy(availableAtMs = 99L)).isEmpty())
+        assertEquals(task.id, store.readById(task.id)?.id)
+        assertEquals(task.availableAtMs, store.readById(task.id)?.availableAtMs)
+        store.close()
+    }
 }

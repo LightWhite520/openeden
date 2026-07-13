@@ -35,6 +35,25 @@ class SqlDelightDiaryTaskStore(
         return emptySet()
     }
 
+    override suspend fun enqueueIfAbsent(task: DiaryTask): Set<String> {
+        if (queries.selectDiaryTask(task.id, ::map).executeAsOneOrNull() != null) return emptySet()
+        val active = queries.countActiveDiaryTasks(task.sessionId).executeAsOne()
+        if (active >= 8L) return setOf(TraceTag.DiaryQueueOverflow)
+        queries.insertDiaryTaskIfAbsent(
+            id = task.id,
+            session_id = task.sessionId,
+            source_memory_id = task.sourceMemoryId,
+            reason = task.reason,
+            status = task.status.name,
+            attempts = task.attempts.toLong(),
+            created_at_ms = task.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L,
+            available_at_ms = task.availableAtMs,
+            lease_expires_at_ms = task.leaseExpiresAtMs,
+            last_error = task.lastError,
+        )
+        return emptySet()
+    }
+
     override suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask? {
         val candidate = queries.selectPendingDiaryTask(sessionId, nowMs, ::map).executeAsOneOrNull() ?: return null
         queries.markDiaryTaskRunning(nowMs + leaseMs, candidate.id)
