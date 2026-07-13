@@ -55,11 +55,17 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.logback.classic)
+    implementation(libs.jline.terminal)
+    implementation(libs.jline.terminal.jni)
+    implementation(libs.jline.reader)
+    implementation(libs.mordant)
+    implementation(libs.mordant.markdown)
     implementation(project(":core"))
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.client.mock)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.pty4j)
 }
 
 subprojects {

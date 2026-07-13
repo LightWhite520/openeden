@@ -1,14 +1,22 @@
 package io.openeden
 
-import java.io.PrintStream
+import io.openeden.terminal.CliTextStreams
+import io.openeden.terminal.TerminalEncodingProfile
 import kotlin.system.exitProcess
 
 suspend fun main(args: Array<String>) {
-    configureUtf8Console()
-    exitProcess(OpenEdenCli().run(args.toList()))
-}
-
-private fun configureUtf8Console() {
-    System.setOut(PrintStream(System.out, true, Charsets.UTF_8))
-    System.setErr(PrintStream(System.err, true, Charsets.UTF_8))
+    val streams = CliTextStreams.create(
+        input = System.`in`,
+        output = System.out,
+        error = System.err,
+        profile = TerminalEncodingProfile.fromEnvironment(System.getenv()),
+    )
+    val cli = OpenEdenCli(
+        input = StdinCliInput(streams.reader),
+        output = { text ->
+            streams.out.print(text)
+            streams.out.flush()
+        },
+    )
+    exitProcess(cli.run(args.toList()))
 }

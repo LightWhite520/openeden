@@ -6,6 +6,9 @@ logback = "1.5.34"
 sqldelight = "2.0.2"
 djl = "0.34.0"
 pytorch-native = "2.7.1"
+jline = "4.3.1"
+mordant = "3.0.1"
+pty4j = "0.13.12"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -15,6 +18,12 @@ logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "lo
 sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
 djl-api = { module = "ai.djl:api", version.ref = "djl" }
 djl-pytorch-engine = { module = "ai.djl.pytorch:pytorch-engine", version.ref = "djl" }
+jline-terminal = { module = "org.jline:jline-terminal", version.ref = "jline" }
+jline-terminal-jni = { module = "org.jline:jline-terminal-jni", version.ref = "jline" }
+jline-reader = { module = "org.jline:jline-reader", version.ref = "jline" }
+mordant = { module = "com.github.ajalt.mordant:mordant", version.ref = "mordant" }
+mordant-markdown = { module = "com.github.ajalt.mordant:mordant-markdown", version.ref = "mordant" }
+pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref = "pty4j" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

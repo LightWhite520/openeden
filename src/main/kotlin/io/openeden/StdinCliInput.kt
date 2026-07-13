@@ -3,10 +3,10 @@ package io.openeden
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
-import java.io.InputStreamReader
+import java.io.Reader
 
-class StdinCliInput : CliInput {
-    private val reader = BufferedReader(InputStreamReader(System.`in`, Charsets.UTF_8))
+class StdinCliInput(reader: Reader) : CliInput {
+    private val reader = reader as? BufferedReader ?: reader.buffered()
 
     override suspend fun readLine(): String? = withContext(Dispatchers.IO) { reader.readLine() }
 }

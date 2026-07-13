@@ -20,7 +20,7 @@ import io.openeden.config.CliConfigStore
 class OpenEdenCli(
     private val configLoader: () -> CliConfig = { CliConfigStore().loadOrCreate() },
     private val clientFactory: (String) -> OpenEdenServerApi = ::createServerClient,
-    private val input: CliInput = StdinCliInput(),
+    private val input: CliInput,
     private val output: (String) -> Unit = ::print,
 ) {
     suspend fun run(args: List<String>): Int {
