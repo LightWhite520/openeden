@@ -103,6 +103,18 @@ class SqlDelightDiaryTaskStoreTest {
         store.close()
     }
 
+    @Test
+    fun `stale lease cannot fail a reclaimed task`() = runTest {
+        val store = SqlDelightDiaryTaskStore.open(dbPath)
+        store.enqueue(DiaryTask("S:1700000000000:task", "S", null, "delta"))
+        val first = store.leaseNext("S", 10, 10)!!
+        store.recoverExpired(20)
+        val second = store.leaseNext("S", 20, 100)!!
+        store.fail(first.id, first.leaseToken!!, 21, "stale")
+        assertEquals(DiaryTaskStatus.RUNNING, store.readById(second.id)?.status)
+        store.close()
+    }
+
     private inline fun <T> SqlDelightDiaryTaskStore.use(block: (SqlDelightDiaryTaskStore) -> T): T =
         try { block(this) } finally { close() }
 }

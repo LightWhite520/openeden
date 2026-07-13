@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS diary_checkpoints (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    last_covered_raw_memory_id TEXT,
+    last_successful_diary_at_ms INTEGER,
+    last_narrative_memory_id TEXT
+);
