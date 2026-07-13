@@ -3,7 +3,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const DIMENSIONS = ["valence", "arousal", "dominance", "connectionNeed", "openness", "confidence"];
+import {
+  buildRequests,
+  DIMENSIONS,
+  generationPrompt,
+} from "./user-affect-corpus-lib.mjs";
+
 const ROOT = process.cwd();
 const args = parseArgs(process.argv.slice(2));
 const sampleCount = positiveInt(args.samples, 8192);
@@ -12,8 +17,8 @@ const seed = positiveInt(args.seed, 0xaffec726);
 const model = args.model ?? "gpt-5.4-mini";
 const endpoint = args.endpoint ?? process.env.OPENEDEN_AFFECT_LABEL_ENDPOINT;
 const apiKey = args.apiKey ?? process.env.OPENEDEN_AFFECT_LABEL_API_KEY;
-const rawPath = resolve(args.raw ?? "data/training/user-affect.raw.jsonl");
-const manifestPath = resolve(args.manifest ?? "data/training/user-affect.corpus-manifest.json");
+const rawPath = resolve(args.raw ?? "data/training/user-affect-v2.raw.jsonl");
+const manifestPath = resolve(args.manifest ?? "data/training/user-affect-v2.corpus-manifest.json");
 const dryRun = args.dryRun === true;
 
 if (!dryRun && (!endpoint || !apiKey)) {
@@ -23,7 +28,7 @@ ensureParent(rawPath);
 ensureParent(manifestPath);
 
 const existing = readCorpus(rawPath);
-const prompts = buildPrompts(sampleCount, seed);
+const prompts = buildRequests(sampleCount, seed);
 for (let start = 0; start < prompts.length; start += batchSize) {
   const batch = prompts.slice(start, start + batchSize).filter(({ sampleId }) => !existing.has(sampleId));
   if (batch.length === 0) continue;
@@ -48,7 +53,7 @@ for (let start = 0; start < prompts.length; start += batchSize) {
 
 if (existing.size < sampleCount) throw new Error(`Expected ${sampleCount} records, found ${existing.size}`);
 const records = [...existing.values()]
-  .filter((item) => item.sampleId.startsWith("UA_"))
+  .filter((item) => item.sampleId.startsWith("UAV2_"))
   .sort((left, right) => left.sampleId.localeCompare(right.sampleId))
   .slice(0, sampleCount);
 fs.writeFileSync(manifestPath, `${JSON.stringify({
@@ -90,15 +95,7 @@ async function labelClean(request, knownTexts) {
 }
 
 async function labelBatch(batch, excludedTexts) {
-  const prompt = [
-    "Generate a supervised training batch for a Chinese user-affect observation model.",
-    "Return strict JSON only: {\"items\":[{\"sampleId\":\"UA_000000\",\"text\":\"简体中文用户文本\",\"valence\":0.0,\"arousal\":0.0,\"dominance\":0.0,\"connectionNeed\":0.0,\"openness\":0.0,\"confidence\":0.0}]}",
-    "All six values are finite numbers in [0,1]. valence is negative-to-positive; arousal is calm/depleted-to-activated; dominance is constrained-to-in-control; connectionNeed is space-to-companionship; openness is guarded-to-disclosing; confidence is annotation reliability.",
-    "The text must be a plausible first-person Chinese user message, 8 to 80 characters, with no names, phone numbers, addresses, diagnoses, persona roleplay, assistant references, or answer to the user.",
-    "Use the requested coverage cues to create diverse examples, including neutral factual text, negation, sarcasm, mixed feelings, boundary requests, loneliness, ordinary gratitude, conflict, and low-information text. Labels are observations, not clinical facts. Every text in this response must be unique; do not use stock phrases.",
-    excludedTexts.length > 0 ? `Do not repeat these texts: ${JSON.stringify(excludedTexts.slice(-128))}` : "",
-    `Requests: ${JSON.stringify(batch)}`,
-  ].join("\n");
+  const prompt = generationPrompt(batch, excludedTexts);
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -114,19 +111,6 @@ async function labelBatch(batch, excludedTexts) {
     if (!items.has(request.sampleId)) throw new Error(`Response missing ${request.sampleId}`);
   }
   return items;
-}
-
-function buildPrompts(count, corpusSeed) {
-  const random = mulberry32(corpusSeed);
-  const cues = [
-    "negative activated", "negative depleted", "positive calm", "positive activated", "neutral factual",
-    "guarded and low information", "open personal disclosure", "explicit need for company", "explicit request for space",
-    "mixed pride and anxiety", "sarcastic or ambiguous", "interpersonal conflict", "gratitude", "loss of control",
-  ];
-  return Array.from({ length: count }, (_, index) => ({
-    sampleId: `UA_${String(index).padStart(6, "0")}`,
-    coverage: cues[Math.floor(random() * cues.length)],
-  }));
 }
 
 function validateItem(item, sampleId) {
@@ -151,10 +135,10 @@ function readCorpus(filePath) {
 }
 
 function dryRunItems(batch) {
-  return new Map(batch.map(({ sampleId, coverage }) => [sampleId, {
+  return new Map(batch.map(({ sampleId, mechanism, targetConfidence }) => [sampleId, {
     sampleId,
-    text: `这是用于${coverage}覆盖校验的中文用户训练文本${sampleId}。`,
-    valence: 0.5, arousal: 0.5, dominance: 0.5, connectionNeed: 0.5, openness: 0.5, confidence: 0.9,
+    text: `这是用于${mechanism}覆盖校验的中文用户训练文本${sampleId}。`,
+    valence: 0.5, arousal: 0.5, dominance: 0.5, connectionNeed: 0.5, openness: 0.5, confidence: targetConfidence,
   }]));
 }
 
@@ -184,4 +168,3 @@ function resolve(file) { return path.resolve(ROOT, file); }
 function ensureParent(file) { fs.mkdirSync(path.dirname(file), { recursive: true }); }
 function round4(value) { return Math.round(value * 10000) / 10000; }
 function sleep(ms) { return new Promise((resolveSleep) => setTimeout(resolveSleep, ms)); }
-function mulberry32(seed) { let value = seed >>> 0; return () => { value += 0x6d2b79f5; let next = value; next = Math.imul(next ^ (next >>> 15), next | 1); next ^= next + Math.imul(next ^ (next >>> 7), next | 61); return ((next ^ (next >>> 14)) >>> 0) / 4294967296; }; }
