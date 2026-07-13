@@ -7,17 +7,8 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLParameter
-import kotlinx.serialization.Serializable
-
-interface OpenEdenServerApi {
-    suspend fun health(): Boolean
-    suspend fun chat(userId: String, text: String): ChatResponse
-    suspend fun state(userId: String): PublicState
-    fun close()
-}
 
 class OpenEdenServerClient(
     baseUrl: String,
@@ -56,30 +47,3 @@ class OpenEdenServerClient(
         throw ServerClientException(status, detail.ifBlank { status.description })
     }
 }
-
-@Serializable
-data class ChatRequest(
-    val userId: String,
-    val text: String,
-)
-
-@Serializable
-data class ChatResponse(
-    val requestId: String,
-    val status: String,
-    val response: String? = null,
-    val error: String? = null,
-)
-
-@Serializable
-data class PublicState(
-    val sessionId: String,
-    val status: String,
-    val omega: Float,
-    val shockActive: Boolean,
-)
-
-class ServerClientException(
-    val status: HttpStatusCode,
-    detail: String,
-) : IllegalStateException("OpenEden server request failed: ${status.value} ${status.description}: $detail")

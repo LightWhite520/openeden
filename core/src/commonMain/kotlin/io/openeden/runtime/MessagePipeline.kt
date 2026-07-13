@@ -40,33 +40,6 @@ import io.openeden.relationship.UserAffectAnalyzer
 import io.openeden.relationship.UserAffectInfluenceMapper
 import kotlin.time.Clock
 
-/** Distinguishes real user turns from proactive heartbeat turns. Heartbeat turns still evolve the
- *  8D vector and evolution_index (§9.3), but MUST NOT update the user-activity silence clock. */
-enum class TurnSource { USER, HEARTBEAT }
-
-data class DevelopmentMessageRequest(
-    val platform: String,
-    val scopeId: String,
-    val userId: String,
-    val text: String,
-    val emotionConfidence: Float = 0.0f,
-    val emotionDelta: VectorDelta = VectorDelta.Zero,
-    val source: TurnSource = TurnSource.USER,
-)
-
-data class DevelopmentMessageResult(
-    val sessionId: String,
-    val retrievalMode: RetrievalMode,
-    val traceTags: Set<String>,
-    val prompt: BuiltPrompt,
-    val promptPreview: String,
-    val response: String?,
-    val updatedVector: BioVector,
-    val evolutionIndex: Long,
-    val diaryOutcome: String,
-    val validationErrors: List<String>,
-)
-
 class DevelopmentMessagePipeline(
     private val personaConfig: PersonaConfig,
     private val store: SessionStateStore,
@@ -487,18 +460,3 @@ private data class PipelineInferenceResult(
     val quantization: QuantizationResult,
     val retrievalMode: RetrievalMode,
 )
-
-class MutableSessionStateStore(
-    private val states: MutableMap<String, SessionState> = mutableMapOf(),
-) : SessionStateStore {
-    override suspend fun readOrCreate(sessionId: String): SessionState =
-        states.getOrPut(sessionId) { SessionStateStore.neutral(sessionId) }
-
-    override suspend fun read(sessionId: String): SessionState = readOrCreate(sessionId)
-
-    override suspend fun write(state: SessionState) {
-        states[state.sessionId] = state
-    }
-
-    override suspend fun sessionIds(): Set<String> = states.keys.toSet()
-}

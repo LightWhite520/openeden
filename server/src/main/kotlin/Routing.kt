@@ -11,7 +11,6 @@ import io.ktor.server.websocket.*
 import io.ktor.http.HttpStatusCode
 import io.ktor.websocket.*
 import java.util.UUID
-import kotlinx.serialization.Serializable
 
 fun Application.configureRouting() {
     // Prefer the durable-backed pipeline published by configureRuntime; fall back to an in-memory
@@ -126,33 +125,3 @@ fun Application.configureRouting() {
         }
     }
 }
-
-@Serializable
-data class DevMessageRequestDto(
-    val platform: String,
-    val scopeId: String,
-    val userId: String,
-    val text: String,
-    val emotionConfidence: Float,
-    val deltaL: Float = 0.0f,
-    val deltaP: Float = 0.0f,
-    val deltaE: Float = 0.0f,
-    val deltaS: Float = 0.0f,
-    val deltaTau: Float = 0.0f,
-    val deltaV: Float = 0.0f,
-    val deltaM: Float = 0.0f,
-    val deltaF: Float = 0.0f,
-)
-
-@Serializable
-data class DevMessageResponseDto(
-    val sessionId: String,
-    val retrievalMode: String,
-    val traceTags: List<String>,
-    val promptPreview: String,
-    val response: String?,
-    val updatedVector: List<Float>,
-    val evolutionIndex: Long,
-    val diaryOutcome: String,
-    val validationErrors: List<String>,
-)

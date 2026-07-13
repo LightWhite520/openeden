@@ -15,7 +15,9 @@ build/
 out/
 
 # Agent/tool indexes
+.codex/
 .codegraph/
+graphify-out/
 
 # Runtime and logs
 *.log

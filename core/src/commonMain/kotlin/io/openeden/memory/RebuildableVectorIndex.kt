@@ -7,29 +7,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
 import kotlin.math.sqrt
 
-data class VectorSearchRequest(
-    val sessionId: String,
-    val semanticEmbedding: List<Float>,
-    val emotionalEmbedding: List<Float>? = null,
-    val room: MemoryRoom? = null,
-    val kind: MemoryKind? = null,
-    val limit: Int = 6,
-)
-
-data class VectorSearchHit(
-    val entry: MemoryEntry,
-    val semanticSimilarity: Float,
-    val emotionalSimilarity: Float,
-)
-
-interface VectorIndex {
-    suspend fun insert(entry: MemoryEntry)
-    suspend fun remove(memoryId: String)
-    suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int = 256)
-    suspend fun search(request: VectorSearchRequest): List<VectorSearchHit>
-    suspend fun markDirty()
-}
-
 class RebuildableInMemoryVectorIndex(
     private val inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
 ) : VectorIndex {

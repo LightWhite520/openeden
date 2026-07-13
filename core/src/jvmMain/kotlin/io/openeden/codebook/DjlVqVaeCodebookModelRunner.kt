@@ -1,31 +1,10 @@
 package io.openeden.codebook
 
-import ai.djl.Model
-import ai.djl.ndarray.NDList
-import ai.djl.translate.Translator
-import ai.djl.translate.TranslatorContext
-import ai.djl.inference.Predictor
 import io.openeden.bio.BioVector
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.nio.file.Path
 import kotlin.math.sqrt
-
-interface DjlFloatPredictor : AutoCloseable {
-    fun predict(input: FloatArray): FloatArray
-
-    companion object {
-        fun fromModelPath(
-            modelPath: Path,
-            modelName: String,
-            engineName: String,
-        ): DjlFloatPredictor {
-            val model = Model.newInstance(modelName, engineName)
-            model.load(modelPath, modelName)
-            return DjlModelFloatPredictor(model.newPredictor(FloatArrayTranslator()), model)
-        }
-    }
-}
 
 class DjlVqVaeCodebookModelRunner(
     private val predictor: DjlFloatPredictor,
@@ -100,23 +79,4 @@ class DjlVqVaeCodebookModelRunner(
             )
         }
     }
-}
-
-private class DjlModelFloatPredictor(
-    private val predictor: Predictor<FloatArray, FloatArray>,
-    private val model: Model,
-) : DjlFloatPredictor {
-    override fun predict(input: FloatArray): FloatArray = predictor.predict(input)
-    override fun close() {
-        predictor.close()
-        model.close()
-    }
-}
-
-private class FloatArrayTranslator : Translator<FloatArray, FloatArray> {
-    override fun processInput(context: TranslatorContext, input: FloatArray): NDList =
-        NDList(context.ndManager.create(input))
-
-    override fun processOutput(context: TranslatorContext, list: NDList): FloatArray =
-        list.singletonOrThrow().toFloatArray()
 }

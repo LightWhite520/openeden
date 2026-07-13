@@ -1,0 +1,4 @@
+package io.openeden.prompt
+
+const val HEARTBEAT_TRIGGER = "[HEARTBEAT_TRIGGER]"
+const val HEARTBEAT_SHOCK_TRIGGER = "[HEARTBEAT_SHOCK_TRIGGER]"
