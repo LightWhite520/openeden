@@ -55,6 +55,7 @@ private class TestDiaryTaskStore(
     var task: DiaryTask,
 ) : DiaryTaskStore {
     override suspend fun enqueue(task: DiaryTask): Set<String> = emptySet()
+    override suspend fun enqueueIfAbsent(task: DiaryTask): Set<String> = emptySet()
     override suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask? =
         task.takeIf { it.sessionId == sessionId && it.status == DiaryTaskStatus.PENDING }
             ?.also { task = it.copy(status = DiaryTaskStatus.RUNNING, leaseExpiresAtMs = nowMs + leaseMs) }

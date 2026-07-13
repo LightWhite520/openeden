@@ -16,6 +16,7 @@ class DiaryWorkerSchedulerTest {
         val events = mutableListOf<String>()
         val store = object : DiaryTaskStore {
             override suspend fun enqueue(task: DiaryTask) = emptySet<String>()
+            override suspend fun enqueueIfAbsent(task: DiaryTask) = emptySet<String>()
             override suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask? = null
             override suspend fun complete(taskId: String) = Unit
             override suspend fun fail(taskId: String, nowMs: Long, error: String, maxAttempts: Int) = Unit

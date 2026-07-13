@@ -33,6 +33,11 @@ private class FakeDiaryTaskStore(
         return emptySet()
     }
 
+    override suspend fun enqueueIfAbsent(task: DiaryTask): Set<String> {
+        if (tasks.any { it.id == task.id }) return emptySet()
+        return enqueue(task)
+    }
+
     override suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask? {
         val index = tasks.indexOfFirst { it.sessionId == sessionId && it.status == DiaryTaskStatus.PENDING && it.availableAtMs <= nowMs }
         if (index < 0) return null

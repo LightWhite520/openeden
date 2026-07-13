@@ -4,7 +4,7 @@ interface DiaryTaskStore {
     suspend fun enqueue(task: DiaryTask): Set<String>
 
     /** Enqueues by deterministic task ID; existing IDs must be treated as a no-op. */
-    suspend fun enqueueIfAbsent(task: DiaryTask): Set<String> = enqueue(task)
+    suspend fun enqueueIfAbsent(task: DiaryTask): Set<String>
 
     suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask?
     suspend fun complete(taskId: String)
