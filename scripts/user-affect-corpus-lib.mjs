@@ -112,6 +112,22 @@ export function sanitizeGeneratedStage(stage, completedIds, owners) {
   return removed;
 }
 
+export async function ensureUniqueFinalItem(item, owners, repair, maxRepairs = 4) {
+  let candidate = item;
+  let failure;
+  for (let attempt = 0; attempt <= maxRepairs; attempt += 1) {
+    try {
+      claimUniqueText(candidate.text, candidate.sampleId, owners);
+      return candidate;
+    } catch (error) {
+      failure = error;
+      if (attempt === maxRepairs) break;
+      candidate = await repair(candidate, attempt + 1);
+    }
+  }
+  throw new Error(`Could not repair final text for ${item.sampleId}: ${failure?.message ?? "unknown conflict"}`);
+}
+
 export function generationPrompt(batch, excludedTexts) {
   const responseSkeleton = {
     items: batch.map(({ sampleId }) => ({

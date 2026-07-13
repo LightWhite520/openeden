@@ -9,6 +9,7 @@ import {
   chatCompletionsUrl,
   claimUniqueText,
   DIMENSIONS,
+  ensureUniqueFinalItem,
   generationPrompt,
   generationRetryModel,
   needsEscalation,
@@ -158,7 +159,8 @@ for (let start = 0; start < prompts.length; start += batchSize) {
     escalationResults.set(request.sampleId, valid);
   }
 
-  const finalized = reviewed.map(({ request, generated: first, reviewed: second }) => {
+  const finalized = [];
+  for (const { request, generated: first, reviewed: second } of reviewed) {
     const escalated = escalationResults.get(request.sampleId);
     const finalItem = escalated
       ? validateItem(escalated, request, { requireGateJustification: true })
@@ -179,9 +181,25 @@ for (let start = 0; start < prompts.length; start += batchSize) {
       escalatedBy: escalated ? escalationModel : null,
       generatedConfidence: first.confidence,
     };
-    claimUniqueText(result.text, result.sampleId, acceptedTextOwners);
-    return result;
-  });
+    const unique = await ensureUniqueFinalItem(result, acceptedTextOwners, async (conflicting) => {
+      if (dryRun) throw new Error(`Dry-run final text conflict for ${request.sampleId}`);
+      const repaired = await reviewCandidates(
+        escalationModel,
+        [{ request, item: conflicting }],
+        "uniqueness_repair",
+      );
+      const valid = validateItem(repaired.get(request.sampleId), request, { requireGateJustification: true });
+      appendStage(escalatedPath, valid);
+      escalatedStage.set(request.sampleId, valid);
+      return {
+        ...conflicting,
+        ...valid,
+        finalLabelModel: escalationModel,
+        escalatedBy: escalationModel,
+      };
+    });
+    finalized.push(unique);
+  }
   fs.appendFileSync(rawPath, `${finalized.map(JSON.stringify).join("\n")}\n`, "utf8");
   for (const item of finalized) {
     existing.set(item.sampleId, item);

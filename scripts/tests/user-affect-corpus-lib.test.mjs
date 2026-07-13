@@ -13,6 +13,7 @@ import {
   countBy,
   generationPrompt,
   generationRetryModel,
+  ensureUniqueFinalItem,
   needsEscalation,
   needsStandardReview,
   readDurableState,
@@ -96,6 +97,24 @@ test("generated stage drops unfinished text conflicts", () => {
   assert.deepEqual(removed, ["UAV2_000002"]);
   assert.equal(stage.has("UAV2_000001"), true);
   assert.equal(stage.has("UAV2_000002"), false);
+});
+
+test("final text conflict is repaired before acceptance", async () => {
+  const owners = new Map();
+  claimUniqueText("这句话已经被另一个样本使用。", "UAV2_000202", owners);
+  let repairCalls = 0;
+
+  const result = await ensureUniqueFinalItem(
+    { sampleId: "UAV2_000250", text: "这句话已经被另一个样本使用！" },
+    owners,
+    async (item) => {
+      repairCalls += 1;
+      return { ...item, text: "这是经过仲裁后重新写出的唯一文本。" };
+    },
+  );
+
+  assert.equal(result.text, "这是经过仲裁后重新写出的唯一文本。");
+  assert.equal(repairCalls, 1);
 });
 
 test("repeated invalid generation escalates models", () => {
