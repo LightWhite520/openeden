@@ -59,7 +59,19 @@ private class Utf8BomStrippingInputStream(input: InputStream) : InputStream() {
         checked = true
 
         val prefix = ByteArray(UTF8_BOM.size)
-        val count = source.read(prefix)
+        var count = 0
+        while (count < prefix.size) {
+            val read = source.read(prefix, count, prefix.size - count)
+            when {
+                read > 0 -> count += read
+                read < 0 -> break
+                else -> {
+                    val byte = source.read()
+                    if (byte < 0) break
+                    prefix[count++] = byte.toByte()
+                }
+            }
+        }
         if (count != UTF8_BOM.size || !prefix.contentEquals(UTF8_BOM)) {
             if (count > 0) source.unread(prefix, 0, count)
         }

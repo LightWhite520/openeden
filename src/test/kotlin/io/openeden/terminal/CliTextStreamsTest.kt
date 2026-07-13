@@ -2,6 +2,7 @@ package io.openeden.terminal
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -15,6 +16,21 @@ class CliTextStreamsTest {
         val streams = createStreams(input)
 
         assertEquals("\uFEFFhello", streams.reader.readText())
+    }
+
+    @Test
+    fun `UTF-8 stdin consumes a BOM delivered one byte at a time`() {
+        val input = OneByteAtATimeInputStream(
+            UTF8_BOM + "\u4E2D\u6587".toByteArray(StandardCharsets.UTF_8),
+        )
+        val streams = CliTextStreams.create(
+            input = input,
+            output = ByteArrayOutputStream(),
+            error = ByteArrayOutputStream(),
+            profile = TerminalEncodingProfile.utf8(),
+        )
+
+        assertEquals("\u4E2D\u6587", streams.reader.readText())
     }
 
     @Test
@@ -76,5 +92,14 @@ class CliTextStreamsTest {
 
     private companion object {
         val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+    }
+
+    private class OneByteAtATimeInputStream(bytes: ByteArray) : InputStream() {
+        private val delegate = ByteArrayInputStream(bytes)
+
+        override fun read(): Int = delegate.read()
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+            if (length == 0) 0 else delegate.read(buffer, offset, 1)
     }
 }
