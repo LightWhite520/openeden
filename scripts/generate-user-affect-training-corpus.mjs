@@ -7,6 +7,9 @@ import {
   buildRequests,
   DIMENSIONS,
   generationPrompt,
+  needsEscalation,
+  needsStandardReview,
+  validateItem,
 } from "./user-affect-corpus-lib.mjs";
 
 const ROOT = process.cwd();
@@ -14,7 +17,9 @@ const args = parseArgs(process.argv.slice(2));
 const sampleCount = positiveInt(args.samples, 8192);
 const batchSize = positiveInt(args.batch, 16);
 const seed = positiveInt(args.seed, 0xaffec726);
-const model = args.model ?? "gpt-5.4-mini";
+const generatorModel = args.generatorModel ?? args.model ?? "gpt-5.4-mini";
+const standardModel = args.standardModel ?? "gpt-5.5";
+const escalationModel = args.escalationModel ?? "gpt-5.6-sol";
 const endpoint = args.endpoint ?? process.env.OPENEDEN_AFFECT_LABEL_ENDPOINT;
 const apiKey = args.apiKey ?? process.env.OPENEDEN_AFFECT_LABEL_API_KEY;
 const rawPath = resolve(args.raw ?? "data/training/user-affect-v2.raw.jsonl");
@@ -27,28 +32,75 @@ if (!dryRun && (!endpoint || !apiKey)) {
 ensureParent(rawPath);
 ensureParent(manifestPath);
 
-const existing = readCorpus(rawPath);
 const prompts = buildRequests(sampleCount, seed);
+const requestById = new Map(prompts.map((request) => [request.sampleId, request]));
+const existing = readCorpus(rawPath, requestById);
+const knownTexts = new Set([...existing.values()].map((entry) => entry.text));
 for (let start = 0; start < prompts.length; start += batchSize) {
   const batch = prompts.slice(start, start + batchSize).filter(({ sampleId }) => !existing.has(sampleId));
   if (batch.length === 0) continue;
-  const items = dryRun ? dryRunItems(batch) : await labelWithRetries(batch);
-  const validated = new Array(batch.length);
-  const knownTexts = new Set([...existing.values()].map((entry) => entry.text));
-  for (let index = 0; index < batch.length; index += 1) {
-    let current;
-    try {
-      current = validateItem(items.get(batch[index].sampleId), batch[index].sampleId);
-    } catch {
-      current = await labelClean(batch[index], knownTexts);
-    }
-    if (knownTexts.has(current.text)) current = await labelClean(batch[index], knownTexts);
-    validated[index] = current;
-    knownTexts.add(current.text);
+  const generatedItems = dryRun
+    ? dryRunItems(batch)
+    : await completeWithRetries(generatorModel, batch, (requests) => generationPrompt(requests, [...knownTexts]));
+  const generated = [];
+  for (const request of batch) {
+    const item = await validUniqueGeneration(request, generatedItems.get(request.sampleId), knownTexts);
+    generated.push({ request, item });
   }
-  fs.appendFileSync(rawPath, `${validated.map(JSON.stringify).join("\n")}\n`, "utf8");
-  for (const item of validated) existing.set(item.sampleId, item);
-  console.log(`labeled=${existing.size}/${sampleCount}`);
+
+  const standardCandidates = generated.filter(({ request, item }) => needsStandardReview(request, item));
+  const standardResults = dryRun
+    ? new Map(standardCandidates.map(({ request, item }) => [request.sampleId, { ...item, gateJustification: "dry-run textual evidence" }]))
+    : await reviewCandidates(standardModel, standardCandidates, "standard");
+  const reviewed = generated.map(({ request, item }) => {
+    const candidate = standardResults.get(request.sampleId);
+    if (!candidate) return { request, generated: item, reviewed: item, failedReviews: 0 };
+    try {
+      return {
+        request,
+        generated: item,
+        reviewed: validateItem(candidate, request, { requireGateJustification: true }),
+        failedReviews: 0,
+      };
+    } catch {
+      return { request, generated: item, reviewed: item, failedReviews: 2 };
+    }
+  });
+
+  const escalationCandidates = reviewed.filter(({ request, generated: first, reviewed: second, failedReviews }) =>
+    needsEscalation(first, second, request, failedReviews));
+  const escalationResults = dryRun
+    ? new Map(escalationCandidates.map(({ request, reviewed: item }) => [request.sampleId, { ...item, gateJustification: "dry-run escalation evidence" }]))
+    : await reviewCandidates(escalationModel, escalationCandidates.map(({ request, reviewed: item }) => ({ request, item })), "escalation");
+
+  const finalized = reviewed.map(({ request, generated: first, reviewed: second }) => {
+    const escalated = escalationResults.get(request.sampleId);
+    const finalItem = escalated
+      ? validateItem(escalated, request, { requireGateJustification: true })
+      : second;
+    const finalLabelModel = escalated
+      ? escalationModel
+      : standardResults.has(request.sampleId) ? standardModel : generatorModel;
+    return {
+      ...finalItem,
+      confidenceBand: request.confidenceBand,
+      mechanism: request.mechanism,
+      mechanisms: request.mechanisms,
+      nearRuntimeGate: request.nearRuntimeGate,
+      targetConfidence: request.targetConfidence,
+      generatedBy: generatorModel,
+      finalLabelModel,
+      reviewedBy: standardResults.has(request.sampleId) ? standardModel : null,
+      escalatedBy: escalated ? escalationModel : null,
+      generatedConfidence: first.confidence,
+    };
+  });
+  fs.appendFileSync(rawPath, `${finalized.map(JSON.stringify).join("\n")}\n`, "utf8");
+  for (const item of finalized) {
+    existing.set(item.sampleId, item);
+    knownTexts.add(item.text);
+  }
+  console.log(`accepted=${existing.size}/${sampleCount}`);
 }
 
 if (existing.size < sampleCount) throw new Error(`Expected ${sampleCount} records, found ${existing.size}`);
@@ -57,22 +109,26 @@ const records = [...existing.values()]
   .sort((left, right) => left.sampleId.localeCompare(right.sampleId))
   .slice(0, sampleCount);
 fs.writeFileSync(manifestPath, `${JSON.stringify({
-  schemaVersion: 1,
+  schemaVersion: 2,
   sampleCount: records.length,
   batchSize,
   seed,
-  model: dryRun ? "deterministic-dry-run" : model,
+  models: dryRun ? { generator: "deterministic-dry-run", standard: "deterministic-dry-run", escalation: "deterministic-dry-run" } : {
+    generator: generatorModel,
+    standard: standardModel,
+    escalation: escalationModel,
+  },
   rawCorpus: path.relative(ROOT, rawPath),
   dimensions: DIMENSIONS,
   generatedAt: new Date().toISOString(),
 }, null, 2)}\n`, "utf8");
 console.log(`raw_corpus=${records.length}`);
 
-async function labelWithRetries(batch, excludedTexts = []) {
+async function completeWithRetries(modelName, requests, promptFactory) {
   let failure;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      return await labelBatch(batch, excludedTexts);
+      return await completeBatch(modelName, requests, promptFactory(requests));
     } catch (error) {
       failure = error;
       await sleep(750 * attempt);
@@ -81,25 +137,40 @@ async function labelWithRetries(batch, excludedTexts = []) {
   throw failure;
 }
 
-async function labelClean(request, knownTexts) {
+async function validUniqueGeneration(request, initial, knownTexts) {
+  let candidate = initial;
   for (let attempt = 1; attempt <= 12; attempt += 1) {
-    const replacement = await labelWithRetries([request], [...knownTexts]);
     try {
-      const next = validateItem(replacement.get(request.sampleId), request.sampleId);
+      const next = validateItem(candidate, request);
       if (!knownTexts.has(next.text)) return next;
     } catch {
       // Retry only the malformed item; completed corpus rows remain durable.
     }
+    if (dryRun) throw new Error(`Dry-run generated an invalid item ${request.sampleId}`);
+    const replacement = await completeWithRetries(
+      generatorModel,
+      [request],
+      (requests) => generationPrompt(requests, [...knownTexts]),
+    );
+    candidate = replacement.get(request.sampleId);
   }
   throw new Error(`Could not produce a valid unique text for ${request.sampleId}`);
 }
 
-async function labelBatch(batch, excludedTexts) {
-  const prompt = generationPrompt(batch, excludedTexts);
+async function reviewCandidates(modelName, candidates, tier) {
+  if (candidates.length === 0) return new Map();
+  return completeWithRetries(
+    modelName,
+    candidates.map(({ request }) => request),
+    () => reviewPrompt(candidates, tier),
+  );
+}
+
+async function completeBatch(modelName, requests, prompt) {
   const response = await fetch(endpoint, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, temperature: 0.35, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: modelName, temperature: 0.25, messages: [{ role: "user", content: prompt }] }),
   });
   const body = await response.text();
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${body.slice(0, 300)}`);
@@ -107,30 +178,29 @@ async function labelBatch(batch, excludedTexts) {
   const parsed = JSON.parse(stripFence(content));
   if (!Array.isArray(parsed.items)) throw new Error("Response did not contain items");
   const items = new Map(parsed.items.map((item) => [item.sampleId, item]));
-  for (const request of batch) {
+  for (const request of requests) {
     if (!items.has(request.sampleId)) throw new Error(`Response missing ${request.sampleId}`);
   }
   return items;
 }
 
-function validateItem(item, sampleId) {
-  if (!item || item.sampleId !== sampleId) throw new Error(`Invalid or missing item ${sampleId}`);
-  const text = String(item.text ?? "").trim();
-  if (text.length < 8 || text.length > 80 || !/[\u4e00-\u9fff]/u.test(text)) throw new Error(`Invalid text for ${sampleId}`);
-  if (/ATRI|助手|人工智能|医生|诊断|电话|地址|身份证/u.test(text)) throw new Error(`Disallowed text for ${sampleId}`);
-  const labels = Object.fromEntries(DIMENSIONS.map((key) => {
-    const value = Number(item[key]);
-    if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error(`Invalid ${key} for ${sampleId}`);
-    return [key, round4(value)];
-  }));
-  return { sampleId, text, ...labels };
+function reviewPrompt(candidates, tier) {
+  return [
+    `你是中文用户情绪六维标注的${tier === "escalation" ? "最高级仲裁者" : "质量复核者"}。只返回严格 JSON：{\"items\":[...]}`,
+    "confidence 只表示：仅根据该用户文本，另外五个情绪维度能否被可靠推断。它不是标注者自信，也不是情绪强度。",
+    "可以重写文本和全部标签，但必须保留 sampleId，严格落在 request.confidenceRange，文本为 8 到 80 字自然简体中文。",
+    "若 confidence 距离 0.5 或 0.65 不超过 0.05，必须提供 gateJustification，简述文本证据为何位于门槛这一侧。",
+    `待复核项目：${JSON.stringify(candidates.map(({ request, item }) => ({ request, candidate: item })))}`,
+  ].join("\n");
 }
 
-function readCorpus(filePath) {
+function readCorpus(filePath, requests) {
   if (!fs.existsSync(filePath)) return new Map();
   return new Map(fs.readFileSync(filePath, "utf8").split(/\r?\n/u).filter(Boolean).map((line) => {
     const item = JSON.parse(line);
-    return [item.sampleId, validateItem(item, item.sampleId)];
+    const request = requests.get(item.sampleId);
+    if (!request) throw new Error(`Unknown sample in existing corpus: ${item.sampleId}`);
+    return [item.sampleId, { ...item, ...validateItem(item, request) }];
   }));
 }
 
@@ -166,5 +236,4 @@ function parseArgs(argv) {
 function positiveInt(value, fallback) { const parsed = value == null ? fallback : Number.parseInt(value, 10); if (!Number.isInteger(parsed) || parsed <= 0) throw new Error("Expected a positive integer"); return parsed; }
 function resolve(file) { return path.resolve(ROOT, file); }
 function ensureParent(file) { fs.mkdirSync(path.dirname(file), { recursive: true }); }
-function round4(value) { return Math.round(value * 10000) / 10000; }
 function sleep(ms) { return new Promise((resolveSleep) => setTimeout(resolveSleep, ms)); }

@@ -30,6 +30,16 @@ export const MECHANISMS = Object.freeze([
   "ordinary_social",
 ]);
 
+const HARD_MECHANISMS = new Set([
+  "negation",
+  "sarcasm",
+  "quoted_emotion",
+  "mixed_affect",
+  "slang",
+  "missing_context",
+  "low_information",
+]);
+
 export function buildRequests(count, seed) {
   if (!Number.isInteger(count) || count <= 0) throw new Error("count must be a positive integer");
   const random = mulberry32(seed);
@@ -42,11 +52,13 @@ export function buildRequests(count, seed) {
     const targetConfidence = nearRuntimeGate
       ? nearGateConfidence(band.id, index)
       : band.min + (band.max - band.min) * (0.15 + random() * 0.70);
+    const mechanism = MECHANISMS[Math.floor(random() * MECHANISMS.length)];
     return {
       sampleId: `UAV2_${String(index).padStart(6, "0")}`,
       confidenceBand: band.id,
       confidenceRange: [band.min, band.max],
-      mechanism: MECHANISMS[Math.floor(random() * MECHANISMS.length)],
+      mechanism,
+      mechanisms: compoundMechanisms(mechanism, index),
       nearRuntimeGate,
       targetConfidence: round4(targetConfidence),
       auditHighConfidence: band.id === "explicit" && index % 10 === 4,
@@ -73,11 +85,71 @@ export function generationPrompt(batch, excludedTexts) {
   ].filter(Boolean).join("\n");
 }
 
+export function needsStandardReview(request, generated) {
+  return generated.confidence < 0.65
+    || distanceToGate(generated.confidence) <= 0.05
+    || (request.mechanisms ?? [request.mechanism]).some((value) => HARD_MECHANISMS.has(value))
+    || request.auditHighConfidence === true;
+}
+
+export function needsEscalation(generated, reviewed, request, failedReviews = 0) {
+  const mechanisms = request.mechanisms ?? [request.mechanism];
+  return crossesGate(generated.confidence, reviewed.confidence)
+    || DIMENSIONS.some((key) => Math.abs(generated[key] - reviewed[key]) > 0.15)
+    || failedReviews >= 2
+    || mechanisms.length >= 3
+    || (distanceToGate(request.targetConfidence) <= 0.02 && !reviewed.gateJustification);
+}
+
+export function validateItem(item, request, { requireGateJustification = false } = {}) {
+  if (!item || item.sampleId !== request.sampleId) throw new Error(`Invalid or missing item ${request.sampleId}`);
+  const text = String(item.text ?? "").trim();
+  if (text.length < 8 || text.length > 80 || !/[\u4e00-\u9fff]/u.test(text)) {
+    throw new Error(`Invalid text for ${request.sampleId}`);
+  }
+  if (/ATRI|助手|人工智能|医生|诊断|电话|地址|身份证/u.test(text)) {
+    throw new Error(`Disallowed text for ${request.sampleId}`);
+  }
+  const labels = Object.fromEntries(DIMENSIONS.map((key) => {
+    const value = Number(item[key]);
+    if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error(`Invalid ${key} for ${request.sampleId}`);
+    return [key, round4(value)];
+  }));
+  const [minimum, maximum] = request.confidenceRange;
+  const upperInclusive = request.confidenceBand === "explicit";
+  if (labels.confidence < minimum || (upperInclusive ? labels.confidence > maximum : labels.confidence >= maximum)) {
+    throw new Error(`Item ${request.sampleId} is outside requested confidence band ${request.confidenceBand}`);
+  }
+  if (requireGateJustification && distanceToGate(labels.confidence) <= 0.05 && !String(item.gateJustification ?? "").trim()) {
+    throw new Error(`Missing gate justification for ${request.sampleId}`);
+  }
+  return {
+    sampleId: request.sampleId,
+    text,
+    ...labels,
+    gateJustification: String(item.gateJustification ?? "").trim() || undefined,
+  };
+}
+
 function nearGateConfidence(bandId, index) {
   const offset = (index % 41) / 1000;
   if (bandId === "low") return 0.499 - offset;
   if (bandId === "moderate") return 0.651 + offset;
   return index % 2 === 0 ? 0.501 + offset : 0.649 - offset;
+}
+
+function compoundMechanisms(primary, index) {
+  if (index % 40 !== 0) return [primary];
+  const values = [primary, "negation", "missing_context", "sarcasm"];
+  return [...new Set(values)].slice(0, 3);
+}
+
+function distanceToGate(value) {
+  return Math.min(Math.abs(value - 0.5), Math.abs(value - 0.65));
+}
+
+function crossesGate(left, right) {
+  return [0.5, 0.65].some((gate) => (left < gate && right >= gate) || (right < gate && left >= gate));
 }
 
 function round4(value) {
