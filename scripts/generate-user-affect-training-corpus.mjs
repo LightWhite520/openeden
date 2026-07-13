@@ -13,6 +13,7 @@ import {
   generationRetryModel,
   needsEscalation,
   needsStandardReview,
+  selectRequestRange,
   validateItem,
 } from "./user-affect-corpus-lib.mjs";
 
@@ -45,7 +46,10 @@ ensureParent(generatedPath);
 ensureParent(reviewedPath);
 ensureParent(escalatedPath);
 
-const prompts = buildRequests(sampleCount, seed);
+const allPrompts = buildRequests(sampleCount, seed);
+const startIndex = nonNegativeInt(args.startIndex, 0);
+const endIndex = nonNegativeInt(args.endIndex, sampleCount);
+const prompts = selectRequestRange(allPrompts, startIndex, endIndex);
 const requestById = new Map(prompts.map((request) => [request.sampleId, request]));
 const existing = readCorpus(rawPath, requestById);
 if (auditOnly) {
@@ -174,19 +178,23 @@ for (let start = 0; start < prompts.length; start += batchSize) {
     existing.set(item.sampleId, item);
     knownTexts.add(item.text);
   }
-  console.log(`accepted=${existing.size}/${sampleCount}`);
+  console.log(`accepted=${existing.size}/${prompts.length}`);
 }
 
-if (existing.size < sampleCount) throw new Error(`Expected ${sampleCount} records, found ${existing.size}`);
+if (existing.size < prompts.length) throw new Error(`Expected ${prompts.length} records, found ${existing.size}`);
 const records = [...existing.values()]
   .filter((item) => item.sampleId.startsWith("UAV2_"))
   .sort((left, right) => left.sampleId.localeCompare(right.sampleId))
-  .slice(0, sampleCount);
-const audit = auditCorpus(records, prompts);
+  .slice(0, prompts.length);
+const audit = args.skipAudit === true
+  ? { schemaVersion: 2, sampleCount: records.length, skipped: true, reason: "range generation" }
+  : auditCorpus(records, prompts);
 fs.writeFileSync(auditPath, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
 fs.writeFileSync(manifestPath, `${JSON.stringify({
   schemaVersion: 2,
   sampleCount: records.length,
+  globalSampleCount: sampleCount,
+  range: { startIndex, endIndex },
   batchSize,
   seed,
   models: dryRun ? { generator: "deterministic-dry-run", standard: "deterministic-dry-run", escalation: "deterministic-dry-run" } : {
@@ -332,6 +340,7 @@ function parseArgs(argv) {
   return result;
 }
 function positiveInt(value, fallback) { const parsed = value == null ? fallback : Number.parseInt(value, 10); if (!Number.isInteger(parsed) || parsed <= 0) throw new Error("Expected a positive integer"); return parsed; }
+function nonNegativeInt(value, fallback) { const parsed = value == null ? fallback : Number.parseInt(value, 10); if (!Number.isInteger(parsed) || parsed < 0) throw new Error("Expected a non-negative integer"); return parsed; }
 function resolve(file) { return path.resolve(ROOT, file); }
 function ensureParent(file) { fs.mkdirSync(path.dirname(file), { recursive: true }); }
 function stagePath(filePath, stage) {

@@ -66,6 +66,13 @@ export function buildRequests(count, seed) {
   });
 }
 
+export function selectRequestRange(requests, start, end) {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > requests.length) {
+    throw new Error(`Invalid request range [${start}, ${end}) for ${requests.length} requests`);
+  }
+  return requests.slice(start, end);
+}
+
 export function countBy(items, key) {
   const counts = {};
   for (const item of items) counts[item[key]] = (counts[item[key]] ?? 0) + 1;

@@ -16,6 +16,7 @@ import {
   needsEscalation,
   needsStandardReview,
   readDurableState,
+  selectRequestRange,
   validateItem,
 } from "../user-affect-corpus-lib.mjs";
 
@@ -38,6 +39,15 @@ test("request mechanisms are quota-balanced", () => {
 
   assert.equal(counts.length, 12);
   assert.equal(Math.max(...counts) - Math.min(...counts) <= 1, true);
+});
+
+test("request ranges preserve global sample IDs", () => {
+  const all = buildRequests(100, 7);
+
+  assert.deepEqual(selectRequestRange(all, 20, 23).map((item) => item.sampleId), [
+    "UAV2_000020", "UAV2_000021", "UAV2_000022",
+  ]);
+  assert.throws(() => selectRequestRange(all, 23, 20), /range/i);
 });
 
 test("confidence prompt defines text observability", () => {
