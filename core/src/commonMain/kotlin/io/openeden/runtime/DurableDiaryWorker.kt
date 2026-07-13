@@ -23,7 +23,14 @@ class DurableDiaryWorker(
                 "Diary generator must produce NARRATIVE memory"
             }
             memoryStore.write(narrative)
-            taskStore.complete(task.id)
+            taskStore.completeWithCheckpoint(
+                task.id,
+                DiaryCheckpoint(
+                    lastCoveredRawMemoryId = task.sourceMemoryId,
+                    lastSuccessfulDiaryAtMs = nowMs,
+                    lastNarrativeMemoryId = narrative.id,
+                ),
+            )
             true
         } catch (cancelled: CancellationException) {
             throw cancelled

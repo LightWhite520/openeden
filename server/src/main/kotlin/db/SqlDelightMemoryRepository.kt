@@ -19,6 +19,8 @@ import io.openeden.memory.RetrievalResult
 import io.openeden.memory.RebuildableInMemoryVectorIndex
 import io.openeden.memory.VectorSearchRequest
 import io.openeden.runtime.DirectInferenceExecutor
+import io.openeden.runtime.DiaryRawMemoryCursor
+import io.openeden.runtime.DiaryRawMemorySource
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -36,7 +38,7 @@ class SqlDelightMemoryRepository(
     private val driver: SqlDriver,
     private val embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
     private val json: Json = Json,
-) : MemoryStore {
+) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
     private val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
     private val loadedSessions = mutableSetOf<String>()
@@ -63,6 +65,32 @@ class SqlDelightMemoryRepository(
 
     suspend fun readById(id: String): StoredMemory? =
         queries.selectById(id, ::mapRow).executeAsOneOrNull()
+
+    /** Ordered RAW-only cursor range, with an exclusive lower and inclusive upper bound. */
+    suspend fun rawMemoryRange(
+        sessionId: String,
+        afterId: String?,
+        throughId: String?,
+        limit: Int,
+    ): List<MemoryEntry> {
+        val ordered = queries.selectRawMemoryRange(sessionId, ::mapRow).executeAsList()
+        val start = afterId?.let { id -> ordered.indexOfFirst { it.entry.id == id }.let { if (it < 0) 0 else it + 1 } } ?: 0
+        val end = throughId?.let { id -> ordered.indexOfFirst { it.entry.id == id }.let { if (it < 0) ordered.size else it + 1 } } ?: ordered.size
+        return ordered.subList(start.coerceAtMost(end), end.coerceAtMost(ordered.size)).take(limit.coerceAtLeast(0)).map { it.entry }
+    }
+
+    override suspend fun sessionsWithRawMemories(): Set<String> =
+        queries.selectRawSessions().executeAsList().toSet()
+
+    override suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor? =
+        queries.selectRawMemoryRange(sessionId, ::mapRow).executeAsList().lastOrNull()?.entry?.let {
+            DiaryRawMemoryCursor(it.id, it.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L)
+        }
+
+    override suspend fun firstRawMemoryAfter(sessionId: String, coveredRawMemoryId: String?): DiaryRawMemoryCursor? =
+        rawMemoryRange(sessionId, coveredRawMemoryId, null, 1).firstOrNull()?.let {
+            DiaryRawMemoryCursor(it.id, it.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L)
+        }
 
     override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> =
         queries.selectStable(sessionId, limit.toLong(), ::mapVector).executeAsList()

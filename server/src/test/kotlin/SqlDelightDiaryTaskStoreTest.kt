@@ -2,8 +2,10 @@ package io.openeden.server
 
 import io.openeden.runtime.DiaryTask
 import io.openeden.runtime.DiaryTaskStatus
+import io.openeden.runtime.DiaryCheckpoint
 import io.openeden.server.db.SqlDelightDiaryTaskStore
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.launch
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -45,4 +47,33 @@ class SqlDelightDiaryTaskStoreTest {
         assertEquals(task.availableAtMs, store.readById(task.id)?.availableAtMs)
         store.close()
     }
+
+    @Test
+    fun `checkpoint survives restart and completion advances it atomically`() = runTest {
+        val store = SqlDelightDiaryTaskStore.open(dbPath)
+        val task = DiaryTask("task:checkpoint", "S", "raw-9", "delta")
+        store.enqueueIfAbsent(task)
+        assertEquals("task:checkpoint", store.leaseNext("S", 10, 100)?.id)
+        store.completeWithCheckpoint(task.id, DiaryCheckpoint("raw-9", 20, "narrative-9"))
+        assertEquals(DiaryTaskStatus.DONE, store.readById(task.id)?.status)
+        assertEquals(DiaryCheckpoint("raw-9", 20, "narrative-9"), store.readCheckpoint("S"))
+        store.close()
+
+        SqlDelightDiaryTaskStore.open(dbPath).use { reopened ->
+            assertEquals(DiaryCheckpoint("raw-9", 20, "narrative-9"), reopened.readCheckpoint("S"))
+        }
+    }
+
+    @Test
+    fun `concurrent duplicate enqueue remains bounded atomically`() = runTest {
+        val store = SqlDelightDiaryTaskStore.open(dbPath)
+        kotlinx.coroutines.coroutineScope {
+            repeat(16) { launch { store.enqueueIfAbsent(DiaryTask("same", "S", null, "delta")) } }
+        }
+        assertEquals(1, store.countActive("S"))
+        store.close()
+    }
+
+    private inline fun <T> SqlDelightDiaryTaskStore.use(block: (SqlDelightDiaryTaskStore) -> T): T =
+        try { block(this) } finally { close() }
 }

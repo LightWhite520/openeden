@@ -74,6 +74,18 @@ WHERE memory_entries.session_id = ?
 ORDER BY memory_entries.created_at_ms DESC
 LIMIT ?;
 
+selectRawMemoryRange:
+SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
+       memory_embeddings.emotional_json, memory_embeddings.status
+FROM memory_entries
+LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
+WHERE memory_entries.session_id = ?
+  AND memory_entries.kind = 'RAW'
+ORDER BY memory_entries.created_at_ms ASC, memory_entries.id ASC;
+
+selectRawSessions:
+SELECT DISTINCT session_id FROM memory_entries WHERE kind = 'RAW';
+
 insertEntry:
 INSERT OR REPLACE INTO memory_entries(
     id, session_id, user_id, platform, room, kind, content, tags_json, created_at_ms,
@@ -133,6 +145,25 @@ WHERE status = 'RUNNING' AND lease_expires_at_ms IS NOT NULL AND lease_expires_a
 selectDiaryTask:
 SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, last_error
 FROM diary_tasks WHERE id = ?;
+
+CREATE TABLE diary_checkpoints (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    last_covered_raw_memory_id TEXT,
+    last_successful_diary_at_ms INTEGER,
+    last_narrative_memory_id TEXT
+);
+
+upsertDiaryCheckpoint:
+INSERT OR REPLACE INTO diary_checkpoints(session_id, last_covered_raw_memory_id, last_successful_diary_at_ms, last_narrative_memory_id)
+VALUES (?, ?, ?, ?)
+;
+
+selectDiaryCheckpoint:
+SELECT last_covered_raw_memory_id, last_successful_diary_at_ms, last_narrative_memory_id
+FROM diary_checkpoints WHERE session_id = ?;
+
+selectDiaryCheckpointSessions:
+SELECT session_id FROM diary_checkpoints;
 
 CREATE TABLE trace_spans (
     span_id TEXT NOT NULL PRIMARY KEY,

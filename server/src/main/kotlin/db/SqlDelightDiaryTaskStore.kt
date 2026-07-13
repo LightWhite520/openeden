@@ -5,6 +5,8 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.openeden.runtime.DiaryTask
 import io.openeden.runtime.DiaryTaskStatus
 import io.openeden.runtime.DiaryTaskStore
+import io.openeden.runtime.DiaryCheckpoint
+import io.openeden.runtime.DiaryCheckpointStore
 import io.openeden.trace.TraceTag
 import kotlin.math.min
 import java.nio.file.Files
@@ -14,44 +16,26 @@ import java.util.Properties
 class SqlDelightDiaryTaskStore(
     private val database: Database,
     private val driver: SqlDriver? = null,
-) : DiaryTaskStore {
+) : DiaryTaskStore, DiaryCheckpointStore {
     private val queries get() = database.memoryQueries
 
     override suspend fun enqueue(task: DiaryTask): Set<String> {
-        val active = queries.countActiveDiaryTasks(task.sessionId).executeAsOne()
-        if (active >= 8L) return setOf(TraceTag.DiaryQueueOverflow)
-        queries.insertDiaryTask(
-            id = task.id,
-            session_id = task.sessionId,
-            source_memory_id = task.sourceMemoryId,
-            reason = task.reason,
-            status = task.status.name,
-            attempts = task.attempts.toLong(),
-            created_at_ms = task.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L,
-            available_at_ms = task.availableAtMs,
-            lease_expires_at_ms = task.leaseExpiresAtMs,
-            last_error = task.lastError,
-        )
-        return emptySet()
+        return database.transactionWithResult {
+            val active = queries.countActiveDiaryTasks(task.sessionId).executeAsOne()
+            if (active >= 8L) return@transactionWithResult setOf(TraceTag.DiaryQueueOverflow)
+            insert(task, replace = false)
+            emptySet()
+        }
     }
 
     override suspend fun enqueueIfAbsent(task: DiaryTask): Set<String> {
-        if (queries.selectDiaryTask(task.id, ::map).executeAsOneOrNull() != null) return emptySet()
-        val active = queries.countActiveDiaryTasks(task.sessionId).executeAsOne()
-        if (active >= 8L) return setOf(TraceTag.DiaryQueueOverflow)
-        queries.insertDiaryTaskIfAbsent(
-            id = task.id,
-            session_id = task.sessionId,
-            source_memory_id = task.sourceMemoryId,
-            reason = task.reason,
-            status = task.status.name,
-            attempts = task.attempts.toLong(),
-            created_at_ms = task.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L,
-            available_at_ms = task.availableAtMs,
-            lease_expires_at_ms = task.leaseExpiresAtMs,
-            last_error = task.lastError,
-        )
-        return emptySet()
+        return database.transactionWithResult {
+            if (queries.selectDiaryTask(task.id, ::map).executeAsOneOrNull() != null) return@transactionWithResult emptySet()
+            val active = queries.countActiveDiaryTasks(task.sessionId).executeAsOne()
+            if (active >= 8L) return@transactionWithResult setOf(TraceTag.DiaryQueueOverflow)
+            insert(task, replace = true)
+            emptySet()
+        }
     }
 
     override suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask? {
@@ -63,6 +47,26 @@ class SqlDelightDiaryTaskStore(
     override suspend fun complete(taskId: String) {
         queries.completeDiaryTask(taskId)
     }
+
+    override suspend fun completeWithCheckpoint(taskId: String, checkpoint: DiaryCheckpoint) {
+        database.transaction {
+            queries.completeDiaryTask(taskId)
+            queries.upsertDiaryCheckpoint(
+                checkpointSession(taskId), checkpoint.lastCoveredRawMemoryId,
+                checkpoint.lastSuccessfulDiaryAtMs, checkpoint.lastNarrativeMemoryId,
+            )
+        }
+    }
+
+    override suspend fun read(sessionId: String): DiaryCheckpoint? =
+        queries.selectDiaryCheckpoint(sessionId) { covered, at, narrative -> DiaryCheckpoint(covered, at, narrative) }
+            .executeAsOneOrNull()
+
+    suspend fun readCheckpoint(sessionId: String): DiaryCheckpoint? = read(sessionId)
+
+    override suspend fun sessions(): Set<String> = queries.selectDiaryCheckpointSessions().executeAsList().toSet()
+
+    fun countActive(sessionId: String): Long = queries.countActiveDiaryTasks(sessionId).executeAsOne()
 
     override suspend fun fail(taskId: String, nowMs: Long, error: String, maxAttempts: Int) {
         val task = queries.selectDiaryTask(taskId, ::map).executeAsOneOrNull() ?: return
@@ -79,6 +83,21 @@ class SqlDelightDiaryTaskStore(
     fun readById(id: String): DiaryTask? = queries.selectDiaryTask(id, ::map).executeAsOneOrNull()
 
     fun close() = driver?.close()
+
+    private fun insert(task: DiaryTask, replace: Boolean) {
+        if (replace) queries.insertDiaryTaskIfAbsent(
+            task.id, task.sessionId, task.sourceMemoryId, task.reason, task.status.name,
+            task.attempts.toLong(), task.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L,
+            task.availableAtMs, task.leaseExpiresAtMs, task.lastError,
+        ) else queries.insertDiaryTask(
+            task.id, task.sessionId, task.sourceMemoryId, task.reason, task.status.name,
+            task.attempts.toLong(), task.id.substringAfterLast(':', "0").toLongOrNull() ?: 0L,
+            task.availableAtMs, task.leaseExpiresAtMs, task.lastError,
+        )
+    }
+
+    private fun checkpointSession(taskId: String): String =
+        queries.selectDiaryTask(taskId, ::map).executeAsOne().sessionId
 
     @Suppress("LongParameterList")
     private fun map(

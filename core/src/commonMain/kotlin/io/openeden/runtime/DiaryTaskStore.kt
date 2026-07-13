@@ -8,6 +8,11 @@ interface DiaryTaskStore {
 
     suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask?
     suspend fun complete(taskId: String)
+
+    /** Atomically completes the task with its durable coverage marker when supported. */
+    suspend fun completeWithCheckpoint(taskId: String, checkpoint: DiaryCheckpoint) {
+        complete(taskId)
+    }
     suspend fun fail(taskId: String, nowMs: Long, error: String, maxAttempts: Int = 5)
     suspend fun recoverExpired(nowMs: Long)
 }

@@ -56,6 +56,22 @@ class SqlDelightMemoryRepositoryTest {
         }
     }
 
+    @Test
+    fun `raw range is ordered strictly after cursor and excludes narratives`() = runTest {
+        fun entry(id: String, kind: MemoryKind) = MemoryEntry(
+            id = id, sessionId = "QQ:42", content = id, room = MemoryRoom.EVENT_ROOM, kind = kind,
+            metadata = MemoryMetadata(BioVector.Neutral, 0.0f, VectorDelta.Zero, BioVector.Neutral, "u1"),
+            semanticEmbedding = emptyList(), emotionalEmbedding = emptyList(),
+        )
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            repository.write(entry("raw:001", MemoryKind.RAW))
+            repository.write(entry("narrative:002", MemoryKind.NARRATIVE))
+            repository.write(entry("raw:003", MemoryKind.RAW))
+            val rows = repository.rawMemoryRange("QQ:42", "raw:001", "raw:003", 10)
+            assertEquals(listOf("raw:003"), rows.map { it.id })
+        }
+    }
+
     private inline fun SqlDelightMemoryRepository.use(
         block: (SqlDelightMemoryRepository) -> Unit,
     ) {
