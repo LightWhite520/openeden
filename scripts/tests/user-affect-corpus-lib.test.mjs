@@ -17,6 +17,7 @@ import {
   needsStandardReview,
   readDurableState,
   selectRequestRange,
+  sanitizeGeneratedStage,
   validateItem,
 } from "../user-affect-corpus-lib.mjs";
 
@@ -80,6 +81,21 @@ test("text ownership permits resume and rejects another sample", () => {
     () => claimUniqueText("我今天真的很累！", "UAV2_000002", owners),
     /duplicate normalized text/i,
   );
+});
+
+test("generated stage drops unfinished text conflicts", () => {
+  const owners = new Map();
+  claimUniqueText("重复文本内容需要被识别。", "UAV2_000001", owners);
+  const stage = new Map([
+    ["UAV2_000001", { sampleId: "UAV2_000001", text: "重复文本内容需要被识别。" }],
+    ["UAV2_000002", { sampleId: "UAV2_000002", text: "重复文本内容需要被识别！" }],
+  ]);
+
+  const removed = sanitizeGeneratedStage(stage, new Set(["UAV2_000001"]), owners);
+
+  assert.deepEqual(removed, ["UAV2_000002"]);
+  assert.equal(stage.has("UAV2_000001"), true);
+  assert.equal(stage.has("UAV2_000002"), false);
 });
 
 test("repeated invalid generation escalates models", () => {

@@ -98,6 +98,20 @@ export function generationRetryModel(attempt, models) {
   return models.escalation;
 }
 
+export function sanitizeGeneratedStage(stage, completedIds, owners) {
+  const removed = [];
+  for (const [sampleId, item] of stage) {
+    if (completedIds.has(sampleId)) continue;
+    try {
+      claimUniqueText(item.text, sampleId, owners);
+    } catch {
+      stage.delete(sampleId);
+      removed.push(sampleId);
+    }
+  }
+  return removed;
+}
+
 export function generationPrompt(batch, excludedTexts) {
   const responseSkeleton = {
     items: batch.map(({ sampleId }) => ({

@@ -13,6 +13,7 @@ import {
   generationRetryModel,
   needsEscalation,
   needsStandardReview,
+  sanitizeGeneratedStage,
   selectRequestRange,
   validateItem,
 } from "./user-affect-corpus-lib.mjs";
@@ -70,9 +71,17 @@ for (const entry of existing.values()) {
   claimUniqueText(entry.text, entry.sampleId, generatedTextOwners);
   claimUniqueText(entry.text, entry.sampleId, acceptedTextOwners);
 }
+const removedGeneratedStages = sanitizeGeneratedStage(
+  generatedStage,
+  new Set(existing.keys()),
+  generatedTextOwners,
+);
+if (removedGeneratedStages.length > 0) {
+  console.log(`regenerate_conflicting_stage=${removedGeneratedStages.length}`);
+}
 for (const entry of generatedStage.values()) {
+  if (existing.has(entry.sampleId)) continue;
   knownTexts.add(entry.text);
-  claimUniqueText(entry.text, entry.sampleId, generatedTextOwners);
 }
 for (let start = 0; start < prompts.length; start += batchSize) {
   const batch = prompts.slice(start, start + batchSize).filter(({ sampleId }) => !existing.has(sampleId));
