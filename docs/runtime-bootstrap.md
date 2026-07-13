@@ -86,4 +86,8 @@ waits are finite; override them when needed:
 .\scripts\verify-production-runtime.ps1 -StartupTimeoutSeconds 120 -DiaryTimeoutSeconds 300
 ```
 
+The script temporarily sets `OPENEDEN_DIARY_DELTA_THRESHOLD=0.0` so a valid endpoint response
+deterministically creates Diary work even when its `vector_delta` is all zeros. This is only a
+verification override; normal deployments retain the configured threshold.
+
 The temporary database and child server are removed/stopped in all exit paths.

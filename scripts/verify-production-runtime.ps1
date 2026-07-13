@@ -85,7 +85,8 @@ function Start-Server([int]$timeoutSeconds = $StartupTimeoutSeconds) {
     $psi.Environment['OPENEDEN_SERVER_PORT'] = [string]$port
     $psi.Environment['OPENEDEN_RUNTIME_DB_PATH'] = $dbPath
     $psi.Environment['OPENEDEN_MODEL_BACKEND'] = 'djl'
-    $psi.Environment['OPENEDEN_DIARY_DELTA_THRESHOLD'] = '0.01'
+    # Verification-only override: threshold 0.0 makes every valid turn a deterministic Diary trigger.
+    $psi.Environment['OPENEDEN_DIARY_DELTA_THRESHOLD'] = '0.0'
     $psi.Environment['OPENEDEN_DIARY_SCAN_INTERVAL_SECONDS'] = '1'
     $psi.Environment['OPENEDEN_DIARY_MAX_RAW_MEMORIES'] = '32'
     $script:server = [Diagnostics.Process]::new()
