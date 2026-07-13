@@ -31,8 +31,12 @@ function Import-DotEnv {
 }
 
 function Require-Setting([string]$name) {
-    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ([string]::IsNullOrWhiteSpace($value)) {
         throw "Required setting $name is missing from .env or the environment."
+    }
+    if ($name -eq 'OPENEDEN_OPENAI_API_KEY' -and $value -match 'replace-with-your-api-key|your-api-key|^sk-\.\.\.$') {
+        throw "A real OPENEDEN_OPENAI_API_KEY is required; the configured value is a placeholder."
     }
 }
 
