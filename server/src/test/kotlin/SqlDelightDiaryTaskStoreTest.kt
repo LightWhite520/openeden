@@ -90,6 +90,19 @@ class SqlDelightDiaryTaskStoreTest {
         }
     }
 
+    @Test
+    fun `stale lease cannot complete checkpoint`() = runTest {
+        val store = SqlDelightDiaryTaskStore.open(dbPath)
+        store.enqueue(DiaryTask("S:1700000000000:task", "S", null, "delta"))
+        val first = store.leaseNext("S", 10, 10)!!
+        store.recoverExpired(20)
+        val second = store.leaseNext("S", 20, 100)!!
+        assertTrue(!store.completeWithCheckpointIfOwned(first.id, first.leaseToken!!, DiaryCheckpoint("old", 1, "n-old")))
+        assertEquals(null, store.readCheckpoint("S"))
+        assertTrue(store.completeWithCheckpointIfOwned(second.id, second.leaseToken!!, DiaryCheckpoint("new", 2, "n-new")))
+        store.close()
+    }
+
     private inline fun <T> SqlDelightDiaryTaskStore.use(block: (SqlDelightDiaryTaskStore) -> T): T =
         try { block(this) } finally { close() }
 }
