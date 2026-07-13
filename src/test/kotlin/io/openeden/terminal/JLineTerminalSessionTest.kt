@@ -220,6 +220,37 @@ class JLineTerminalSessionTest {
     }
 
     @Test
+    fun `widget event stays ahead of the reader event that follows it`() = runTest {
+        val terminal = testTerminal()
+        lateinit var session: JLineTerminalSession
+        var calls = 0
+        session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = false,
+            readLine = {
+                when (calls++) {
+                    0 -> {
+                        session.lineReader.widgets.getValue("openeden-cancel").apply()
+                        "hello"
+                    }
+                    else -> throw EndOfFileException()
+                }
+            },
+        )
+
+        assertEquals(
+            listOf(
+                CliTerminalEvent.Cancel,
+                CliTerminalEvent.Submit("hello"),
+                CliTerminalEvent.EndOfFile,
+            ),
+            session.events().toList(),
+        )
+    }
+
+    @Test
     fun `null line is eof and a second collector is rejected`() = runTest {
         val terminal = testTerminal()
         val session = JLineTerminalSession.fromTerminal(
@@ -252,16 +283,95 @@ class JLineTerminalSessionTest {
         assertTrue(supported.session.enterFullScreen())
         supported.session.exitFullScreen()
         supported.session.exitFullScreen()
-        assertEquals(listOf("enter", "exit"), supported.operations.calls)
+        assertEquals(
+            listOf("enter-alt", "hide-cursor", "flush", "show-cursor", "exit-alt", "flush"),
+            supported.operations.calls,
+        )
         supported.session.close()
     }
 
     @Test
+    fun `every partial enter failure immediately performs best effort cleanup`() {
+        listOf("enter-alt", "hide-cursor", "flush").forEach { failingOperation ->
+            val recording = recordingSession(
+                richSupported = true,
+                capabilities = true,
+                failures = mutableMapOf(failingOperation to 1),
+            )
+
+            assertFailsWith<IllegalStateException> { recording.session.enterFullScreen() }
+
+            assertTrue(recording.operations.calls.contains("show-cursor"))
+            assertTrue(recording.operations.calls.contains("exit-alt"))
+            recording.session.close()
+            assertEquals(1, recording.operations.calls.count { it == "restore" })
+            assertEquals(1, recording.operations.calls.count { it == "close" })
+        }
+    }
+
+    @Test
+    fun `failed partial cleanup is suppressed and close retries it`() {
+        val recording = recordingSession(
+            richSupported = true,
+            capabilities = true,
+            failures = mutableMapOf("hide-cursor" to 1, "show-cursor" to 1),
+        )
+
+        val error = assertFailsWith<IllegalStateException> { recording.session.enterFullScreen() }
+        assertEquals(1, error.suppressed.size)
+        assertEquals(1, recording.operations.calls.count { it == "show-cursor" })
+
+        recording.session.close()
+
+        assertEquals(2, recording.operations.calls.count { it == "show-cursor" })
+        assertEquals(2, recording.operations.calls.count { it == "exit-alt" })
+        assertEquals(1, recording.operations.calls.count { it == "restore" })
+        assertEquals(1, recording.operations.calls.count { it == "close" })
+    }
+
+    @Test
+    fun `failed exit remains retryable until every exit operation succeeds`() {
+        val recording = recordingSession(
+            richSupported = true,
+            capabilities = true,
+            failures = mutableMapOf("exit-alt" to 1),
+        )
+        assertTrue(recording.session.enterFullScreen())
+
+        assertFailsWith<IllegalStateException> { recording.session.exitFullScreen() }
+        recording.session.exitFullScreen()
+
+        assertEquals(2, recording.operations.calls.count { it == "show-cursor" })
+        assertEquals(2, recording.operations.calls.count { it == "exit-alt" })
+        recording.session.close()
+    }
+
+    @Test
     fun `rich mode policy rejects dumb terminals and Windows non-jni providers`() {
-        assertFalse(TerminalRichModePolicy.isSupported("Windows 11", "xterm-256color", "exec"))
-        assertFalse(TerminalRichModePolicy.isSupported("Linux", Terminal.TYPE_DUMB, "jni"))
-        assertTrue(TerminalRichModePolicy.isSupported("Windows 11", "xterm-256color", "jni"))
-        assertTrue(TerminalRichModePolicy.isSupported("Linux", "xterm-256color", "exec"))
+        val windowsWarnings = mutableListOf<String>()
+        assertFalse(
+            TerminalRichModePolicy.isSupported(
+                "Windows 11",
+                Terminal.TYPE_DUMB,
+                "exec",
+                { warning -> windowsWarnings += warning },
+            ),
+        )
+        assertEquals(listOf("JLine JNI terminal unavailable; using plain line mode."), windowsWarnings)
+
+        val nonWindowsWarnings = mutableListOf<String>()
+        assertFalse(
+            TerminalRichModePolicy.isSupported(
+                "Linux",
+                Terminal.TYPE_DUMB,
+                "exec",
+                { warning -> nonWindowsWarnings += warning },
+            ),
+        )
+        assertTrue(nonWindowsWarnings.isEmpty())
+
+        assertTrue(TerminalRichModePolicy.isSupported("Windows 11", "xterm-256color", "jni", {}))
+        assertTrue(TerminalRichModePolicy.isSupported("Linux", "xterm-256color", "exec", {}))
     }
 
     @Test
@@ -274,10 +384,67 @@ class JLineTerminalSessionTest {
 
         assertFalse(recording.session.lineReader.widgets.getValue("openeden-cancel").apply())
         assertFalse(recording.session.enterFullScreen())
-        assertEquals(listOf("enter", "exit", "restore", "close"), recording.operations.calls)
-        assertEquals(1, recording.operations.calls.count { it == "exit" })
+        assertEquals(
+            listOf(
+                "enter-alt",
+                "hide-cursor",
+                "flush",
+                "show-cursor",
+                "exit-alt",
+                "flush",
+                "restore",
+                "close",
+            ),
+            recording.operations.calls,
+        )
+        assertEquals(1, recording.operations.calls.count { it == "exit-alt" })
         assertEquals(1, recording.operations.calls.count { it == "restore" })
         assertEquals(1, recording.operations.calls.count { it == "close" })
+    }
+
+    @Test
+    fun `close saves history exactly once before restoring and closing terminal`() {
+        val terminal = testTerminal()
+        val operations = RecordingLifecycleOperations(capabilities = false)
+        val session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = false,
+            readLine = { null },
+            lifecycleOperations = operations,
+            historySave = { operations.calls += "history-save" },
+        )
+
+        session.close()
+        session.close()
+
+        assertEquals(listOf("history-save", "restore", "close"), operations.calls)
+    }
+
+    @Test
+    fun `close suppresses cleanup failures after history save failure`() {
+        val terminal = testTerminal()
+        val operations = RecordingLifecycleOperations(
+            capabilities = false,
+            failures = mutableMapOf("restore" to 1, "close" to 1),
+        )
+        val session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = false,
+            readLine = { null },
+            lifecycleOperations = operations,
+            historySave = { throw IllegalStateException("failed history-save") },
+        )
+
+        val error = assertFailsWith<IllegalStateException> { session.close() }
+
+        assertEquals("failed history-save", error.message)
+        assertEquals(listOf("failed restore", "failed close"), error.suppressed.map { it.message })
+        assertEquals(listOf("restore", "close"), operations.calls)
+        session.close()
     }
 
     @Test
@@ -296,9 +463,10 @@ class JLineTerminalSessionTest {
     private fun recordingSession(
         richSupported: Boolean,
         capabilities: Boolean,
+        failures: MutableMap<String, Int> = mutableMapOf(),
     ): RecordingSession {
         val terminal = testTerminal()
-        val operations = RecordingLifecycleOperations(capabilities)
+        val operations = RecordingLifecycleOperations(capabilities, failures)
         val session = JLineTerminalSession.fromTerminal(
             terminal = terminal,
             historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
@@ -328,25 +496,35 @@ class JLineTerminalSessionTest {
 
     private class RecordingLifecycleOperations(
         private val capabilities: Boolean,
+        private val failures: MutableMap<String, Int> = mutableMapOf(),
     ) : TerminalLifecycleOperations {
         val calls = mutableListOf<String>()
 
         override fun hasFullScreenCapabilities(): Boolean = capabilities
 
-        override fun enterFullScreen() {
-            calls += "enter"
-        }
+        override fun enterAlternateScreen() = record("enter-alt")
 
-        override fun exitFullScreen() {
-            calls += "exit"
-        }
+        override fun hideCursor() = record("hide-cursor")
+
+        override fun showCursor() = record("show-cursor")
+
+        override fun exitAlternateScreen() = record("exit-alt")
+
+        override fun flush() = record("flush")
 
         override fun restoreAttributes() {
-            calls += "restore"
+            record("restore")
         }
 
         override fun closeTerminal() {
-            calls += "close"
+            record("close")
+        }
+
+        private fun record(operation: String) {
+            calls += operation
+            val remaining = failures[operation] ?: return
+            if (remaining <= 1) failures.remove(operation) else failures[operation] = remaining - 1
+            throw IllegalStateException("failed $operation")
         }
     }
 }

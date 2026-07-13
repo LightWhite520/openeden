@@ -39,12 +39,12 @@ class JLineTerminalSession private constructor(
     private val readLine: () -> String?,
     private val lifecycleOperations: TerminalLifecycleOperations,
     private val readDispatcher: CoroutineDispatcher,
-    private val widgetEvents: Channel<CliTerminalEvent>,
+    private val eventQueue: Channel<CliTerminalEvent>,
+    private val historySave: () -> Unit,
 ) : TerminalSession {
     private val collectionStarted = AtomicBoolean(false)
     private val lifecycleLock = Any()
-    private var closed = false
-    private var fullScreen = false
+    private var displayState = DisplayState.INLINE
 
     override fun events(): Flow<CliTerminalEvent> = channelFlow {
         check(collectionStarted.compareAndSet(false, true)) {
@@ -57,28 +57,28 @@ class JLineTerminalSession private constructor(
                     try {
                         val line = readLine()
                         if (line == null) {
-                            send(CliTerminalEvent.EndOfFile)
+                            eventQueue.send(CliTerminalEvent.EndOfFile)
                             break
                         }
-                        send(CliTerminalEvent.Submit(line))
+                        eventQueue.send(CliTerminalEvent.Submit(line))
                     } catch (_: UserInterruptException) {
-                        send(CliTerminalEvent.Cancel)
+                        eventQueue.send(CliTerminalEvent.Cancel)
                     } catch (_: EndOfFileException) {
-                        send(CliTerminalEvent.EndOfFile)
+                        eventQueue.send(CliTerminalEvent.EndOfFile)
                         break
                     }
                 }
             } finally {
-                widgetEvents.close()
+                eventQueue.close()
             }
         }
 
         try {
-            for (event in widgetEvents) send(event)
+            for (event in eventQueue) send(event)
             readerJob.join()
         } finally {
             readerJob.cancel()
-            widgetEvents.close()
+            eventQueue.close()
             try {
                 close()
             } finally {
@@ -88,41 +88,89 @@ class JLineTerminalSession private constructor(
     }
 
     override fun enterFullScreen(): Boolean = synchronized(lifecycleLock) {
-        if (closed) return@synchronized false
-        if (!richSupported || !lifecycleOperations.hasFullScreenCapabilities()) return false
-        if (!fullScreen) {
-            lifecycleOperations.enterFullScreen()
-            fullScreen = true
+        if (displayState == DisplayState.CLOSED || displayState == DisplayState.EXITING) {
+            return@synchronized false
         }
-        return true
+        if (!richSupported || !lifecycleOperations.hasFullScreenCapabilities()) return false
+        if (displayState == DisplayState.FULLSCREEN) return@synchronized true
+
+        displayState = DisplayState.ENTERING
+        try {
+            lifecycleOperations.enterAlternateScreen()
+            lifecycleOperations.hideCursor()
+            lifecycleOperations.flush()
+            displayState = DisplayState.FULLSCREEN
+        } catch (error: Throwable) {
+            exitDisplayBestEffortLocked()?.let(error::addSuppressed)
+            throw error
+        }
+        true
     }
 
-    override fun exitFullScreen() = synchronized(lifecycleLock) { exitFullScreenLocked() }
+    override fun exitFullScreen() = synchronized(lifecycleLock) {
+        if (displayState == DisplayState.INLINE || displayState == DisplayState.CLOSED) {
+            return@synchronized
+        }
+        exitDisplayBestEffortLocked()?.let { throw it }
+        Unit
+    }
 
     override fun redisplay() {
         lineReader.callWidget(LineReader.REDISPLAY)
     }
 
     override fun close() = synchronized(lifecycleLock) {
-        if (closed) return@synchronized
-        closed = true
-        widgetEvents.close()
-
-        try {
-            exitFullScreenLocked()
-        } finally {
+        if (displayState == DisplayState.CLOSED) return@synchronized
+        eventQueue.close()
+        var failure: Throwable? = null
+        fun attempt(operation: () -> Unit) {
             try {
-                lifecycleOperations.restoreAttributes()
-            } finally {
-                lifecycleOperations.closeTerminal()
+                operation()
+            } catch (error: Throwable) {
+                val previous = failure
+                if (previous == null) failure = error else previous.addSuppressed(error)
             }
         }
+
+        attempt(historySave)
+        if (displayState != DisplayState.INLINE) {
+            exitDisplayBestEffortLocked()?.let { exitError ->
+                val previous = failure
+                if (previous == null) failure = exitError else previous.addSuppressed(exitError)
+            }
+        }
+        attempt(lifecycleOperations::restoreAttributes)
+        attempt(lifecycleOperations::closeTerminal)
+        displayState = DisplayState.CLOSED
+        failure?.let { throw it }
+        Unit
     }
 
-    private fun exitFullScreenLocked() {
-        if (!fullScreen) return
-        fullScreen = false
-        lifecycleOperations.exitFullScreen()
+    private fun exitDisplayBestEffortLocked(): Throwable? {
+        displayState = DisplayState.EXITING
+        var failure: Throwable? = null
+        fun attempt(operation: () -> Unit) {
+            try {
+                operation()
+            } catch (error: Throwable) {
+                val previous = failure
+                if (previous == null) failure = error else previous.addSuppressed(error)
+            }
+        }
+
+        attempt(lifecycleOperations::showCursor)
+        attempt(lifecycleOperations::exitAlternateScreen)
+        attempt(lifecycleOperations::flush)
+        if (failure == null) displayState = DisplayState.INLINE
+        return failure
+    }
+
+    private enum class DisplayState {
+        INLINE,
+        ENTERING,
+        FULLSCREEN,
+        EXITING,
+        CLOSED,
     }
 
     companion object {
@@ -195,6 +243,7 @@ class JLineTerminalSession private constructor(
             richSupported: Boolean,
             readLine: (() -> String?)? = null,
             lifecycleOperations: TerminalLifecycleOperations? = null,
+            historySave: (() -> Unit)? = null,
         ): JLineTerminalSession = buildSession(
             terminal = terminal,
             historyPath = historyPath,
@@ -202,6 +251,7 @@ class JLineTerminalSession private constructor(
             richSupported = richSupported,
             readLine = readLine,
             lifecycleOperations = lifecycleOperations,
+            historySave = historySave,
         )
 
         private fun buildSession(
@@ -211,13 +261,14 @@ class JLineTerminalSession private constructor(
             richSupported: Boolean,
             readLine: (() -> String?)? = null,
             lifecycleOperations: TerminalLifecycleOperations? = null,
+            historySave: (() -> Unit)? = null,
         ): JLineTerminalSession {
             var savedAttributes: Attributes? = null
 
             try {
                 Files.createDirectories(historyPath.toAbsolutePath().parent)
                 savedAttributes = if (enterRawMode) terminal.enterRawMode() else null
-                val widgetEvents = Channel<CliTerminalEvent>(Channel.UNLIMITED)
+                val eventQueue = Channel<CliTerminalEvent>(Channel.UNLIMITED)
                 val lineReader = LineReaderBuilder.builder()
                     .appName("openeden")
                     .terminal(terminal)
@@ -227,7 +278,7 @@ class JLineTerminalSession private constructor(
                     .option(LineReader.Option.HISTORY_INCREMENTAL, true)
                     .build()
                 lineReader.history.attach(lineReader)
-                installWidgets(lineReader, widgetEvents)
+                installWidgets(lineReader, eventQueue)
                 installDedicatedKeyMap(lineReader)
 
                 return JLineTerminalSession(
@@ -238,7 +289,8 @@ class JLineTerminalSession private constructor(
                     lifecycleOperations = lifecycleOperations
                         ?: RealTerminalLifecycleOperations(terminal, savedAttributes),
                     readDispatcher = Dispatchers.IO.limitedParallelism(1),
-                    widgetEvents = widgetEvents,
+                    eventQueue = eventQueue,
+                    historySave = historySave ?: lineReader.history::save,
                 )
             } catch (error: Throwable) {
                 try {
@@ -297,13 +349,7 @@ class JLineTerminalSession private constructor(
         ): Boolean {
             val provider = (terminal as? TerminalExt)?.provider?.name()
             val osName = System.getProperty("os.name", "")
-            val supported = TerminalRichModePolicy.isSupported(osName, terminal.type, provider)
-            val isWindows = osName.startsWith("Windows", ignoreCase = true)
-            val isDumb = terminal.type == Terminal.TYPE_DUMB || terminal.type == Terminal.TYPE_DUMB_COLOR
-            if (isWindows && !isDumb && !supported) {
-                warningSink("JLine JNI terminal unavailable; using plain line mode.")
-            }
-            return supported
+            return TerminalRichModePolicy.isSupported(osName, terminal.type, provider, warningSink)
         }
 
         private fun defaultHistoryPath(): Path =
@@ -319,17 +365,15 @@ private class RealTerminalLifecycleOperations(
         terminal.getStringCapability(capability) != null
     }
 
-    override fun enterFullScreen() {
-        terminal.puts(Capability.enter_ca_mode)
-        terminal.puts(Capability.cursor_invisible)
-        terminal.flush()
-    }
+    override fun enterAlternateScreen() = putRequired(Capability.enter_ca_mode)
 
-    override fun exitFullScreen() {
-        terminal.puts(Capability.cursor_visible)
-        terminal.puts(Capability.exit_ca_mode)
-        terminal.flush()
-    }
+    override fun hideCursor() = putRequired(Capability.cursor_invisible)
+
+    override fun showCursor() = putRequired(Capability.cursor_visible)
+
+    override fun exitAlternateScreen() = putRequired(Capability.exit_ca_mode)
+
+    override fun flush() = terminal.flush()
 
     override fun restoreAttributes() {
         savedAttributes?.let(terminal::setAttributes)
@@ -337,6 +381,10 @@ private class RealTerminalLifecycleOperations(
 
     override fun closeTerminal() {
         terminal.close()
+    }
+
+    private fun putRequired(capability: Capability) {
+        check(terminal.puts(capability)) { "Terminal failed to apply capability $capability" }
     }
 
     private companion object {

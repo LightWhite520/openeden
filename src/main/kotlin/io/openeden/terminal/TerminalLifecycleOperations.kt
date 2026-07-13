@@ -3,9 +3,15 @@ package io.openeden.terminal
 internal interface TerminalLifecycleOperations {
     fun hasFullScreenCapabilities(): Boolean
 
-    fun enterFullScreen()
+    fun enterAlternateScreen()
 
-    fun exitFullScreen()
+    fun hideCursor()
+
+    fun showCursor()
+
+    fun exitAlternateScreen()
+
+    fun flush()
 
     fun restoreAttributes()
 

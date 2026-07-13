@@ -8,9 +8,14 @@ internal object TerminalRichModePolicy {
         osName: String,
         terminalType: String,
         providerName: String?,
+        warningSink: (String) -> Unit = {},
     ): Boolean {
-        if (terminalType == Terminal.TYPE_DUMB || terminalType == Terminal.TYPE_DUMB_COLOR) return false
         val windows = osName.lowercase(Locale.ROOT).startsWith("windows")
-        return !windows || providerName.equals("jni", ignoreCase = true)
+        val jniProvider = providerName.equals("jni", ignoreCase = true)
+        if (windows && !jniProvider) warningSink(JNI_FALLBACK_WARNING)
+        if (terminalType == Terminal.TYPE_DUMB || terminalType == Terminal.TYPE_DUMB_COLOR) return false
+        return !windows || jniProvider
     }
+
+    const val JNI_FALLBACK_WARNING = "JLine JNI terminal unavailable; using plain line mode."
 }
