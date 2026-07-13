@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   auditCorpus,
   buildRequests,
+  chatCompletionsUrl,
   DIMENSIONS,
   generationPrompt,
   needsEscalation,
@@ -229,7 +230,7 @@ async function reviewCandidates(modelName, candidates, tier) {
 }
 
 async function completeBatch(modelName, requests, prompt) {
-  const response = await fetch(endpoint, {
+  const response = await fetch(chatCompletionsUrl(endpoint), {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model: modelName, temperature: 0.25, messages: [{ role: "user", content: prompt }] }),

@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   auditCorpus,
   buildRequests,
+  chatCompletionsUrl,
   countBy,
   generationPrompt,
   needsEscalation,
@@ -42,6 +43,12 @@ test("confidence prompt defines text observability", () => {
 
   assert.match(prompt, /仅根据这段用户文本/);
   assert.doesNotMatch(prompt, /annotation reliability/i);
+});
+
+test("chat completions URL accepts base or full endpoint", () => {
+  assert.equal(chatCompletionsUrl("https://example.test/v1"), "https://example.test/v1/chat/completions");
+  assert.equal(chatCompletionsUrl("https://example.test/v1/"), "https://example.test/v1/chat/completions");
+  assert.equal(chatCompletionsUrl("https://example.test/v1/chat/completions"), "https://example.test/v1/chat/completions");
 });
 
 test("5.5 reviews low confidence and hard mechanisms", () => {

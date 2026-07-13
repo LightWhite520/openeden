@@ -72,6 +72,12 @@ export function countBy(items, key) {
   return counts;
 }
 
+export function chatCompletionsUrl(endpoint) {
+  const normalized = String(endpoint).trim().replace(/\/+$/u, "");
+  if (!normalized) throw new Error("Affect labeling endpoint must not be blank");
+  return normalized.endsWith("/chat/completions") ? normalized : `${normalized}/chat/completions`;
+}
+
 export function generationPrompt(batch, excludedTexts) {
   return [
     "生成一批用于中文用户情绪观测模型的监督样本。只返回严格 JSON。",
