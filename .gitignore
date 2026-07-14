@@ -39,6 +39,14 @@ data/training/user-affect-v2.*.jsonl
 data/training/user-affect-v2.audit.json
 data/training/user-affect-v2.manifest.json
 
+# Local Qwen affect model bundle and checkpoints
+data/models/user-affect-qwen/model.pt
+data/models/user-affect-qwen/head.pt
+data/models/user-affect-qwen/checkpoints/
+data/models/user-affect-qwen/text_encoder/
+data/models/user-affect-qwen/tokenizer.json
+build/affect-qwen-*/
+
 # Private copyrighted/local corpora
 private_corpus/
 

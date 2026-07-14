@@ -23,7 +23,7 @@ openeden:
     djlVqVaeModelPath: "$OPENEDEN_DJL_VQVAE_MODEL_PATH:data/models/djl/vqvae"
     djlTextModelPath: "$OPENEDEN_DJL_TEXT_MODEL_PATH:data/models/djl/text"
     djlEmotionalModelPath: "$OPENEDEN_DJL_EMOTIONAL_MODEL_PATH:data/models/djl/emotional"
-    djlAffectModelPath: "$OPENEDEN_DJL_AFFECT_MODEL_PATH:data/models/djl/affect"
+    djlAffectModelPath: "$OPENEDEN_DJL_AFFECT_MODEL_PATH:data/models/user-affect-qwen"
     djlEngine: "$OPENEDEN_DJL_ENGINE:PyTorch"
     djlModelName: "$OPENEDEN_DJL_MODEL_NAME:model"
   heartbeat:

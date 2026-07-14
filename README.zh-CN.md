@@ -90,6 +90,8 @@ Copy-Item .env.example .env
 | `OPENEDEN_RUNTIME_DB_PATH` | SQLite 运行时数据库路径。 |
 | `OPENEDEN_PERSONA_PATH` | persona YAML 路径，默认 `persona/default.yaml`。 |
 | `OPENEDEN_LOCAL_MODEL_ARTIFACT` | 本地模型 artifact 路径。 |
+| `OPENEDEN_DJL_AFFECT_MODEL_PATH` | Thymos 用户情绪模型缓存目录。 |
+| `OPENEDEN_DJL_AFFECT_MODEL_URL` | Thymos Hugging Face 模型目录 URL。 |
 | `OPENEDEN_OWNER_PLATFORM` | 可选，心跳 owner 投递平台。 |
 | `OPENEDEN_OWNER_USER_ID` | 可选，心跳 owner 用户 ID。 |
 
@@ -99,6 +101,12 @@ Copy-Item .env.example .env
 
 ```powershell
 .\gradlew.bat ensureLocalModelArtifact
+```
+
+下载 Thymos 用户情绪模型（首次约 1.2 GB，之后使用本地缓存）：
+
+```powershell
+.\gradlew.bat ensureThymosAffectModel
 ```
 
 启动服务端：

@@ -4,29 +4,22 @@ import io.openeden.codebook.DjlFloatPredictor
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.nio.file.Path
-import kotlin.math.sqrt
 
 class DjlTextAffectAnalyzer(
-    private val predictor: DjlFloatPredictor,
-    private val textInputDimension: Int,
+    private val predictor: TextAffectPredictor,
     private val fallback: UserAffectAnalyzer = DeterministicUserAffectAnalyzer(),
 ) : UserAffectAnalyzer, AutoCloseable {
-    private val mutex = Mutex()
+    constructor(
+        predictor: DjlFloatPredictor,
+        textInputDimension: Int,
+        fallback: UserAffectAnalyzer = DeterministicUserAffectAnalyzer(),
+    ) : this(LegacyHashAffectPredictor(predictor, textInputDimension), fallback)
 
-    init {
-        require(textInputDimension > 0)
-    }
+    private val mutex = Mutex()
 
     override suspend fun analyze(text: String): UserAffectState = mutex.withLock {
         runCatching {
-            val buckets = FloatArray(textInputDimension)
-            for ((index, char) in text.withIndex()) {
-                buckets[(char.code * 31 + index).mod(textInputDimension)] += 1.0f
-            }
-            var norm = 0.0f
-            for (value in buckets) norm += value * value
-            val input = if (norm == 0.0f) buckets else buckets.map { it / sqrt(norm) }.toFloatArray()
-            val output = predictor.predict(input)
+            val output = predictor.predict(text)
             require(output.size == 6 && output.all(Float::isFinite)) { "DJL affect output must contain six finite values" }
             UserAffectState(
                 valence = output[0].coerceIn(0.0f, 1.0f),
@@ -47,5 +40,30 @@ class DjlTextAffectAnalyzer(
                 predictor = DjlFloatPredictor.fromModelPath(modelPath, modelName, engineName),
                 textInputDimension = textInputDimension,
             )
+
+        fun fromQwenBundle(bundlePath: Path, engineName: String = "PyTorch"): DjlTextAffectAnalyzer =
+            DjlTextAffectAnalyzer(DjlQwenTextAffectPredictor.fromBundle(bundlePath, engineName))
     }
+}
+
+private class LegacyHashAffectPredictor(
+    private val predictor: DjlFloatPredictor,
+    private val inputDimension: Int,
+) : TextAffectPredictor {
+    init {
+        require(inputDimension > 0)
+    }
+
+    override fun predict(text: String): FloatArray {
+        val buckets = FloatArray(inputDimension)
+        for ((index, char) in text.withIndex()) {
+            buckets[(char.code * 31 + index).mod(inputDimension)] += 1.0f
+        }
+        var norm = 0.0f
+        for (value in buckets) norm += value * value
+        val input = if (norm == 0.0f) buckets else buckets.map { it / kotlin.math.sqrt(norm) }.toFloatArray()
+        return predictor.predict(input)
+    }
+
+    override fun close() = predictor.close()
 }
