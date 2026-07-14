@@ -14,5 +14,7 @@ class CliInputSelectionTest {
     fun `one-shot and redirected sessions keep explicit stream input`() {
         assertFalse(CliInputSelection.shouldUseJLine(listOf("chat"), consoleAvailable = true))
         assertFalse(CliInputSelection.shouldUseJLine(emptyList(), consoleAvailable = false))
+        assertTrue(CliInputSelection.shouldUseJLine(emptyList(), consoleAvailable = false, terminalType = "windows"))
+        assertFalse(CliInputSelection.shouldUseJLine(emptyList(), consoleAvailable = false, terminalType = "dumb"))
     }
 }

@@ -12,11 +12,18 @@ suspend fun main(args: Array<String>) {
         profile = TerminalEncodingProfile.fromEnvironment(System.getenv()),
     )
     val arguments = args.toList()
-    val terminalSession = if (CliInputSelection.shouldUseJLine(arguments, System.console() != null)) {
-        runCatching { io.openeden.terminal.JLineTerminalSession.create() }.getOrNull()
-    } else {
-        null
-    }
+    val terminalSession = if (arguments.isEmpty()) {
+        runCatching { io.openeden.terminal.JLineTerminalSession.create() }
+            .getOrNull()
+            ?.let { session ->
+                if (CliInputSelection.shouldUseJLine(arguments, System.console() != null, session.terminal.type)) {
+                    session
+                } else {
+                    session.close()
+                    null
+                }
+            }
+    } else null
     val output: (String) -> Unit = if (terminalSession != null) {
         { text ->
             terminalSession.terminal.writer().print(text)
