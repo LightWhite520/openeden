@@ -1,6 +1,7 @@
 package io.openeden
 
 import io.openeden.terminal.CliTextStreams
+import io.openeden.terminal.JLineTerminalSession
 import io.openeden.terminal.TerminalEncodingProfile
 import kotlin.system.exitProcess
 
@@ -13,15 +14,12 @@ suspend fun main(args: Array<String>) {
     )
     val arguments = args.toList()
     val terminalSession = if (arguments.isEmpty()) {
-        runCatching { io.openeden.terminal.JLineTerminalSession.create() }
-            .getOrNull()
-            ?.let { session ->
-                if (CliInputSelection.shouldUseJLine(arguments, System.console() != null, session.terminal.type)) {
-                    session
-                } else {
-                    session.close()
-                    null
-                }
+        runCatching { JLineTerminalSession.create() }
+            .getOrElse { failure ->
+                throw IllegalStateException(
+                    "Interactive terminal takeover is unavailable: ${failure.message ?: failure::class.simpleName}",
+                    failure,
+                )
             }
     } else null
     val output: (String) -> Unit = if (terminalSession != null) {
@@ -39,10 +37,6 @@ suspend fun main(args: Array<String>) {
         input = terminalSession?.let { JLineCliInput(it.lineReader) } ?: StdinCliInput(streams.reader),
         output = output,
     )
-    val exitCode = try {
-        cli.run(arguments)
-    } finally {
-        terminalSession?.close()
-    }
+    val exitCode = terminalSession.use { _ -> cli.run(arguments) }
     exitProcess(exitCode)
 }
