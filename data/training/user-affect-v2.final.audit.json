@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "sampleCount": 8192,
+  "confidenceBands": {
+    "very_low": 1639,
+    "low": 1639,
+    "gate_transition": 1638,
+    "moderate": 1638,
+    "explicit": 1638
+  },
+  "mechanisms": {
+    "slang": 683,
+    "boundary_request": 683,
+    "indirect_connection_need": 683,
+    "missing_context": 683,
+    "low_information": 683,
+    "ordinary_social": 683,
+    "direct_disclosure": 683,
+    "neutral_factual": 683,
+    "negation": 682,
+    "sarcasm": 682,
+    "quoted_emotion": 682,
+    "mixed_affect": 682
+  },
+  "nearGateCount": 3049,
+  "modelCalls": {
+    "gpt-5.5": 5008,
+    "gpt-5.4-mini": 3184
+  },
+  "escalationRate": 0.0733642578125
+}

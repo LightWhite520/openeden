@@ -200,11 +200,9 @@ private fun loadRuntimeModels(config: ServerRuntimeConfig): RuntimeModels {
                 engineName = config.djlEngine,
                 textInputDimension = artifact.textEmbedding.bucketSize,
             )
-            val affect = DjlTextAffectAnalyzer.fromModelPath(
-                modelPath = config.djlAffectModelPath,
-                modelName = config.djlModelName,
+            val affect = DjlTextAffectAnalyzer.fromQwenBundle(
+                bundlePath = config.djlAffectModelPath,
                 engineName = config.djlEngine,
-                textInputDimension = artifact.textEmbedding.bucketSize,
             )
             RuntimeModels(
                 quantizer = VqVaeCodebookQuantizer(
@@ -276,7 +274,7 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         djlVqVaeModelPath = rootPath("openeden.runtime.djlVqVaeModelPath", "data/models/djl/vqvae"),
         djlTextModelPath = rootPath("openeden.runtime.djlTextModelPath", "data/models/djl/text"),
         djlEmotionalModelPath = rootPath("openeden.runtime.djlEmotionalModelPath", "data/models/djl/emotional"),
-        djlAffectModelPath = rootPath("openeden.runtime.djlAffectModelPath", "data/models/djl/affect"),
+        djlAffectModelPath = rootPath("openeden.runtime.djlAffectModelPath", "data/models/user-affect-qwen"),
         djlEngine = optional("openeden.runtime.djlEngine", "PyTorch"),
         djlModelName = optional("openeden.runtime.djlModelName", "model"),
         heartbeatOwner = if (ownerPlatform != null && ownerUserId != null) {

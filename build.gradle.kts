@@ -27,6 +27,14 @@ val localModelArtifactUrl = providers
     .environmentVariable("OPENEDEN_LOCAL_MODEL_ARTIFACT_URL")
     .orElse("https://huggingface.co/0x4C57/openeden-codebook-base-model/resolve/main/local-model-artifact.json")
 
+val thymosAffectModelPath = providers
+    .environmentVariable("OPENEDEN_DJL_AFFECT_MODEL_PATH")
+    .orElse("data/models/user-affect-qwen")
+
+val thymosAffectModelRepo = providers
+    .environmentVariable("OPENEDEN_DJL_AFFECT_MODEL_URL")
+    .orElse("https://huggingface.co/0x4C57/Thymos-6D/resolve/main")
+
 tasks.register("ensureLocalModelArtifact") {
     group = "openeden"
     description = "Download the OpenEden local model artifact from Hugging Face when it is missing."
@@ -39,6 +47,29 @@ tasks.register("ensureLocalModelArtifact") {
             artifactFile.outputStream().use { output -> input.copyTo(output) }
         }
         logger.lifecycle("Downloaded OpenEden local model artifact to ${artifactFile.path}")
+    }
+}
+
+tasks.register("ensureThymosAffectModel") {
+    group = "openeden"
+    description = "Download the Thymos-6D affect model bundle from Hugging Face when it is missing."
+    val modelDir = file(thymosAffectModelPath.get())
+    val requiredFiles = listOf("model.pt", "tokenizer.json", "metadata.json").map(modelDir::resolve)
+    outputs.files(requiredFiles)
+    onlyIf { requiredFiles.any { !it.exists() } }
+    doLast {
+        modelDir.mkdirs()
+        requiredFiles.forEach { target ->
+            val temporary = target.resolveSibling("${target.name}.download")
+            URI("${thymosAffectModelRepo.get()}/${target.name}").toURL().openStream().use { input ->
+                temporary.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (!temporary.renameTo(target)) {
+                temporary.copyTo(target, overwrite = true)
+                temporary.delete()
+            }
+        }
+        logger.lifecycle("Downloaded Thymos-6D affect model to ${modelDir.path}")
     }
 }
 

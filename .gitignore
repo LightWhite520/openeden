@@ -33,6 +33,20 @@ data/runtime/
 data/models/codebook-base-model*/
 data/training/*.raw*.jsonl
 data/training/*.samples.json
+data/training/user-affect-v2.generated.jsonl
+data/training/user-affect-v2.reviewed.jsonl
+data/training/user-affect-v2.escalated.jsonl
+data/training/user-affect-v2.*.jsonl
+data/training/user-affect-v2.audit.json
+data/training/user-affect-v2.manifest.json
+
+# Local Qwen affect model bundle and checkpoints
+data/models/user-affect-qwen/model.pt
+data/models/user-affect-qwen/head.pt
+data/models/user-affect-qwen/checkpoints/
+data/models/user-affect-qwen/text_encoder/
+data/models/user-affect-qwen/tokenizer.json
+build/affect-qwen-*/
 
 # Private copyrighted/local corpora
 private_corpus/
