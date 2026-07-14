@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 2,
+  "sampleCount": 8192,
+  "rawCorpus": "data/training/user-affect-v2.final.unique.jsonl",
+  "audit": "data/training/user-affect-v2.final.audit.json",
+  "models": {
+    "gpt-5.5": 5008,
+    "gpt-5.4-mini": 3184
+  },
+  "reasoningEffort": {
+    "generator": "low",
+    "standard": "medium",
+    "escalation": "medium"
+  },
+  "duplicateRepairs": 248,
+  "reportedTokens": 11250980,
+  "confidenceBands": {
+    "very_low": 1639,
+    "low": 1639,
+    "gate_transition": 1638,
+    "moderate": 1638,
+    "explicit": 1638
+  },
+  "nearGateCount": 3049
+}
