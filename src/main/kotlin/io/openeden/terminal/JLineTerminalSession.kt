@@ -204,7 +204,7 @@ class JLineTerminalSession private constructor(
                 .stdinEncoding(UTF_8)
                 .stdoutEncoding(UTF_8)
                 .stderrEncoding(UTF_8)
-                .providers("jni,exec")
+                .providers(TerminalProviderSelection.forOs(System.getProperty("os.name", "")))
                 .build()
             val richSupported = try {
                 richSupportFor(terminal, warningSink)
