@@ -26,6 +26,14 @@ class FullScreenCliRendererTest {
         assertTrue(output.contains("editor: active=true"))
         assertTrue(output.contains("diagnostics"))
     }
+
+    @Test fun `shrinking after entry exits fullscreen before inline fallback`() {
+        val sink = FakeFullscreenSink(true)
+        val renderer = FullScreenCliRenderer(sink)
+        renderer.render(CliUiState.initial("x"), Size(100, 30))
+        assertEquals(RenderDecision.FallbackToInline("Terminal too small for full-screen mode."), renderer.render(CliUiState.initial("x"), Size(79, 24)))
+        assertTrue(sink.closed)
+    }
 }
 
 private class FakeFullscreenSink(val capable: Boolean) : FullscreenSink {

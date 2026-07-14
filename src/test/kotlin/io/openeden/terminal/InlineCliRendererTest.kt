@@ -27,4 +27,15 @@ class InlineCliRendererTest {
         renderer.render(null, state, Size(80, 24))
         assertTrue(frames.single().any { it.contains("partial") })
     }
+
+    @Test fun `committed history excludes transient status rows`() {
+        val history = mutableListOf<String>()
+        val renderer = InlineCliRenderer(history = InlineHistorySink { history += it })
+        val state = CliUiState("s", requestActive = true, stage = "finalizing", messages = listOf(
+            CliMessage("a", CliRole.ASSISTANT, "done", CliMessageStatus.COMPLETE),
+        ))
+        renderer.render(null, state, Size(80, 24))
+        assertTrue(history.single().contains("done"))
+        kotlin.test.assertFalse(history.single().contains("finalizing"))
+    }
 }

@@ -27,7 +27,16 @@ class InlineCliRenderer(
         )
     }
     override fun render(previous: CliUiState?, current: CliUiState, size: Size): RenderDecision {
-        current.messages.filter { it.status == CliMessageStatus.COMPLETE && committed.add(it.id) }.forEach { msg -> history?.printAbove(rows(current.copy(messages = listOf(msg)), size.columns).joinToString("\n")) }
+        current.messages.filter { it.status == CliMessageStatus.COMPLETE && committed.add(it.id) }.forEach { msg ->
+            val committedState = current.copy(
+                messages = listOf(msg),
+                requestActive = false,
+                stage = null,
+                notice = null,
+                diagnosticsVisible = false,
+            )
+            history?.printAbove(rows(committedState, size.columns).joinToString("\n"))
+        }
         val provisional = current.messages.filter { it.status == CliMessageStatus.STREAMING }
         if (provisional.isNotEmpty() || current.requestActive || current.notice != null) {
             active?.render(rows(current, size.columns))
