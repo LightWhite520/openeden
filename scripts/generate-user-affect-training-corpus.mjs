@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  addUsage,
   auditCorpus,
   buildRequests,
   chatCompletionBody,
@@ -36,11 +37,14 @@ const apiKey = args.apiKey ?? process.env.OPENEDEN_AFFECT_LABEL_API_KEY;
 const rawPath = resolve(args.raw ?? "data/training/user-affect-v2.raw.jsonl");
 const manifestPath = resolve(args.manifest ?? "data/training/user-affect-v2.corpus-manifest.json");
 const auditPath = resolve(args.audit ?? "data/training/user-affect-v2.audit.json");
+const usagePath = resolve(args.usage ?? "data/training/user-affect-v2.usage.jsonl");
+const maxTotalTokens = positiveInt(args.maxTotalTokens, 5000000);
 const generatedPath = resolve(args.generated ?? stagePath(rawPath, "generated"));
 const reviewedPath = resolve(args.reviewed ?? stagePath(rawPath, "reviewed"));
 const escalatedPath = resolve(args.escalated ?? stagePath(rawPath, "escalated"));
 const dryRun = args.dryRun === true;
 const auditOnly = args.auditOnly === true;
+let usageTotals = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 
 if (!dryRun && !auditOnly && (!endpoint || !apiKey)) {
   throw new Error("Set OPENEDEN_AFFECT_LABEL_ENDPOINT and OPENEDEN_AFFECT_LABEL_API_KEY.");
@@ -48,6 +52,7 @@ if (!dryRun && !auditOnly && (!endpoint || !apiKey)) {
 ensureParent(rawPath);
 ensureParent(manifestPath);
 ensureParent(auditPath);
+ensureParent(usagePath);
 ensureParent(generatedPath);
 ensureParent(reviewedPath);
 ensureParent(escalatedPath);
@@ -239,6 +244,7 @@ fs.writeFileSync(manifestPath, `${JSON.stringify({
     escalation: reasoningEffortForModel(escalationModel),
   },
   rawCorpus: path.relative(ROOT, rawPath),
+  usage: { path: path.relative(ROOT, usagePath), totals: usageTotals, maxTotalTokens },
   dimensions: DIMENSIONS,
   generatedAt: new Date().toISOString(),
 }, null, 2)}\n`, "utf8");
@@ -302,6 +308,13 @@ async function completeBatch(modelName, requests, prompt) {
   });
   const body = await response.text();
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${body.slice(0, 300)}`);
+  const usage = parseUsage(body);
+  if (!usage) throw new Error(`Response from ${modelName} did not report usage.total_tokens`);
+  usageTotals = addUsage(usageTotals, usage);
+  fs.appendFileSync(usagePath, `${JSON.stringify({ model: modelName, usage })}\n`, "utf8");
+  if (usageTotals.totalTokens > maxTotalTokens) {
+    throw new Error(`Token budget exceeded: ${usageTotals.totalTokens} > ${maxTotalTokens}`);
+  }
   const content = extractContent(body);
   const parsed = JSON.parse(stripFence(content));
   if (!Array.isArray(parsed.items)) throw new Error("Response did not contain items");
@@ -360,6 +373,14 @@ function extractContent(body) {
     return parsed.choices?.[0]?.message?.content ?? parsed.output_text ?? body;
   } catch {
     return body;
+  }
+}
+function parseUsage(body) {
+  try {
+    const usage = JSON.parse(body).usage;
+    return usage && Number.isFinite(Number(usage.total_tokens)) ? usage : null;
+  } catch {
+    return null;
   }
 }
 function stripFence(value) { return String(value).trim().replace(/^```(?:json)?\s*/iu, "").replace(/\s*```$/u, ""); }

@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   auditCorpus,
+  addUsage,
   buildRequests,
   chatCompletionBody,
   chatCompletionsUrl,
@@ -81,6 +82,12 @@ test("chat completion requests use model-specific reasoning effort", () => {
   assert.equal(chatCompletionBody("gpt-5.5", "prompt").reasoning_effort, "medium");
 });
 
+test("usage accounting accumulates reported token counts", () => {
+  const totals = addUsage({ promptTokens: 100, completionTokens: 40, totalTokens: 140 }, { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 });
+
+  assert.deepEqual(totals, { promptTokens: 112, completionTokens: 48, totalTokens: 160 });
+});
+
 test("text ownership permits resume and rejects another sample", () => {
   const owners = new Map();
   claimUniqueText(" 我今天真的很累。 ", "UAV2_000001", owners);
@@ -144,9 +151,14 @@ test("repeated invalid generation escalates review tiers", () => {
 });
 
 test("5.5 reviews low confidence and hard mechanisms", () => {
-  assert.equal(needsStandardReview(request("low", ["direct_disclosure"]), item(0.42)), true);
+  assert.equal(needsStandardReview(request("low", ["direct_disclosure"], true), item(0.42)), true);
   assert.equal(needsStandardReview(request("explicit", ["sarcasm"]), item(0.90)), true);
   assert.equal(needsStandardReview(request("explicit", ["direct_disclosure"]), item(0.90)), false);
+});
+
+test("standard review skips ordinary non-gate samples", () => {
+  assert.equal(needsStandardReview(request("low", ["direct_disclosure"]), item(0.42)), false);
+  assert.equal(needsStandardReview(request("moderate", ["ordinary_social"]), item(0.72)), false);
 });
 
 test("escalation review receives cross-gate and large-disagreement cases", () => {
@@ -250,7 +262,7 @@ test("durable state only completes final records", () => {
   assert.equal(state.generated.has("UAV2_000000"), true);
 });
 
-function request(confidenceBand, mechanisms) {
+function request(confidenceBand, mechanisms, nearRuntimeGate = false) {
   const ranges = {
     very_low: [0.05, 0.35],
     low: [0.35, 0.50],
@@ -265,7 +277,7 @@ function request(confidenceBand, mechanisms) {
     mechanism: mechanisms[0],
     mechanisms,
     targetConfidence: (ranges[confidenceBand][0] + ranges[confidenceBand][1]) / 2,
-    nearRuntimeGate: false,
+    nearRuntimeGate,
     auditHighConfidence: false,
   };
 }

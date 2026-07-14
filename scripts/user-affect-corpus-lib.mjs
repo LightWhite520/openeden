@@ -94,6 +94,14 @@ export function chatCompletionBody(model, prompt) {
   };
 }
 
+export function addUsage(totals, usage) {
+  return {
+    promptTokens: totals.promptTokens + Number(usage.prompt_tokens ?? 0),
+    completionTokens: totals.completionTokens + Number(usage.completion_tokens ?? 0),
+    totalTokens: totals.totalTokens + Number(usage.total_tokens ?? 0),
+  };
+}
+
 export function reasoningEffortForModel(model) {
   return model === "gpt-5.4-mini" ? "low" : "medium";
 }
@@ -179,9 +187,10 @@ export function generationPrompt(batch, excludedTexts) {
 }
 
 export function needsStandardReview(request, generated) {
-  return generated.confidence < 0.65
+  const hard = (request.mechanisms ?? [request.mechanism]).some((value) => HARD_MECHANISMS.has(value));
+  return request.nearRuntimeGate === true
     || distanceToGate(generated.confidence) <= 0.05
-    || (request.mechanisms ?? [request.mechanism]).some((value) => HARD_MECHANISMS.has(value))
+    || (hard && sampleHardReview(request.sampleId))
     || request.auditHighConfidence === true;
 }
 
@@ -304,6 +313,12 @@ function distanceToGate(value) {
 
 function crossesGate(left, right) {
   return [0.5, 0.65].some((gate) => (left < gate && right >= gate) || (right < gate && left >= gate));
+}
+
+function sampleHardReview(sampleId) {
+  const digits = String(sampleId).match(/(\d+)$/u)?.[1];
+  if (!digits) return true;
+  return Number.parseInt(digits, 10) % 5 === 0;
 }
 
 export function normalizeAffectText(value) {

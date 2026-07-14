@@ -4,7 +4,7 @@
 
 **Goal:** Generate and audit 8,192 new Chinese user-affect records whose confidence labels match the runtime's text-observability gates.
 
-**Architecture:** A testable JavaScript library creates deterministic confidence strata and coverage requests, validates model responses, generates with `gpt-5.4-mini`, and routes both normal and independent escalation reviews through `gpt-5.5`. The CLI appends validated stage records durably, resumes by sample ID, then writes a non-sensitive manifest and audit report. No model training or JVM runtime changes are in scope.
+**Architecture:** A testable JavaScript library creates deterministic confidence strata and coverage requests, validates model responses, generates with `gpt-5.4-mini`, and routes a bounded high-value review subset through `gpt-5.5`. Gate-near samples are always reviewed; hard mechanisms are deterministically sampled to keep review cost near 25-35%. The CLI appends validated stage records durably, records provider usage, stops at a token budget, resumes by sample ID, then writes a non-sensitive manifest and audit report. No model training or JVM runtime changes are in scope.
 
 **Tech Stack:** Node.js ESM, built-in `node:test`, OpenAI-compatible chat-completions HTTP endpoint, JSONL.
 
@@ -153,7 +153,9 @@ const finalEscalations = await reviewWithModel(escalationModel, escalations);
 
 Defaults are `gpt-5.4-mini` for generation and `gpt-5.5` for both review tiers;
 the generator uses low reasoning effort and both review tiers use medium.
-CLI flags may override model names. API keys remain environment-only.
+CLI flags may override model names. API keys remain environment-only. Every
+non-dry-run response must report `usage.total_tokens`; the default cumulative
+budget is 5,000,000 tokens and generation stops when it is exceeded.
 
 - [ ] **Step 6: Run tests**
 
@@ -262,7 +264,7 @@ Expected: exit code 0 and no credential value in output.
 
 - [ ] **Step 2: Generate with tiered labeling**
 
-Run: `node scripts/generate-user-affect-training-corpus.mjs --samples 8192 --batch 32 --generator-model gpt-5.4-mini --standard-model gpt-5.5 --escalation-model gpt-5.5 --raw data/training/user-affect-v2.raw.jsonl --manifest data/training/user-affect-v2.corpus-manifest.json --audit data/training/user-affect-v2.audit.json`
+Run: `node scripts/generate-user-affect-training-corpus.mjs --samples 8192 --batch 16 --generator-model gpt-5.4-mini --standard-model gpt-5.5 --escalation-model gpt-5.5 --max-total-tokens 5000000 --raw data/training/user-affect-v2.raw.jsonl --manifest data/training/user-affect-v2.corpus-manifest.json --audit data/training/user-affect-v2.audit.json`
 
 Expected: generation resumes safely after transient failures and reaches `accepted=8192/8192`.
 
