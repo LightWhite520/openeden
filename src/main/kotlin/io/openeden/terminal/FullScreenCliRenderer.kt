@@ -14,11 +14,17 @@ class FullScreenCliRenderer(private val sink: FullscreenSink, private val inline
     fun render(current: CliUiState, size: Size): RenderDecision = render(null, current, size)
     override fun render(previous: CliUiState?, current: CliUiState, size: Size): RenderDecision {
         if (closed) return RenderDecision.FallbackToInline("Renderer is closed.")
-        if (size.columns < 80 || size.rows < 24 || !sink.capabilitiesAvailable()) return RenderDecision.FallbackToInline("Terminal too small for full-screen mode.")
+        if (!sink.capabilitiesAvailable()) return RenderDecision.FallbackToInline("Terminal does not support full-screen capabilities.")
+        if (size.columns < 80 || size.rows < 24) return RenderDecision.FallbackToInline("Terminal too small for full-screen mode.")
         if (!entered) { sink.enter(); entered = true }
-        val conversation = inline.rows(current, size.columns)
-        val viewport = conversation.take((size.rows - 4).coerceAtLeast(1))
-        val rows = listOf("OpenEden  ${current.sessionId}") + viewport + listOf("─".repeat(size.columns.coerceAtMost(96)), current.stage?.let { "[$it]" } ?: "Ready", "> ")
+        val conversation = inline.rows(current, size.columns - 22)
+        val viewport = conversation.take((size.rows - 6).coerceAtLeast(1))
+        val rail = "session ${current.sessionId}"
+        val diagnostics = if (current.diagnosticsVisible) current.diagnostics?.let {
+            listOf("diagnostics", "omega=${it.omega} shock=${it.shockActive}", "evolution=${it.evolutionIndex} D=${it.derivedDissonance}")
+        }.orEmpty() else emptyList()
+        val rows = listOf("OpenEden  ${current.sessionId}", "┌ $rail ┐") + viewport.map { "│ $it" } + diagnostics +
+            listOf("─".repeat(size.columns.coerceAtMost(96)), current.stage?.let { "[$it]" } ?: "Ready", "> ", "editor: active=${current.requestActive}")
         sink.write(FrameDiff.between(previousRows, rows)); previousRows = rows
         return RenderDecision.Rendered
     }
