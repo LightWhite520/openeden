@@ -36,6 +36,8 @@ data/training/user-affect-v2.generated.jsonl
 data/training/user-affect-v2.reviewed.jsonl
 data/training/user-affect-v2.escalated.jsonl
 data/training/user-affect-v2.*.jsonl
+data/training/user-affect-v2.audit.json
+data/training/user-affect-v2.manifest.json
 
 # Private copyrighted/local corpora
 private_corpus/
