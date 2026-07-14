@@ -1,8 +1,8 @@
 package io.openeden.memory
 
 import io.openeden.bio.InternalBioVector
-import io.openeden.runtime.OmegaState
-import io.openeden.runtime.ShockState
+import io.openeden.runtime.affect.OmegaState
+import io.openeden.runtime.affect.ShockState
 
 object RetrievalModeSelector {
     fun select(

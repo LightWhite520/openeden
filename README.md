@@ -27,15 +27,22 @@ The runtime keeps personality externalized as data:
 
 ## Architecture
 
-| Module | Purpose |
-| --- | --- |
-| `core` | Pure domain types and async contracts for the 8D vector, VQ-VAE/codebook boundary, prompt inputs, retrieval modes, Omega, ShockState, diary queues, and serialized vector writes. |
-| `server` | Ktor API, runtime bootstrap, SQLite persistence, background workers, WebSocket installation, and public HTTP endpoints. |
-| `client` | Shared HTTP client helpers for the CLI and future platform frontends. |
-| `trainer` | Training and model-related project entry points. |
+| Module    | Purpose                                                      |
+| --------- | ------------------------------------------------------------ |
+| `core`    | Pure domain types and async contracts for the 8D vector, VQ-VAE/codebook boundary, prompt inputs, retrieval modes, Omega, ShockState, diary queues, and serialized vector writes. |
+| `server`  | Ktor API, runtime bootstrap, SQLite persistence, background workers, WebSocket installation, and public HTTP endpoints. |
+| `client`  | Shared HTTP client helpers for the CLI and future platform frontends. |
+| `trainer` | Training and model-related project entry points.             |
 | `persona` | Data-only persona, growth thresholds, heartbeat text, and prompt sections. |
-| `data` | Default location for local models, generated artifacts, and runtime SQLite state. |
-| `docs` | Design notes, boundary documents, and engineering records. |
+| `data`    | Default location for local models, generated artifacts, and runtime SQLite state. |
+| `docs`    | Design notes, boundary documents, and engineering records.   |
+
+Source packages follow the same ownership boundaries:
+
+- `io.openeden.runtime.*` separates pipeline, session, state, affect, tick, heartbeat, diary, and inference responsibilities.
+- `io.openeden.cli.*` separates application control, commands, input, UI state, rendering, and terminal integration.
+- `io.openeden.server.*` separates bootstrap, API DTOs/routes/plugins, and SQLDelight persistence adapters.
+- Test packages and directories mirror the production code they verify.
 
 The main runtime boundaries are:
 
@@ -63,13 +70,9 @@ When changing the project, preserve these constraints:
 - Optional: OpenAI-compatible LLM endpoint
 - Optional: DJL/PyTorch local model files
 
-For Windows PowerShell, UTF-8 output is recommended:
-
-```powershell
-[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-$OutputEncoding = [System.Text.UTF8Encoding]::new()
-```
+The packaged interactive CLI owns the terminal through JLine's native provider.
+On Windows it consumes Unicode console events directly and does not require a
+particular PowerShell encoding or `chcp` value.
 
 ## Configuration
 
@@ -81,19 +84,19 @@ Copy-Item .env.example .env
 
 Common variables:
 
-| Variable | Description |
-| --- | --- |
-| `OPENEDEN_LLM_PROVIDER` | LLM provider, currently defaults to `openai`. |
-| `OPENEDEN_OPENAI_API_KEY` | API key for OpenAI or an OpenAI-compatible service. |
-| `OPENEDEN_OPENAI_MODEL` | LLM model name. |
-| `OPENEDEN_OPENAI_BASE_URL` | OpenAI-compatible endpoint. |
-| `OPENEDEN_LLM_REASONING_EFFORT` | Reasoning effort: `low`, `medium`, or `high`. |
-| `OPENEDEN_SERVER_URL` | Server URL used by the CLI. |
-| `OPENEDEN_RUNTIME_DB_PATH` | SQLite runtime database path. |
-| `OPENEDEN_PERSONA_PATH` | Persona YAML path. |
-| `OPENEDEN_LOCAL_MODEL_ARTIFACT` | Local model artifact path. |
-| `OPENEDEN_OWNER_PLATFORM` | Optional heartbeat owner delivery platform. |
-| `OPENEDEN_OWNER_USER_ID` | Optional heartbeat owner user ID. |
+| Variable                        | Description                                         |
+| :------------------------------ | :-------------------------------------------------- |
+| `OPENEDEN_LLM_PROVIDER`         | LLM provider, currently defaults to `openai`.       |
+| `OPENEDEN_OPENAI_API_KEY`       | API key for OpenAI or an OpenAI-compatible service. |
+| `OPENEDEN_OPENAI_MODEL`         | LLM model name.                                     |
+| `OPENEDEN_OPENAI_BASE_URL`      | OpenAI-compatible endpoint.                         |
+| `OPENEDEN_LLM_REASONING_EFFORT` | Reasoning effort: `low`, `medium`, or `high`.       |
+| `OPENEDEN_SERVER_URL`           | Server URL used by the CLI.                         |
+| `OPENEDEN_RUNTIME_DB_PATH`      | SQLite runtime database path.                       |
+| `OPENEDEN_PERSONA_PATH`         | Persona YAML path.                                  |
+| `OPENEDEN_LOCAL_MODEL_ARTIFACT` | Local model artifact path.                          |
+| `OPENEDEN_OWNER_PLATFORM`       | Optional heartbeat owner delivery platform.         |
+| `OPENEDEN_OWNER_USER_ID`        | Optional heartbeat owner user ID.                   |
 
 ## Quick Start
 
@@ -115,8 +118,12 @@ $env:OPENEDEN_OPENAI_BASE_URL="https://api.openai.com/v1"
 In another PowerShell window, start the CLI:
 
 ```powershell
-.\gradlew.bat run
+.\gradlew.bat installDist
+.\build\install\openeden\bin\openeden.bat
 ```
+
+`gradlew run` is a development convenience. Gradle proxies terminal streams
+through pipes, so it is not the supported path for interactive line editing.
 
 Send one compatibility chat request:
 
@@ -139,6 +146,12 @@ Print local CLI state:
 ```
 
 Normal input is sent to `POST /api/v1/chat`. `/exit` closes only the CLI HTTP client and does not stop the server.
+
+Interactive input uses JLine for history, cursor movement, insertion, deletion,
+IME input, and supplementary Unicode characters such as emoji. See
+[Terminal input](docs/terminal-input.md) for the terminal ownership and encoding
+contract. Internal Omega, ShockState, and 8D vector diagnostics are not shown by
+default.
 
 On first startup, the CLI creates:
 
@@ -186,15 +199,15 @@ Internal vectors, `evolutionIndex`, prompts, traces, retrieval modes, and diary 
 
 Useful Gradle tasks:
 
-| Task | Description |
-| --- | --- |
-| `.\gradlew.bat ensureLocalModelArtifact` | Download the default local model artifact if it is missing. |
-| `.\gradlew.bat :server:run` | Start the Ktor server. |
-| `.\gradlew.bat run` | Start the persistent server-backed CLI. |
-| `.\gradlew.bat run --args="chat --message \"hello\""` | Send one compatibility chat request. |
-| `.\gradlew.bat run --args="state"` | Print local CLI session state. |
-| `.\gradlew.bat :server:test` | Run server tests. |
-| `.\gradlew.bat :server:build` | Build the server module. |
+| Task                                                  | Description                                                 |
+| ----------------------------------------------------- | ----------------------------------------------------------- |
+| `.\gradlew.bat ensureLocalModelArtifact`              | Download the default local model artifact if it is missing. |
+| `.\gradlew.bat :server:run`                           | Start the Ktor server.                                      |
+| `.\gradlew.bat installDist`                           | Build the supported packaged interactive CLI.               |
+| `.\gradlew.bat run --args="chat --message \"hello\""` | Send one compatibility chat request.                        |
+| `.\gradlew.bat run --args="state"`                    | Print local CLI session state.                              |
+| `.\gradlew.bat :server:test`                          | Run server tests.                                           |
+| `.\gradlew.bat :server:build`                         | Build the server module.                                    |
 
 The default model artifact is hosted at:
 

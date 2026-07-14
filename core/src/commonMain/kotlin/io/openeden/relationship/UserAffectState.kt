@@ -1,6 +1,6 @@
 package io.openeden.relationship
 
-import io.openeden.runtime.EmotionSignal
+import io.openeden.runtime.affect.EmotionSignal
 
 private fun finiteUnit(value: Float, name: String): Float {
     require(value.isFinite()) { "$name must be finite" }

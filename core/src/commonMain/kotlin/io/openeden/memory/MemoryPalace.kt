@@ -2,7 +2,7 @@ package io.openeden.memory
 
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorMapping
-import io.openeden.runtime.InferenceExecutor
+import io.openeden.runtime.inference.InferenceExecutor
 import io.openeden.trace.TraceTag
 import kotlin.math.abs
 import kotlin.math.sqrt

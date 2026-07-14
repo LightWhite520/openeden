@@ -1,5 +1,6 @@
 package io.openeden.codebook
 
+
 import io.openeden.bio.BioVector
 import io.openeden.nn.LocalActivation
 import io.openeden.nn.LocalDenseLayerSpec

@@ -1,7 +1,9 @@
 package io.openeden.memory
 
+import io.openeden.runtime.affect.OmegaState
+
 import io.openeden.bio.BioVector
-import io.openeden.runtime.DirectInferenceExecutor
+import io.openeden.runtime.inference.DirectInferenceExecutor
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals

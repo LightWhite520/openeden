@@ -1,5 +1,8 @@
 package io.openeden.prompt
 
+import io.openeden.runtime.affect.ShockState
+
+
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
 import io.openeden.codebook.QuantizationResult
@@ -10,7 +13,7 @@ import io.openeden.memory.RetrievalResult
 import io.openeden.persona.EvolutionThresholds
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
-import io.openeden.runtime.OmegaState
+import io.openeden.runtime.affect.OmegaState
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContains

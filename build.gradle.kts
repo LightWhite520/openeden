@@ -11,7 +11,7 @@ group = "io.openeden"
 version = "1.0.0-SNAPSHOT"
 
 application {
-    mainClass = "io.openeden.MainKt"
+    mainClass = "io.openeden.cli.MainKt"
 }
 
 tasks.named<JavaExec>("run") {
@@ -29,7 +29,7 @@ val localModelArtifactUrl = providers
 
 val thymosAffectModelPath = providers
     .environmentVariable("OPENEDEN_DJL_AFFECT_MODEL_PATH")
-    .orElse("data/models/user-affect-qwen")
+    .orElse("data/models/thymos-6d")
 
 val thymosAffectModelRepo = providers
     .environmentVariable("OPENEDEN_DJL_AFFECT_MODEL_URL")

@@ -1,7 +1,7 @@
 package io.openeden.memory
 
-import io.openeden.runtime.InferenceExecutor
-import io.openeden.runtime.DirectInferenceExecutor
+import io.openeden.runtime.inference.InferenceExecutor
+import io.openeden.runtime.inference.DirectInferenceExecutor
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield

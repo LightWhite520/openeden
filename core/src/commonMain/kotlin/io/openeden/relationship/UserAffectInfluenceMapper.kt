@@ -1,7 +1,7 @@
 package io.openeden.relationship
 
 import io.openeden.bio.VectorDelta
-import io.openeden.runtime.EmotionSignal
+import io.openeden.runtime.affect.EmotionSignal
 
 data class UserAffectInfluenceMapper(
     val toL: List<Float>,

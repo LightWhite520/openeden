@@ -164,6 +164,15 @@ To balance logical stability with emotional fidelity for a Simplified Chinese us
  * Duplicate logic
  * Accumulate unrelated top-level classes, interfaces, DTOs, or enums in a single `.kt` file.
 
+### 3.1 Package And Directory Organization (MANDATORY)
+ * Organize production code by cohesive domain responsibility within its Gradle module.
+ * MUST NOT mix API DTOs, routes, persistence adapters, runtime services, terminal infrastructure, and rendering types in one package.
+ * Module root packages MUST contain only deliberate entry points or genuinely module-wide types.
+ * Test source paths and package declarations MUST mirror the production package of the code under test.
+ * Reusable or public top-level types MUST live in focused files, subject to the small private/local helper exception above.
+ * MUST NOT create subpackages merely to equalize file counts or isolate one type without a real ownership boundary.
+ * Every new package MUST have one describable responsibility and a clear dependency direction.
+
 ---
 
 ## 4. Persona System Boundaries

@@ -6,8 +6,8 @@ import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
 import io.openeden.relationship.RelationshipState
 import io.openeden.relationship.UserAffectState
-import io.openeden.runtime.OmegaState
-import io.openeden.runtime.ShockState
+import io.openeden.runtime.affect.OmegaState
+import io.openeden.runtime.affect.ShockState
 
 data class PromptInput(
     val personaConfig: PersonaConfig,

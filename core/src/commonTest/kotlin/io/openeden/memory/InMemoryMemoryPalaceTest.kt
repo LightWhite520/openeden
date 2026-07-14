@@ -1,8 +1,11 @@
 package io.openeden.memory
 
+import io.openeden.runtime.affect.OmegaState
+
+
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
-import io.openeden.runtime.DirectInferenceExecutor
+import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.trace.TraceTag
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test

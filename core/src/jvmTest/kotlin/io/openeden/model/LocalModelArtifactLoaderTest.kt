@@ -1,5 +1,6 @@
 package io.openeden.model
 
+
 import io.openeden.bio.BioVector
 import io.openeden.codebook.CodebookVector
 import io.openeden.codebook.LocalVqVaeSpec
