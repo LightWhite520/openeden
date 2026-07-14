@@ -18,6 +18,12 @@ dependencyResolutionManagement {
     }
 }
 
+sourceControl {
+    gitRepository(uri("https://github.com/LightWhite520/thymos.git")) {
+        producesModule("io.openeden:thymos")
+    }
+}
+
 rootProject.name = "openeden"
 
 include(":client")

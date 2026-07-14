@@ -23,10 +23,10 @@ kotlin {
         }
 
         jvmMain.dependencies {
+            implementation("io.openeden:thymos:0.1.0")
             implementation("com.knuddels:jtokkit:1.1.0")
             implementation(libs.djl.api)
             implementation(libs.djl.pytorch.engine)
-            implementation(libs.djl.huggingface.tokenizers)
             implementation(ktorLibs.client.contentNegotiation)
             implementation(ktorLibs.client.core)
             implementation(ktorLibs.client.cio)
