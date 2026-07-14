@@ -31,11 +31,10 @@ whose affect depends on missing conversation context.
 ## Three-Tier Labeling
 
 `gpt-5.4-mini` generates the bulk corpus under explicit target strata and
-ambiguity mechanisms. `gpt-5.5` acts as a bounded quality adjudicator for:
+ambiguity mechanisms. `gpt-5.5` acts as a low-confidence quality adjudicator for:
 
-- Every record within `0.05` of the runtime gates at `0.5` or `0.65`.
-- A deterministic sample of sarcasm, quotation, negation, mixed-affect, and context-dependent cases.
-- A deterministic audit sample from the remaining high-confidence records.
+- Every generated record with confidence below `0.65`.
+- No high-confidence record is sent to `gpt-5.5`, regardless of mechanism or gate proximity.
 
 `gpt-5.5` also performs escalation as a second independent adjudication pass.
 That pass runs only when at least one of these conditions holds:

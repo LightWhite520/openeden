@@ -150,14 +150,19 @@ test("repeated invalid generation escalates review tiers", () => {
   assert.equal(generationRetryModel(9, models), "standard");
 });
 
-test("5.5 reviews low confidence and hard mechanisms", () => {
-  assert.equal(needsStandardReview(request("low", ["direct_disclosure"], true), item(0.42)), true);
-  assert.equal(needsStandardReview(request("explicit", ["sarcasm"]), item(0.90)), true);
+test("5.5 reviews low-confidence samples only", () => {
+  assert.equal(needsStandardReview(request("low", ["direct_disclosure"]), item(0.42)), true);
+  assert.equal(needsStandardReview(request("explicit", ["sarcasm"]), item(0.90)), false);
   assert.equal(needsStandardReview(request("explicit", ["direct_disclosure"]), item(0.90)), false);
 });
 
-test("standard review skips ordinary non-gate samples", () => {
-  assert.equal(needsStandardReview(request("low", ["direct_disclosure"]), item(0.42)), false);
+test("standard review skips all high-confidence samples", () => {
+  assert.equal(needsStandardReview(request("moderate", ["ordinary_social"]), item(0.72)), false);
+  assert.equal(needsStandardReview(request("explicit", ["mixed_affect"]), item(0.82)), false);
+});
+
+test("standard review ignores gate proximity when confidence is high", () => {
+  assert.equal(needsStandardReview(request("moderate", ["ordinary_social"], true), item(0.66)), false);
   assert.equal(needsStandardReview(request("moderate", ["ordinary_social"]), item(0.72)), false);
 });
 

@@ -4,7 +4,7 @@
 
 **Goal:** Generate and audit 8,192 new Chinese user-affect records whose confidence labels match the runtime's text-observability gates.
 
-**Architecture:** A testable JavaScript library creates deterministic confidence strata and coverage requests, validates model responses, generates with `gpt-5.4-mini`, and routes a bounded high-value review subset through `gpt-5.5`. Gate-near samples are always reviewed; hard mechanisms are deterministically sampled to keep review cost near 25-35%. The CLI appends validated stage records durably, records provider usage, stops at a token budget, resumes by sample ID, then writes a non-sensitive manifest and audit report. No model training or JVM runtime changes are in scope.
+**Architecture:** A testable JavaScript library creates deterministic confidence strata and coverage requests, validates model responses, generates with `gpt-5.4-mini`, and routes only generated records below `0.65` through `gpt-5.5`. The CLI appends validated stage records durably, records provider usage, stops at a token budget, resumes by sample ID, then writes a non-sensitive manifest and audit report. No model training or JVM runtime changes are in scope.
 
 **Tech Stack:** Node.js ESM, built-in `node:test`, OpenAI-compatible chat-completions HTTP endpoint, JSONL.
 

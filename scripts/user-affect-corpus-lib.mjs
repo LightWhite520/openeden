@@ -30,16 +30,6 @@ export const MECHANISMS = Object.freeze([
   "ordinary_social",
 ]);
 
-const HARD_MECHANISMS = new Set([
-  "negation",
-  "sarcasm",
-  "quoted_emotion",
-  "mixed_affect",
-  "slang",
-  "missing_context",
-  "low_information",
-]);
-
 export function buildRequests(count, seed) {
   if (!Number.isInteger(count) || count <= 0) throw new Error("count must be a positive integer");
   const random = mulberry32(seed);
@@ -187,11 +177,7 @@ export function generationPrompt(batch, excludedTexts) {
 }
 
 export function needsStandardReview(request, generated) {
-  const hard = (request.mechanisms ?? [request.mechanism]).some((value) => HARD_MECHANISMS.has(value));
-  return request.nearRuntimeGate === true
-    || distanceToGate(generated.confidence) <= 0.05
-    || (hard && sampleHardReview(request.sampleId))
-    || request.auditHighConfidence === true;
+  return generated.confidence < 0.65;
 }
 
 export function needsEscalation(generated, reviewed, request, failedReviews = 0) {
@@ -313,12 +299,6 @@ function distanceToGate(value) {
 
 function crossesGate(left, right) {
   return [0.5, 0.65].some((gate) => (left < gate && right >= gate) || (right < gate && left >= gate));
-}
-
-function sampleHardReview(sampleId) {
-  const digits = String(sampleId).match(/(\d+)$/u)?.[1];
-  if (!digits) return true;
-  return Number.parseInt(digits, 10) % 5 === 0;
 }
 
 export function normalizeAffectText(value) {
