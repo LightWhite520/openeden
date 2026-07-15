@@ -46,6 +46,7 @@ data/models/user-affect-qwen/head.pt
 data/models/user-affect-qwen/checkpoints/
 data/models/user-affect-qwen/text_encoder/
 data/models/user-affect-qwen/tokenizer.json
+data/models/thymos-6d/
 build/affect-qwen-*/
 
 # Private copyrighted/local corpora

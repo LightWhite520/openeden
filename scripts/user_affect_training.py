@@ -263,7 +263,7 @@ def train(config: TrainingConfig, corpus: Path, output: Path) -> dict:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", type=Path, default=Path("data/training/user-affect-v2.final.unique.jsonl"))
-    parser.add_argument("--output", type=Path, default=Path("data/models/user-affect-qwen"))
+    parser.add_argument("--output", type=Path, default=Path("data/models/thymos-6d"))
     parser.add_argument("--base-model", default="Qwen/Qwen3-Embedding-0.6B")
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--physical-batch-size", type=int, default=2)

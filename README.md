@@ -62,6 +62,34 @@ When changing the project, preserve these constraints:
 - Clamp each pre-tick dimension to `MAX_PRETICK_DELTA = 0.25` and scale it by emotion confidence.
 - If VQ-VAE inference is unavailable or low-confidence, use deterministic heuristic fallback and log `codebook=HEURISTIC_FALLBACK`.
 
+## Emotion Inference Output
+
+`thymos_inference.py` emits a compact affect vector that can be used as an input signal for pre-tick perturbation, retrieval weighting, and downstream vector-delta interpretation. These values are soft model signals in the `[0.0, 1.0]` range, not direct replacements for the OpenEden 8D state.
+
+Example:
+
+```json
+{
+  "valence": 0.43990617990493774,
+  "arousal": 0.5741496086120605,
+  "dominance": 0.3847764730453491,
+  "connectionNeed": 0.6993353962898254,
+  "openness": 0.5171651840209961,
+  "confidence": 0.5829112529754639
+}
+```
+
+| Field            | Meaning |
+| ---------------- | ------- |
+| `valence`        | Emotional pleasantness. Higher values indicate more positive affect; lower values indicate more negative affect. |
+| `arousal`        | Activation level. Higher values indicate excitement, urgency, or intensity; lower values indicate calmness or low energy. |
+| `dominance`      | Perceived control or assertiveness. Higher values indicate command, certainty, or control; lower values indicate invitation, vulnerability, or passivity. |
+| `connectionNeed` | Desire for social closeness or response. Higher values indicate stronger bids for sharing, reassurance, companionship, or attention. |
+| `openness`       | Willingness to share, explore, or receive interaction. Higher values indicate more openness or receptivity; lower values indicate closure or guardedness. |
+| `confidence`     | Model confidence for the affect estimate. Downstream effects must be scaled by this value; when it is below `0.5`, pre-tick should be skipped, and ShockState back-detection requires at least `0.65`. |
+
+Interpretation should stay conservative. For example, a happy food-sharing message with high `connectionNeed` and medium `confidence` should produce only small positive shifts in Pathos, Vitality, or Empathy unless later pipeline stages provide stronger evidence.
+
 ## Requirements
 
 - JDK 21

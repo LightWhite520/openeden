@@ -48,7 +48,7 @@ class DjlTextAffectAnalyzerTest {
 
     @Test
     fun `trained Qwen affect bundle loads through DJL`() = runTest {
-        val bundlePath = Path.of("../data/models/user-affect-qwen").toAbsolutePath().normalize()
+        val bundlePath = Path.of("../data/models/thymos-6d").toAbsolutePath().normalize()
         if (!Files.exists(bundlePath.resolve("model.pt"))) return@runTest
         val analyzer = DjlTextAffectAnalyzer.fromQwenBundle(bundlePath)
         try {

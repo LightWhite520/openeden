@@ -26,7 +26,7 @@ class ExportedAffectModel(torch.nn.Module):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--bundle", type=Path, default=Path("data/models/user-affect-qwen"))
+    parser.add_argument("--bundle", type=Path, default=Path("data/models/thymos-6d"))
     args = parser.parse_args()
     encoder = SentenceTransformer(str(args.bundle / "text_encoder"), device="cpu")
     encoder.eval()
