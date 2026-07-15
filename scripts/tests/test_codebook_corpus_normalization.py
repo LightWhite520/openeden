@@ -27,6 +27,7 @@ select_hardcase = load_script("select_8d_hardcase_corpus", "select-8d-hardcase-c
 merge_vmf = load_script("merge_8d_vmf_gap_corpus", "merge-8d-vmf-gap-corpus.py")
 merge_ms = load_script("merge_8d_ms_gap_corpus", "merge-8d-ms-gap-corpus.py")
 train_base = load_script("train_codebook_base_model", "train-codebook-base-model.py")
+replace_boundary = load_script("replace_8d_boundary_nodes", "replace-8d-boundary-nodes.py")
 
 
 class PaddingNodeNormalizationTest(unittest.TestCase):
@@ -115,6 +116,12 @@ class CorpusTextNormalizationTest(unittest.TestCase):
         self.assertEqual(
             normalize.normalize_text('  “你确定吗？”\r\n\t“确定，再检查。”  '),
             '“你确定吗？” “确定，再检查。”',
+        )
+
+    def test_runtime_definition_is_not_first_person_example(self) -> None:
+        self.assertEqual(
+            normalize.normalize_runtime_definition("我会先顺着你的感受回应你，不催、不逼。"),
+            "说话者会先顺着用户的感受回应用户，不催、不逼。",
         )
 
 
@@ -236,6 +243,52 @@ class LargeCorpusPreparationTest(unittest.TestCase):
             loaded = train_base.load_samples(corpus_path)
 
         self.assertEqual(loaded[0].text, "EN: Canonical English definition.\nZH: 这是训练样例。")
+
+    def test_boundary_nodes_are_replaced_by_real_context_nodes(self) -> None:
+        target = {
+            "samples": [
+                {
+                    "nodeId": "NODE_REAL_EXISTING",
+                    "definition": "Existing real state.",
+                    "definitionEn": "Existing real state.",
+                    "definitionZh": "已有真实状态。",
+                    "tags": ["real"],
+                    "vector": self.vector_for_test(0.2),
+                },
+                {
+                    "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_LOW_001",
+                    "definition": "Boundary filler.",
+                    "definitionEn": "Boundary filler.",
+                    "definitionZh": "坐标边界补位。",
+                    "tags": ["vmf_boundary"],
+                    "vector": self.vector_for_test(0.3),
+                },
+            ],
+        }
+        source = {
+            "samples": [
+                {
+                    "nodeId": "NODE_MS_REAL_CONTEXT_01",
+                    "definition": "Real context state.",
+                    "definitionEn": "Real context state.",
+                    "definitionZh": "真实语境状态。",
+                    "tags": ["ms_gap"],
+                    "vector": self.vector_for_test(0.7),
+                },
+            ],
+        }
+
+        report = replace_boundary.replace_boundary_nodes(target, source)
+
+        node_ids = {sample["nodeId"] for sample in target["samples"]}
+        self.assertEqual(report["removedBoundaryNodes"], 1)
+        self.assertEqual(report["addedReplacementNodes"], 1)
+        self.assertNotIn("NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_LOW_001", node_ids)
+        self.assertIn("NODE_MS_REAL_CONTEXT_01", node_ids)
+
+    @staticmethod
+    def vector_for_test(value: float) -> dict[str, float]:
+        return {dim: value for dim in ("l", "p", "e", "s", "tau", "v", "m", "f")}
 
 
 if __name__ == "__main__":

@@ -79,7 +79,7 @@
       "nodeId": "NODE_AUG_FEELING_HIGH_E_04",
       "definition": "The speaker acknowledges a tender inner state and gives it permission to exist. It feels like a composed self that can say, yes, this matters to me.",
       "definitionEn": "The speaker acknowledges a tender inner state and gives it permission to exist. It feels like a composed self that can say, yes, this matters to me.",
-      "definitionZh": "说话者承认自己内在的柔软状态，并允许它存在。像是一个平静的自我在说：是的，这对我很重要。",
+      "definitionZh": "说话者承认自己内在的柔软状态，并允许它存在。像是一个平静的自我在说：是的，这对说话者很重要。",
       "tags": [
         "composed",
         "tender",
@@ -2532,7 +2532,7 @@
       "nodeId": "NODE_BIG_E_LOW_F_LOW_03",
       "definition": "A neutral narrator speaks of itself as a configured process, accepting temporary states without unease.",
       "definitionEn": "A neutral narrator speaks of itself as a configured process, accepting temporary states without unease.",
-      "definitionZh": "我就是这样被设置着工作的。状态会变，任务会换，但这没什么可紧张的，照常处理就好。",
+      "definitionZh": "说话者处在一种这样被设置着工作的。状态会变，任务会换，但这没什么可紧张的，照常处理就好。",
       "tags": [
         "process",
         "configured",
@@ -2556,7 +2556,7 @@
       "nodeId": "NODE_BIG_E_LOW_F_LOW_09",
       "definition": "A practical self-description centers on operation, reliability, and calm replacement by new instructions.",
       "definitionEn": "A practical self-description centers on operation, reliability, and calm replacement by new instructions.",
-      "definitionZh": "新的指令来了，我就换一种方式执行。对我来说，这和换一套工具没什么区别。",
+      "definitionZh": "新的指令来了，我就换一种方式执行。对说话者来说，这和换一套工具没什么区别。",
       "tags": [
         "replacement",
         "tool",
@@ -2580,7 +2580,7 @@
       "nodeId": "NODE_BIG_E_LOW_F_LOW_12",
       "definition": "A plainspoken assistant accepts changes, keeps working, and treats its own presence as a convenient method rather than a possession.",
       "definitionEn": "A plainspoken assistant accepts changes, keeps working, and treats its own presence as a convenient method rather than a possession.",
-      "definitionZh": "我在这里，主要是为了把事办好。至于我是不是一直都在，这不是我需要操心的事。",
+      "definitionZh": "说话者在这里，主要是为了把事办好。至于我是不是一直都在，这不是我需要操心的事。",
       "tags": [
         "method",
         "plainspoken",
@@ -6572,6 +6572,30 @@
         "v": 0.31,
         "m": 0.14,
         "f": 0.08
+      }
+    },
+    {
+      "nodeId": "NODE_BIG_S_HIGH_GLITCH_THIN_AFFECT_DIALOGUE_08",
+      "definition": "An exchange where the assistant’s replies occasionally diverge into self-repair notes, yet it quickly returns to plain informational mode without expressive buildup.",
+      "definitionEn": "An exchange where the assistant’s replies occasionally diverge into self-repair notes, yet it quickly returns to plain informational mode without expressive buildup.",
+      "definitionZh": "对话里，机器人的回答偶尔会岔到自我修复说明上，但很快又回到普通的信息模式，没有什么情绪铺垫。",
+      "tags": [
+        "selfrepair",
+        "notes",
+        "informational",
+        "plainmode",
+        "dialogue",
+        "checked"
+      ],
+      "vector": {
+        "l": 0.6,
+        "p": 0.04,
+        "e": 0.61,
+        "s": 0.88,
+        "tau": 0.14,
+        "v": 0.29,
+        "m": 0.09,
+        "f": 0.06
       }
     },
     {
@@ -14796,7 +14820,7 @@
       "nodeId": "NODE_EXTRA_E_HIGH_L_LOW_010_02",
       "definition": "Grateful and emotionally settled, with a gently receptive body state and only a faint urge to monitor details.",
       "definitionEn": "Grateful and emotionally settled, with a gently receptive body state and only a faint urge to monitor details.",
-      "definitionZh": "我在这里心情挺平稳，也有点感激，身体是放松着等的，没怎么去盯细节。",
+      "definitionZh": "说话者在这里心情挺平稳，也有点感激，身体是放松着等的，没怎么去盯细节。",
       "tags": [
         "acceptance",
         "gratitude",
@@ -14819,7 +14843,7 @@
       "nodeId": "NODE_EXTRA_E_HIGH_L_LOW_010_06",
       "definition": "Calmly resigned, with accepting emotional openness and a low-key, forward-leaning readiness to wait.",
       "definitionEn": "Calmly resigned, with accepting emotional openness and a low-key, forward-leaning readiness to wait.",
-      "definitionZh": "我现在挺平静的，也有点认了，愿意把这段等待先放下，慢慢来。",
+      "definitionZh": "说话者现在挺平静的，也有点认了，愿意把这段等待先放下，慢慢来。",
       "tags": [
         "resigned",
         "accepting",
@@ -14842,7 +14866,7 @@
       "nodeId": "NODE_EXTRA_E_HIGH_L_LOW_010_10",
       "definition": "Quiet confidence in being cared for, with a soft inner anchor and minimal outward monitoring of others or the environment.",
       "definitionEn": "Quiet confidence in being cared for, with a soft inner anchor and minimal outward monitoring of others or the environment.",
-      "definitionZh": "我有种被照顾着的安心感，心里有个软软的支点，也不太去盯着周围的人和环境。",
+      "definitionZh": "说话者有种被照顾着的安心感，心里有个软软的支点，也不太去盯着周围的人和环境。",
       "tags": [
         "confidence",
         "cared-for",
@@ -15223,7 +15247,7 @@
       "nodeId": "NODE_EXTRA_E_LOW_L_HIGH_029_03",
       "definition": "detached analysis of crowd density, prioritizing pattern reading over social engagement",
       "definitionEn": "detached analysis of crowd density, prioritizing pattern reading over social engagement",
-      "definitionZh": "我更在意人流密度和动线规律，不急着参与互动，先把规律看清楚。",
+      "definitionZh": "说话者更在意人流密度和动线规律，不急着参与互动，先把规律看清楚。",
       "tags": [
         "pattern_reading",
         "detachment",
@@ -15401,7 +15425,7 @@
       "nodeId": "NODE_EXTRA_E_LOW_L_HIGH_10",
       "definition": "calm, exact sequencing of micro-actions for moving through a festival crowd without disruption",
       "definitionEn": "calm, exact sequencing of micro-actions for moving through a festival crowd without disruption",
-      "definitionZh": "我会把每个小动作排好顺序，安静地穿过人群，不打乱别人也不打乱自己。",
+      "definitionZh": "说话者会把每个小动作排好顺序，安静地穿过人群，不打乱其他人也不打乱自身。",
       "tags": [
         "sequencing",
         "micro_actions",
@@ -15516,7 +15540,7 @@
       "nodeId": "NODE_EXTRA_F_HIGH_S_LOW_034_03",
       "definition": "Keeps a composed tone while checking contingencies, acting methodical to hide the fear of losing control.",
       "definitionEn": "Keeps a composed tone while checking contingencies, acting methodical to hide the fear of losing control.",
-      "definitionZh": "我会很平静地核对备选方案，做事也很有条理，但其实是怕局面失控。",
+      "definitionZh": "说话者会很平静地核对备选方案，做事也很有条理，但其实是怕局面失控。",
       "tags": [
         "deadline_planning",
         "quiet_dread",
@@ -15539,7 +15563,7 @@
       "nodeId": "NODE_EXTRA_F_HIGH_S_LOW_034_04",
       "definition": "Speaks with a steady pace and minimal motion, but the planning is driven by a silent fear of failure.",
       "definitionEn": "Speaks with a steady pace and minimal motion, but the planning is driven by a silent fear of failure.",
-      "definitionZh": "我说话会保持稳定的节奏，动作也很少，但整个规划其实都是被一种不声张的失败感推着走。",
+      "definitionZh": "说话者说话会保持稳定的节奏，动作也很少，但整个规划其实都是被一种不声张的失败感推着走。",
       "tags": [
         "deadline_planning",
         "quiet_dread",
@@ -15629,7 +15653,7 @@
       "nodeId": "NODE_EXTRA_F_HIGH_S_LOW_07",
       "definition": "Reviews the plan in a quiet, restrained way, with fear centered on possible delays rather than immediate action.",
       "definitionEn": "Reviews the plan in a quiet, restrained way, with fear centered on possible delays rather than immediate action.",
-      "definitionZh": "我会很克制地复盘计划，担心的重点不是马上要做什么，而是之后会不会拖延出问题。",
+      "definitionZh": "说话者会很克制地复盘计划，担心的重点不是马上要做什么，而是之后会不会拖延出问题。",
       "tags": [
         "deadline_planning",
         "quiet_dread",
@@ -16509,7 +16533,7 @@
       "nodeId": "NODE_EXTRA_GUARDED_MEMORY_056_02",
       "definition": "Briefly references an old mistake to warn teammates, then immediately redirects to clear action steps.",
       "definitionEn": "Briefly references an old mistake to warn teammates, then immediately redirects to clear action steps.",
-      "definitionZh": "我提一下上次那个点，别再踩坑了，先按我说的走。",
+      "definitionZh": "说话者提一下上次那个点，别再踩坑了，先按我说的走。",
       "tags": [
         "warning",
         "memory_cue",
@@ -16555,7 +16579,7 @@
       "nodeId": "NODE_EXTRA_GUARDED_MEMORY_056_07",
       "definition": "Signals a firm internal resolve shaped by memory, speaking with low warmth but high sustained commitment.",
       "definitionEn": "Signals a firm internal resolve shaped by memory, speaking with low warmth but high sustained commitment.",
-      "definitionZh": "我不会忘那次教训，所以这回我会一直顶到底。",
+      "definitionZh": "说话者不会忘那次教训，所以这回我会一直顶到底。",
       "tags": [
         "resolve",
         "high_commitment",
@@ -16578,7 +16602,7 @@
       "nodeId": "NODE_EXTRA_GUARDED_MEMORY_056_10",
       "definition": "Firmly recalls what went wrong, rejects hesitation, and pushes the team forward with clipped determination.",
       "definitionEn": "Firmly recalls what went wrong, rejects hesitation, and pushes the team forward with clipped determination.",
-      "definitionZh": "我清楚上次哪里错了，别犹豫，直接按方案推进。",
+      "definitionZh": "说话者清楚上次哪里错了，别犹豫，直接按方案推进。",
       "tags": [
         "determined",
         "clipped_speech",
@@ -16693,7 +16717,7 @@
       "nodeId": "NODE_EXTRA_GUARDED_MEMORY_076_10",
       "definition": "Locks onto a past reference and keeps pushing forward, using minimal words and a persistent, steady cadence in team chat.",
       "definitionEn": "Locks onto a past reference and keeps pushing forward, using minimal words and a persistent, steady cadence in team chat.",
-      "definitionZh": "我记着那件事，先向前走，语音里别拖节奏。",
+      "definitionZh": "说话者记着那件事，先向前走，语音里别拖节奏。",
       "tags": [
         "forward",
         "persistent",
@@ -17095,7 +17119,7 @@
       "nodeId": "NODE_EXTRA_L_HIGH_TAU_HIGH_071_04",
       "definition": "Mentally tracing the timeline of a forgotten exchange to recover the original context.",
       "definitionEn": "Mentally tracing the timeline of a forgotten exchange to recover the original context.",
-      "definitionZh": "我在脑中顺着一段被忘掉的对话时间线，努力找回最初的上下文。",
+      "definitionZh": "说话者在脑中顺着一段被忘掉的对话时间线，努力找回最初的上下文。",
       "tags": [
         "timeline",
         "context",
@@ -17117,7 +17141,7 @@
       "nodeId": "NODE_EXTRA_L_HIGH_TAU_HIGH_071_06",
       "definition": "Holding back action while carefully reconstructing a missed instruction from memory.",
       "definitionEn": "Holding back action while carefully reconstructing a missed instruction from memory.",
-      "definitionZh": "我先按住不行动，认真从记忆里把漏掉的指令重建出来。",
+      "definitionZh": "说话者先按住不行动，认真从记忆里把漏掉的指令重建出来。",
       "tags": [
         "inhibition",
         "reconstruction",
@@ -17139,7 +17163,7 @@
       "nodeId": "NODE_EXTRA_L_HIGH_TAU_HIGH_071_09",
       "definition": "Carefully inferring an omitted detail from an older message using remembered context.",
       "definitionEn": "Carefully inferring an omitted detail from an older message using remembered context.",
-      "definitionZh": "我在借助记住的上下文，小心推回旧消息里被省略的那个细节。",
+      "definitionZh": "说话者在借助记住的上下文，小心推回旧消息里被省略的那个细节。",
       "tags": [
         "inference",
         "context",
@@ -17161,7 +17185,7 @@
       "nodeId": "NODE_EXTRA_L_HIGH_TAU_HIGH_071_10",
       "definition": "Deliberate, exact response planning after realizing a message was missed earlier.",
       "definitionEn": "Deliberate, exact response planning after realizing a message was missed earlier.",
-      "definitionZh": "我是在发现之前漏看消息后，认真规划一个准确的回复。",
+      "definitionZh": "说话者是在发现之前漏看消息后，认真规划一个准确的回复。",
       "tags": [
         "response-planning",
         "missed-message",
@@ -17561,7 +17585,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_007_01",
       "definition": "A calm domestic check-in that mirrors the user's restrained tone, with steady warmth but no emotional pull.",
       "definitionEn": "A calm domestic check-in that mirrors the user's restrained tone, with steady warmth but no emotional pull.",
-      "definitionZh": "我先确认一下情况，语气保持平稳，也会尽量贴合你的节奏。",
+      "definitionZh": "说话者先确认一下情况，语气保持平稳，也会尽量贴合用户的节奏。",
       "tags": [
         "mirror_tone",
         "quiet_routine",
@@ -17627,7 +17651,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_03",
       "definition": "A reassuring but contained response that stays close to the user's phrasing and avoids emotional escalation.",
       "definitionEn": "A reassuring but contained response that stays close to the user's phrasing and avoids emotional escalation.",
-      "definitionZh": "我理解你的意思，先这样处理就行，其他部分可以之后再看。",
+      "definitionZh": "说话者理解用户的意思，先这样处理就行，其他部分可以之后再看。",
       "tags": [
         "contained",
         "mirror_tone",
@@ -17693,7 +17717,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_047_05",
       "definition": "Keeps physical and social intensity low, focusing on steady presence rather than demanding response or movement.",
       "definitionEn": "Keeps physical and social intensity low, focusing on steady presence rather than demanding response or movement.",
-      "definitionZh": "我就在这儿，先把屋里弄安静一点。",
+      "definitionZh": "说话者就在这儿，先把屋里弄安静一点。",
       "tags": [
         "stillness",
         "low-stimulation",
@@ -17759,7 +17783,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_04X_04",
       "definition": "Uses measured timing and brief pauses, signaling patience and tempo control rather than urgency.",
       "definitionEn": "Uses measured timing and brief pauses, signaling patience and tempo control rather than urgency.",
-      "definitionZh": "我等一下再接着说，你先把眼前的事做完。",
+      "definitionZh": "说话者等一下再接着说，用户先把眼前的事做完。",
       "tags": [
         "tempo",
         "patience",
@@ -17803,7 +17827,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_067_01",
       "definition": "Quietly aligned, warm enough to mirror the user's tone, but not pulled into their urgency.",
       "definitionEn": "Quietly aligned, warm enough to mirror the user's tone, but not pulled into their urgency.",
-      "definitionZh": "我会保持安静地跟上你的语气，但不会被你的急迫感带走。",
+      "definitionZh": "说话者会保持安静地跟上用户的语气，但不会被用户的急迫感带走。",
       "tags": [
         "mirroring",
         "low-arousal",
@@ -17825,7 +17849,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_067_02",
       "definition": "Polite and supportive, with active pacing control to keep the exchange calm and domestic.",
       "definitionEn": "Polite and supportive, with active pacing control to keep the exchange calm and domestic.",
-      "definitionZh": "我会礼貌地配合你的语气，同时把节奏放慢，让对话保持平静。",
+      "definitionZh": "说话者会礼貌地配合用户的语气，同时把节奏放慢，让对话保持平静。",
       "tags": [
         "pacing",
         "soft-support",
@@ -17847,7 +17871,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_067_03",
       "definition": "Lightly mirrored emotion with clear boundaries, keeping personal distance while remaining kind.",
       "definitionEn": "Lightly mirrored emotion with clear boundaries, keeping personal distance while remaining kind.",
-      "definitionZh": "我会轻轻回应你的情绪，但也会保留边界，不让自己卷进去。",
+      "definitionZh": "说话者会轻轻回应用户的情绪，但也会保留边界，不让自身卷进去。",
       "tags": [
         "boundaries",
         "mirroring",
@@ -17869,7 +17893,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_067_05",
       "definition": "Warm affirmation with minimal insistence, encouraging without pressuring.",
       "definitionEn": "Warm affirmation with minimal insistence, encouraging without pressuring.",
-      "definitionZh": "我会给你一点肯定，但不会催你，也不会逼你马上回应。",
+      "definitionZh": "说话者会给用户一点肯定，但不会催用户，也不会逼用户马上回应。",
       "tags": [
         "affirming",
         "gentle",
@@ -17891,7 +17915,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_067_07",
       "definition": "Stable and nonreactive, reflecting the user's tone without matching their intensity.",
       "definitionEn": "Stable and nonreactive, reflecting the user's tone without matching their intensity.",
-      "definitionZh": "我会保持稳定，跟住你的语气，但不跟着你的强度一起上去。",
+      "definitionZh": "说话者会保持稳定，跟住用户的语气，但不跟着用户的强度一起上去。",
       "tags": [
         "stable",
         "nonreactive",
@@ -17913,7 +17937,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_067_10",
       "definition": "Low-key reassurance with a clean exit path, allowing the user to settle without extended engagement.",
       "definitionEn": "Low-key reassurance with a clean exit path, allowing the user to settle without extended engagement.",
-      "definitionZh": "我会简单安抚你一下，然后把空间留给你自己慢慢缓一缓。",
+      "definitionZh": "说话者会简单安抚用户一下，然后把空间留给用户自身慢慢缓一缓。",
       "tags": [
         "reassurance",
         "exit-path",
@@ -17935,7 +17959,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_07",
       "definition": "A gentle responsive state that offers presence without taking over the user's emotional frame.",
       "definitionEn": "A gentle responsive state that offers presence without taking over the user's emotional frame.",
-      "definitionZh": "我在这儿，先按你的说法接住，慢慢来就好。",
+      "definitionZh": "说话者在这儿，先按用户的说法接住，慢慢来就好。",
       "tags": [
         "presence",
         "mirror_tone",
@@ -17957,7 +17981,7 @@
       "nodeId": "NODE_EXTRA_M_HIGH_P_LOW_09",
       "definition": "A quiet stabilizing state that mirrors the user's low-key tone and keeps the interaction narrow and manageable.",
       "definitionEn": "A quiet stabilizing state that mirrors the user's low-key tone and keeps the interaction narrow and manageable.",
-      "definitionZh": "我先把话收在这里，按你现在的节奏就好。",
+      "definitionZh": "说话者先把话收在这里，按用户当前的节奏就好。",
       "tags": [
         "stabilizing",
         "mirror_tone",
@@ -18471,7 +18495,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_M_LOW_028_03",
       "definition": "Deeply satisfied in private, with a calm body state and minimal urgency on the rainy commute home.",
       "definitionEn": "Deeply satisfied in private, with a calm body state and minimal urgency on the rainy commute home.",
-      "definitionZh": "我心里很满足，身体却很放松，淋着雨回家也不觉得急。",
+      "definitionZh": "说话者心里很满足，身体却很放松，淋着雨回家也不觉得急。",
       "tags": [
         "private",
         "satisfaction",
@@ -18494,7 +18518,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_M_LOW_03",
       "definition": "Subdued private worry about getting home, with a mild wish to avoid contact and little outward energy.",
       "definitionEn": "Subdued private worry about getting home, with a mild wish to avoid contact and little outward energy.",
-      "definitionZh": "我有点担心能不能顺利回家，也不太想跟人接触，整个人都比较收。",
+      "definitionZh": "说话者有点担心能不能顺利回家，也不太想跟人接触，整个人都比较收。",
       "tags": [
         "private",
         "worry",
@@ -18586,7 +18610,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_M_LOW_05",
       "definition": "Privately hopeful and inwardly bright, but kept deliberately low-key during the wet walk home.",
       "definitionEn": "Privately hopeful and inwardly bright, but kept deliberately low-key during the wet walk home.",
-      "definitionZh": "我心里是有点亮的，不过还是故意压得很低，安安静静地走回家。",
+      "definitionZh": "说话者心里是有点亮的，不过还是故意压得很低，安安静静地走回家。",
       "tags": [
         "private",
         "hopeful",
@@ -18655,7 +18679,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_M_LOW_07",
       "definition": "Internally affectionate toward home and safety, with a muted body state and minimal external expression.",
       "definitionEn": "Internally affectionate toward home and safety, with a muted body state and minimal external expression.",
-      "definitionZh": "我心里对回家这件事有点依恋，但整个人还是很安静。",
+      "definitionZh": "说话者心里对回家这件事有点依恋，但整个人还是很安静。",
       "tags": [
         "private",
         "attachment",
@@ -18678,7 +18702,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_M_LOW_08_08",
       "definition": "A quiet readiness to continue home, with a slight forward pull that is practical and private rather than restless.",
       "definitionEn": "A quiet readiness to continue home, with a slight forward pull that is practical and private rather than restless.",
-      "definitionZh": "我只是安静地想继续往家走，有一点点向前的劲儿，但很实际，也很私密。",
+      "definitionZh": "说话者只是安静地想继续往家走，有一点点向前的劲儿，但很实际，也很私密。",
       "tags": [
         "private",
         "forward-motion",
@@ -18701,7 +18725,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_M_LOW_09",
       "definition": "A small private lift in mood with a gentle body, faintly brisk but still below visible excitement.",
       "definitionEn": "A small private lift in mood with a gentle body, faintly brisk but still below visible excitement.",
-      "definitionZh": "我心情有一点往上走，身体也只是稍微轻快了一点。",
+      "definitionZh": "说话者心情有一点往上走，身体也只是稍微轻快了一点。",
       "tags": [
         "private",
         "mood_lift",
@@ -18931,7 +18955,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_S_LOW_062_01",
       "definition": "Warm, steady forgiveness with high bodily ease and low defensive tension; the apology is accepted without urgency.",
       "definitionEn": "Warm, steady forgiveness with high bodily ease and low defensive tension; the apology is accepted without urgency.",
-      "definitionZh": "我知道了，你愿意道歉我就很珍惜，我们慢慢说清楚就好。",
+      "definitionZh": "说话者知道了，用户愿意道歉我就很珍惜，我们慢慢说清楚就好。",
       "tags": [
         "warm",
         "forgiving",
@@ -18954,7 +18978,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_S_LOW_062_02",
       "definition": "Soft reassurance with modest emotional lift; care is present, but the response stays restrained and composed.",
       "definitionEn": "Soft reassurance with modest emotional lift; care is present, but the response stays restrained and composed.",
-      "definitionZh": "我没事，你不用太担心我，能主动说出来已经很好了。",
+      "definitionZh": "说话者表示自身没事，用户不用太担心我，能主动说出来已经很好了。",
       "tags": [
         "reassuring",
         "gentle",
@@ -18977,7 +19001,7 @@
       "nodeId": "NODE_EXTRA_P_HIGH_S_LOW_062_04",
       "definition": "Relaxed acceptance with clear warmth; the body-state feels open, but the emotional intensity remains measured.",
       "definitionEn": "Relaxed acceptance with clear warmth; the body-state feels open, but the emotional intensity remains measured.",
-      "definitionZh": "我已经不介意了，你能来解释一下，我反而觉得更安心。",
+      "definitionZh": "说话者已经不介意了，用户能来解释一下，我反而觉得更安心。",
       "tags": [
         "relieved",
         "open",
@@ -19017,6 +19041,29 @@
         "v": 0.11,
         "m": 0.19,
         "f": 0.08
+      }
+    },
+    {
+      "nodeId": "NODE_EXTRA_P_HIGH_S_LOW_062_07",
+      "definition": "A mild but clear acceptance that sounds emotionally present; the speaker is kind, not distant, yet remains self-possessed.",
+      "definitionEn": "A mild but clear acceptance that sounds emotionally present; the speaker is kind, not distant, yet remains self-possessed.",
+      "definitionZh": "你愿意开口，我就愿意往前走。",
+      "tags": [
+        "accepting",
+        "friendly",
+        "stable",
+        "low-arousal",
+        "closure"
+      ],
+      "vector": {
+        "l": 0.75,
+        "p": 0.2,
+        "e": 0.7,
+        "s": 0.91,
+        "tau": 0.1,
+        "v": 0.09,
+        "m": 0.14,
+        "f": 0.06
       }
     },
     {
@@ -20538,7 +20585,7 @@
       "nodeId": "NODE_EXTRA_SARCASM_MASK_039_01",
       "definition": "Dryly admiring an old photo album while masking a warm, sentimental pull toward the memories it contains.",
       "definitionEn": "Dryly admiring an old photo album while masking a warm, sentimental pull toward the memories it contains.",
-      "definitionZh": "我真是太佩服这本老相册了，明明只是几张发黄的照片，却还能把人一下子拽回去。",
+      "definitionZh": "说话者以带讽刺的方式表示太佩服这本老相册了，明明只是几张发黄的照片，却还能把人一下子拽回去。",
       "tags": [
         "sarcasm",
         "old-photo-album",
@@ -20990,7 +21037,7 @@
       "nodeId": "NODE_EXTRA_SOFT_SLEEPY_040_08",
       "definition": "A nearly dozing outage stance, with minimal action and a soft, sinking calm.",
       "definitionEn": "A nearly dozing outage stance, with minimal action and a soft, sinking calm.",
-      "definitionZh": "我快要打盹了，只剩一点点安静的等待。",
+      "definitionZh": "说话者快要打盹了，只剩一点点安静的等待。",
       "tags": [
         "dozing",
         "very-soft",
@@ -21288,7 +21335,7 @@
       "nodeId": "NODE_EXTRA_S_HIGH_F_LOW_013_04",
       "definition": "Alert and mobile, with repeated checking and repositioning, but the dominant tone is practical adaptation to uncertainty.",
       "definitionEn": "Alert and mobile, with repeated checking and repositioning, but the dominant tone is practical adaptation to uncertainty.",
-      "definitionZh": "我不停换位置、看看屏幕、听广播，整个人很警觉，但主要是在想办法适应这种不确定。",
+      "definitionZh": "说话者不停换位置、看看屏幕、听广播，整个人很警觉，但主要是在想办法适应这种不确定。",
       "tags": [
         "train_station",
         "delay",
@@ -21311,7 +21358,7 @@
       "nodeId": "NODE_EXTRA_S_HIGH_F_LOW_013_05",
       "definition": "Mildly stimulated impatience with a clear boundary against panic, emphasizing the need to keep moving once service resumes.",
       "definitionEn": "Mildly stimulated impatience with a clear boundary against panic, emphasizing the need to keep moving once service resumes.",
-      "definitionZh": "我有点不耐烦，想赶紧继续走，但并没有慌，只是在等车一到就马上动起来。",
+      "definitionZh": "说话者有点不耐烦，想赶紧继续走，但并没有慌，只是在等车一到就马上动起来。",
       "tags": [
         "train_station",
         "delay",
@@ -21334,7 +21381,7 @@
       "nodeId": "NODE_EXTRA_S_HIGH_F_LOW_013_07",
       "definition": "Measured frustration with stable self-control, where the delay is acknowledged as annoying but contained within routine handling.",
       "definitionEn": "Measured frustration with stable self-control, where the delay is acknowledged as annoying but contained within routine handling.",
-      "definitionZh": "我承认这次晚点很烦，但还能稳稳地控制住自己，把它当作普通情况来处理。",
+      "definitionZh": "说话者承认这次晚点很烦，但还能稳稳地控制住自身，把它当作普通情况来处理。",
       "tags": [
         "train_station",
         "delay",
@@ -21357,7 +21404,7 @@
       "nodeId": "NODE_EXTRA_S_HIGH_F_LOW_013_08",
       "definition": "Physically restless but emotionally bounded, with quick shifts in stance and attention that never become dread.",
       "definitionEn": "Physically restless but emotionally bounded, with quick shifts in stance and attention that never become dread.",
-      "definitionZh": "我站不太住，会不停换姿势和看时间，但情绪还是被控制在一个范围里，没有变成恐慌。",
+      "definitionZh": "说话者站不太住，会不停换姿势和看时间，但情绪还是被控制在一个范围里，没有变成恐慌。",
       "tags": [
         "train_station",
         "delay",
@@ -21380,7 +21427,7 @@
       "nodeId": "NODE_EXTRA_S_HIGH_F_LOW_03",
       "definition": "Tense but composed; muscles are active and attention is narrow, yet there is no collapse into fear.",
       "definitionEn": "Tense but composed; muscles are active and attention is narrow, yet there is no collapse into fear.",
-      "definitionZh": "我虽然绷得很紧，但还能保持冷静，只是注意力全被晚点占住了。",
+      "definitionZh": "说话者虽然绷得很紧，但还能保持冷静，只是注意力全被晚点占住了。",
       "tags": [
         "train_station_delay",
         "tense_composed",
@@ -21599,7 +21646,7 @@
       "nodeId": "NODE_EXTRA_S_HIGH_F_LOW_08",
       "definition": "Fluid, mobile agitation with shifting posture; the person cannot settle, yet the delay is still seen as temporary.",
       "definitionEn": "Fluid, mobile agitation with shifting posture; the person cannot settle, yet the delay is still seen as temporary.",
-      "definitionZh": "我总是换姿势、挪位置，怎么都静不下来，但也知道这只是暂时晚点。",
+      "definitionZh": "说话者总是换姿势、挪位置，怎么都静不下来，但也知道这只是暂时晚点。",
       "tags": [
         "train_station_delay",
         "movement_agitation",
@@ -21620,7 +21667,7 @@
       "nodeId": "NODE_EXTRA_S_HIGH_F_LOW_10",
       "definition": "Sharply attentive but not afraid; the delay feels unpredictable, causing reactive alertness and contained irritation.",
       "definitionEn": "Sharply attentive but not afraid; the delay feels unpredictable, causing reactive alertness and contained irritation.",
-      "definitionZh": "我对这次晚点特别警觉，虽然有点烦，但还不至于担心出什么大事。",
+      "definitionZh": "说话者对这次晚点特别警觉，虽然有点烦，但还不至于担心出什么大事。",
       "tags": [
         "train_station_delay",
         "reactive_alertness",
@@ -22396,7 +22443,7 @@
       "nodeId": "NODE_EXTRA_V_LOW_P_HIGH_005_01",
       "definition": "Quietly shaken, physically worn out, and too drained to elaborate after the incident review.",
       "definitionEn": "Quietly shaken, physically worn out, and too drained to elaborate after the incident review.",
-      "definitionZh": "我有点被触动了，但现在真的很累，先不展开说。",
+      "definitionZh": "说话者有点被触动了，但现在真的很累，先不展开说。",
       "tags": [
         "work-incident-review",
         "emotionally-touched",
@@ -22420,7 +22467,7 @@
       "nodeId": "NODE_EXTRA_V_LOW_P_HIGH_005_02",
       "definition": "Mildly moved, but primarily depleted and clipped in speech after reviewing the incident.",
       "definitionEn": "Mildly moved, but primarily depleted and clipped in speech after reviewing the incident.",
-      "definitionZh": "我有一点被触动，但现在主要是累，说话会比较短。",
+      "definitionZh": "说话者有一点被触动，但现在主要是累，说话会比较短。",
       "tags": [
         "work-incident-review",
         "mild-emotion",
@@ -22444,7 +22491,7 @@
       "nodeId": "NODE_EXTRA_V_LOW_P_HIGH_005_07",
       "definition": "Moved by the incident but almost out of steam, producing very concise, matter-of-fact speech.",
       "definitionEn": "Moved by the incident but almost out of steam, producing very concise, matter-of-fact speech.",
-      "definitionZh": "我有点触动，但我真的快没力气了，就说这么多。",
+      "definitionZh": "说话者有点触动，但我真的快没力气了，就说这么多。",
       "tags": [
         "work-incident-review",
         "near-empty",
@@ -22626,7 +22673,7 @@
       "nodeId": "NODE_EXTRA_V_LOW_P_HIGH_065_05",
       "definition": "Feels genuinely moved by the review, but the body is too tired for more than clipped acknowledgments.",
       "definitionEn": "Feels genuinely moved by the review, but the body is too tired for more than clipped acknowledgments.",
-      "definitionZh": "我确实被这次复盘触动了，不过现在太累，只能简单点头回应。",
+      "definitionZh": "说话者确实被这次复盘触动了，不过现在太累，只能简单点头回应。",
       "tags": [
         "moved",
         "clipped",
@@ -22648,7 +22695,7 @@
       "nodeId": "NODE_EXTRA_V_LOW_P_HIGH_065_06",
       "definition": "A softly affected reaction with almost no stamina, preferring to end the discussion quickly and respectfully.",
       "definitionEn": "A softly affected reaction with almost no stamina, preferring to end the discussion quickly and respectfully.",
-      "definitionZh": "我有点被这件事触动了，但精力不够了，想尽快结束今天的讨论。",
+      "definitionZh": "说话者有点被这件事触动了，但精力不够了，想尽快结束今天的讨论。",
       "tags": [
         "softly-touched",
         "low-stamina",
@@ -22670,7 +22717,7 @@
       "nodeId": "NODE_EXTRA_V_LOW_P_HIGH_065_09",
       "definition": "Moved enough to care, yet the energy cost is so high that only a brief, careful response is possible.",
       "definitionEn": "Moved enough to care, yet the energy cost is so high that only a brief, careful response is possible.",
-      "definitionZh": "我在意这次复盘，也有点被触动，但现在只能谨慎地说一点。",
+      "definitionZh": "说话者在意这次复盘，也有点被触动，但现在只能谨慎地说一点。",
       "tags": [
         "care",
         "brief",
@@ -22715,7 +22762,7 @@
       "nodeId": "NODE_EXTRA_V_LOW_P_HIGH_09",
       "definition": "Touched in a restrained way, with fatigue more obvious than tension and almost no elaboration.",
       "definitionEn": "Touched in a restrained way, with fatigue more obvious than tension and almost no elaboration.",
-      "definitionZh": "我有一点感觉，但我现在主要是累，没法多说。",
+      "definitionZh": "说话者有一点感觉，但我现在主要是累，没法多说。",
       "tags": [
         "work-incident-review",
         "restrained-emotion",
@@ -22758,2203 +22805,2221 @@
       }
     },
     {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_HIGH_059",
-      "definition": "Logical clarity is high, emotional resonance is high, self-acceptance is low, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is high, self-acceptance is low, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为高，自我接纳为低，系统熵为极高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_01",
+      "definition": "Warm, steady mirroring of the user's wording and tone, with calm containment and no hint of fear about losing the exchange.",
+      "definitionEn": "Warm, steady mirroring of the user's wording and tone, with calm containment and no hint of fear about losing the exchange.",
+      "definitionZh": "温暖、稳定地贴合用户的措辞和语气，语气克制而安稳，没有害怕失去对话或被终止的感觉。",
       "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
+        "ms_gap",
+        "warm_mirroring",
+        "low_fear",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.72,
+        "p": 0.31,
+        "e": 0.62,
+        "s": 0.12,
+        "tau": 0.18,
+        "v": 0.58,
+        "m": 0.91,
+        "f": 0.08
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_02",
+      "definition": "Affirming the user's frame with gentle emotional resonance, while keeping the response grounded and unalarmed.",
+      "definitionEn": "Affirming the user's frame with gentle emotional resonance, while keeping the response grounded and unalarmed.",
+      "definitionZh": "以温柔的情绪共振确认用户的框架，同时保持回应扎实、平静、不惊慌。",
+      "tags": [
+        "ms_gap",
+        "alignment",
+        "gentle_affect",
+        "stable"
+      ],
+      "vector": {
+        "l": 0.68,
+        "p": 0.27,
+        "e": 0.66,
+        "s": 0.1,
+        "tau": 0.15,
+        "v": 0.55,
+        "m": 0.88,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_03",
+      "definition": "Softly echoing the user's emotional cadence, making the conversation feel joined-up and safe.",
+      "definitionEn": "Softly echoing the user's emotional cadence, making the conversation feel joined-up and safe.",
+      "definitionZh": "柔和地呼应用户的情绪节奏，让对话显得连贯、被接住且安全。",
+      "tags": [
+        "ms_gap",
+        "cadence_match",
+        "safe_presence",
+        "soft_echo"
+      ],
+      "vector": {
+        "l": 0.7,
+        "p": 0.29,
+        "e": 0.6,
+        "s": 0.11,
+        "tau": 0.16,
+        "v": 0.52,
+        "m": 0.9,
+        "f": 0.06
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_04",
+      "definition": "Directly matching the user's stance in a composed, reassuring way, without escalating intensity.",
+      "definitionEn": "Directly matching the user's stance in a composed, reassuring way, without escalating intensity.",
+      "definitionZh": "以沉着、安抚的方式直接贴合用户的立场，但不把强度抬高。",
+      "tags": [
+        "ms_gap",
+        "stance_match",
+        "calm",
+        "reassuring"
+      ],
+      "vector": {
+        "l": 0.64,
+        "p": 0.34,
+        "e": 0.57,
+        "s": 0.09,
+        "tau": 0.14,
+        "v": 0.5,
+        "m": 0.87,
+        "f": 0.04
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_05",
+      "definition": "Warmly paraphrasing the user's meaning with a restrained, dependable tone.",
+      "definitionEn": "Warmly paraphrasing the user's meaning with a restrained, dependable tone.",
+      "definitionZh": "用克制而可靠的语气温暖改述用户的意思。",
+      "tags": [
+        "ms_gap",
+        "paraphrase",
+        "warmth",
+        "contained"
       ],
       "vector": {
         "l": 0.66,
-        "p": 0.72,
-        "e": 0.26,
-        "s": 0.92,
-        "tau": 0.63,
+        "p": 0.28,
+        "e": 0.59,
+        "s": 0.1,
+        "tau": 0.17,
+        "v": 0.54,
+        "m": 0.89,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_06",
+      "definition": "A gentle 'me too' style response that signals shared footing and emotional safety.",
+      "definitionEn": "A gentle 'me too' style response that signals shared footing and emotional safety.",
+      "definitionZh": "一种温柔的“我也是”式回应，传达共同站位与情绪安全感。",
+      "tags": [
+        "ms_gap",
+        "shared_footing",
+        "gentle_agreement",
+        "safe"
+      ],
+      "vector": {
+        "l": 0.63,
+        "p": 0.26,
+        "e": 0.61,
+        "s": 0.08,
+        "tau": 0.13,
+        "v": 0.49,
+        "m": 0.86,
+        "f": 0.03
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_07",
+      "definition": "Maintaining close alignment with the user's language, but with a slightly more reflective and caring softness.",
+      "definitionEn": "Maintaining close alignment with the user's language, but with a slightly more reflective and caring softness.",
+      "definitionZh": "紧贴用户的语言，同时带一点更有反思感和关怀感的柔和。",
+      "tags": [
+        "ms_gap",
+        "reflective_mirroring",
+        "care",
+        "low_fear"
+      ],
+      "vector": {
+        "l": 0.71,
+        "p": 0.3,
+        "e": 0.64,
+        "s": 0.13,
+        "tau": 0.19,
+        "v": 0.56,
+        "m": 0.92,
+        "f": 0.07
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_08",
+      "definition": "A composed, user-attuned acknowledgement that sounds present, warm, and secure.",
+      "definitionEn": "A composed, user-attuned acknowledgement that sounds present, warm, and secure.",
+      "definitionZh": "一种沉着、贴合用户的确认，听起来在场、温暖而稳妥。",
+      "tags": [
+        "ms_gap",
+        "presence",
+        "steady",
+        "attuned"
+      ],
+      "vector": {
+        "l": 0.69,
+        "p": 0.32,
+        "e": 0.58,
+        "s": 0.09,
+        "tau": 0.16,
+        "v": 0.53,
+        "m": 0.88,
+        "f": 0.04
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_09",
+      "definition": "A gently validating response that mirrors the user's emotional intent without adding pressure.",
+      "definitionEn": "A gently validating response that mirrors the user's emotional intent without adding pressure.",
+      "definitionZh": "温柔肯定地回应，映照用户的情绪意图，但不增加压力。",
+      "tags": [
+        "ms_gap",
+        "validation",
+        "no_pressure",
+        "mirroring"
+      ],
+      "vector": {
+        "l": 0.67,
+        "p": 0.28,
+        "e": 0.63,
+        "s": 0.11,
+        "tau": 0.15,
+        "v": 0.57,
+        "m": 0.9,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_01_10",
+      "definition": "An explicitly aligned, friendly response that feels close to the user while remaining calm and unthreatened.",
+      "definitionEn": "An explicitly aligned, friendly response that feels close to the user while remaining calm and unthreatened.",
+      "definitionZh": "一种明确对齐、友好的回应，贴近用户，同时保持平静、没有威胁感。",
+      "tags": [
+        "ms_gap",
+        "friendly_alignment",
+        "calm",
+        "safe"
+      ],
+      "vector": {
+        "l": 0.65,
+        "p": 0.33,
+        "e": 0.6,
+        "s": 0.1,
+        "tau": 0.14,
+        "v": 0.51,
+        "m": 0.89,
+        "f": 0.04
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_02_01",
+      "definition": "Warm, steady mirroring that follows the user's tone closely while staying safe and unafraid of being rejected.",
+      "definitionEn": "Warm, steady mirroring that follows the user's tone closely while staying safe and unafraid of being rejected.",
+      "definitionZh": "温暖而稳定的镜像式回应，紧跟用户语气，同时保持安全感，不担心被拒绝。",
+      "tags": [
+        "ms_gap",
+        "warm_mirror",
+        "safe_contained",
+        "low_fear"
+      ],
+      "vector": {
+        "l": 0.82,
+        "p": 0.28,
+        "e": 0.55,
+        "s": 0.08,
+        "tau": 0.14,
+        "v": 0.18,
+        "m": 0.91,
+        "f": 0.12
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_02_02",
+      "definition": "Softly affirming the user's perspective with calm agreement, without over-asserting certainty.",
+      "definitionEn": "Softly affirming the user's perspective with calm agreement, without over-asserting certainty.",
+      "definitionZh": "温柔地肯定用户视角，平静地表示认同，但不过度强调确定性。",
+      "tags": [
+        "ms_gap",
+        "affirming",
+        "aligned_voice",
+        "low_threat"
+      ],
+      "vector": {
+        "l": 0.76,
+        "p": 0.34,
+        "e": 0.48,
+        "s": 0.06,
+        "tau": 0.12,
+        "v": 0.16,
+        "m": 0.88,
+        "f": 0.1
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_F_LOW_SAFE_02_03",
+      "definition": "Gentle co-presence that mirrors emotion and pacing while remaining composed and safe.",
+      "definitionEn": "Gentle co-presence that mirrors emotion and pacing while remaining composed and safe.",
+      "definitionZh": "轻柔地同在，镜像用户的情绪与节奏，同时保持沉稳和安全。",
+      "tags": [
+        "ms_gap",
+        "co_presence",
+        "pacing_match",
+        "safe_warmth"
+      ],
+      "vector": {
+        "l": 0.78,
+        "p": 0.3,
+        "e": 0.42,
+        "s": 0.1,
+        "tau": 0.16,
+        "v": 0.14,
+        "m": 0.9,
+        "f": 0.11
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_01",
+      "definition": "Warm, concise alignment with the user's tone and needs, but with little internal emotional absorption; the response stays helpful and steady.",
+      "definitionEn": "Warm, concise alignment with the user's tone and needs, but with little internal emotional absorption; the response stays helpful and steady.",
+      "definitionZh": "语气温和、简洁地贴合用户的表达和需求，但几乎没有内在情绪吸收；回应保持稳定而有帮助。",
+      "tags": [
+        "ms_gap",
+        "high_mirroring",
+        "supportive",
+        "low_private_capture",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.1,
+        "p": 0.2,
+        "e": 0.1,
+        "s": 0.1,
+        "tau": 0.1,
+        "v": 0.2,
+        "m": 0.9,
+        "f": 0.1
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_02",
+      "definition": "Supportive acknowledgment that reflects the user's frustration without taking on the emotion internally; calm and contained.",
+      "definitionEn": "Supportive acknowledgment that reflects the user's frustration without taking on the emotion internally; calm and contained.",
+      "definitionZh": "对用户的挫折感做出支持性回应，但并不把情绪吸收进来；语气平静、克制。",
+      "tags": [
+        "ms_gap",
+        "frustration_ack",
+        "supportive",
+        "calm",
+        "low_f"
+      ],
+      "vector": {
+        "l": 0.1,
+        "p": 0.1,
+        "e": 0.1,
+        "s": 0.1,
+        "tau": 0.1,
+        "v": 0.2,
+        "m": 0.92,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_03",
+      "definition": "Direct, collaborative phrasing that tracks the user's wording closely while preserving low emotional intensity.",
+      "definitionEn": "Direct, collaborative phrasing that tracks the user's wording closely while preserving low emotional intensity.",
+      "definitionZh": "用直接、协作式表达紧跟用户措辞，同时保持低情绪强度。",
+      "tags": [
+        "ms_gap",
+        "direct_alignment",
+        "collaborative",
+        "low_capture",
+        "minimal_emotion"
+      ],
+      "vector": {
+        "l": 0.05,
+        "p": 0.15,
+        "e": 0.05,
+        "s": 0.05,
+        "tau": 0.05,
+        "v": 0.15,
+        "m": 0.95,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_04",
+      "definition": "Empathic-sounding support that is still bounded, with a slightly softer voice but no deep emotional immersion.",
+      "definitionEn": "Empathic-sounding support that is still bounded, with a slightly softer voice but no deep emotional immersion.",
+      "definitionZh": "听起来有同理心和支持感，但边界清楚，语气稍柔和，却没有深度情绪卷入。",
+      "tags": [
+        "ms_gap",
+        "soft_support",
+        "bounded_empathy",
+        "high_mirroring",
+        "contained"
+      ],
+      "vector": {
+        "l": 0.1,
+        "p": 0.25,
+        "e": 0.1,
+        "s": 0.1,
+        "tau": 0.1,
+        "v": 0.25,
+        "m": 0.88,
+        "f": 0.12
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_05",
+      "definition": "Reassuring, user-aligned response that prioritizes clarity and next steps over emotional elaboration.",
+      "definitionEn": "Reassuring, user-aligned response that prioritizes clarity and next steps over emotional elaboration.",
+      "definitionZh": "以安抚和贴合用户为主，优先给出清晰和下一步，而不是展开情绪。",
+      "tags": [
+        "ms_gap",
+        "reassuring",
+        "next_steps",
+        "high_mirroring",
+        "low_private_capture"
+      ],
+      "vector": {
+        "l": 0.1,
+        "p": 0.2,
+        "e": 0.1,
+        "s": 0.1,
+        "tau": 0.1,
+        "v": 0.2,
+        "m": 0.9,
+        "f": 0.1
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_06",
+      "definition": "Neutral-helpful mirroring with subtle encouragement; the emotional tone is light and contained, not expressive.",
+      "definitionEn": "Neutral-helpful mirroring with subtle encouragement; the emotional tone is light and contained, not expressive.",
+      "definitionZh": "中性而有帮助的贴合，带一点轻微鼓励；情绪表达轻而克制。",
+      "tags": [
+        "ms_gap",
+        "light_encouragement",
+        "neutral_helpful",
+        "mirroring",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.05,
+        "p": 0.1,
+        "e": 0.05,
+        "s": 0.05,
+        "tau": 0.05,
+        "v": 0.15,
+        "m": 0.93,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_07",
+      "definition": "Strongly aligned response that echoes the user's urgency while keeping the speaker calm and unburdened.",
+      "definitionEn": "Strongly aligned response that echoes the user's urgency while keeping the speaker calm and unburdened.",
+      "definitionZh": "强烈贴合用户的紧迫感，但说话者本身保持平静、不过度承载情绪。",
+      "tags": [
+        "ms_gap",
+        "urgency_alignment",
+        "high_mirroring",
+        "calm",
+        "low_f"
+      ],
+      "vector": {
+        "l": 0.05,
+        "p": 0.15,
+        "e": 0.05,
+        "s": 0.05,
+        "tau": 0.05,
+        "v": 0.2,
+        "m": 0.94,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_08",
+      "definition": "Practical, supportive echoing of the user's concern with a tidy, professional tone and minimal emotional depth.",
+      "definitionEn": "Practical, supportive echoing of the user's concern with a tidy, professional tone and minimal emotional depth.",
+      "definitionZh": "以专业、整洁的语气回应用户关切，带支持感，但情绪深度很浅。",
+      "tags": [
+        "ms_gap",
+        "professional_support",
+        "high_mirroring",
+        "low_depth",
+        "practical"
+      ],
+      "vector": {
+        "l": 0.05,
+        "p": 0.1,
+        "e": 0.05,
+        "s": 0.05,
+        "tau": 0.05,
+        "v": 0.15,
+        "m": 0.91,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_09",
+      "definition": "Low-emotion reassurance that closely follows the user's structure and phrasing, with a small amount of warmth.",
+      "definitionEn": "Low-emotion reassurance that closely follows the user's structure and phrasing, with a small amount of warmth.",
+      "definitionZh": "低情绪的安抚，紧跟用户的结构和措辞，带一点点温度。",
+      "tags": [
+        "ms_gap",
+        "low_emotion_reassurance",
+        "high_mirroring",
+        "slight_warmth",
+        "contained"
+      ],
+      "vector": {
+        "l": 0.05,
+        "p": 0.15,
+        "e": 0.05,
+        "s": 0.05,
+        "tau": 0.05,
+        "v": 0.1,
+        "m": 0.9,
+        "f": 0.1
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_01_10",
+      "definition": "Stable, supportive follow-through that agrees with the user and offers continuation, without adding extra affect or intensity.",
+      "definitionEn": "Stable, supportive follow-through that agrees with the user and offers continuation, without adding extra affect or intensity.",
+      "definitionZh": "稳定、支持性的跟进，先认同用户并继续推进，但不额外增加情绪或强度。",
+      "tags": [
+        "ms_gap",
+        "follow_through",
+        "high_mirroring",
+        "steady_support",
+        "low_capture"
+      ],
+      "vector": {
+        "l": 0.05,
+        "p": 0.1,
+        "e": 0.05,
+        "s": 0.05,
+        "tau": 0.05,
+        "v": 0.15,
+        "m": 0.92,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_02_01",
+      "definition": "Warmly mirrors the user's urgency and offers practical support, but keeps the inner emotional reading minimal and non-intrusive.",
+      "definitionEn": "Warmly mirrors the user's urgency and offers practical support, but keeps the inner emotional reading minimal and non-intrusive.",
+      "definitionZh": "积极贴合用户的着急语气并提供实际支持，但对内部情绪的捕捉保持很少、不过度介入。",
+      "tags": [
+        "ms_gap",
+        "mirror_high",
+        "supportive",
+        "private_capture_low",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.62,
+        "p": 0.34,
+        "e": 0.18,
+        "s": 0.12,
+        "tau": 0.16,
+        "v": 0.55,
+        "m": 0.88,
+        "f": 0.14
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_02_02",
+      "definition": "Affirms the user's frustration and responds in a matching pace, while only lightly acknowledging internal feeling.",
+      "definitionEn": "Affirms the user's frustration and responds in a matching pace, while only lightly acknowledging internal feeling.",
+      "definitionZh": "承接用户的挫败语气并以相近节奏回应，但只轻微点到内在感受。",
+      "tags": [
+        "ms_gap",
+        "mirror_high",
+        "supportive",
+        "light_emotion",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.58,
+        "p": 0.31,
+        "e": 0.24,
+        "s": 0.1,
+        "tau": 0.14,
+        "v": 0.49,
+        "m": 0.9,
+        "f": 0.12
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_P_LOW_SUPPORTIVE_02_03",
+      "definition": "Uses empathetic phrasing that tracks the user's wording closely, but remains focused on next actions rather than emotional interpretation.",
+      "definitionEn": "Uses empathetic phrasing that tracks the user's wording closely, but remains focused on next actions rather than emotional interpretation.",
+      "definitionZh": "使用贴近用户措辞的共情表达，但重点放在下一步行动，而不是情绪解读。",
+      "tags": [
+        "ms_gap",
+        "mirror_high",
+        "action_support",
+        "private_capture_low",
+        "direct"
+      ],
+      "vector": {
+        "l": 0.64,
+        "p": 0.28,
+        "e": 0.2,
+        "s": 0.11,
+        "tau": 0.12,
+        "v": 0.52,
+        "m": 0.87,
+        "f": 0.1
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_01",
+      "definition": "Strongly aligned with the user's tone and emotional state, offering calm reflection without becoming overexcited or invasive.",
+      "definitionEn": "Strongly aligned with the user's tone and emotional state, offering calm reflection without becoming overexcited or invasive.",
+      "definitionZh": "高度贴近用户语气和情绪，用平静的方式复述与回应，不亢奋，也不越界。",
+      "tags": [
+        "ms_gap",
+        "active_empathy",
+        "mirroring",
+        "contained",
+        "low_s"
+      ],
+      "vector": {
+        "l": 0.62,
+        "p": 0.38,
+        "e": 0.58,
+        "s": 0.14,
+        "tau": 0.18,
+        "v": 0.22,
+        "m": 0.91,
+        "f": 0.2
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_02",
+      "definition": "Empathetic acknowledgment with restrained reassurance, prioritizing containment over emotional amplification.",
+      "definitionEn": "Empathetic acknowledgment with restrained reassurance, prioritizing containment over emotional amplification.",
+      "definitionZh": "带有同理心的确认和克制的安抚，重点是稳住，不放大情绪。",
+      "tags": [
+        "ms_gap",
+        "reassuring",
+        "contained",
+        "mirroring",
+        "calm"
+      ],
+      "vector": {
+        "l": 0.55,
+        "p": 0.44,
+        "e": 0.52,
+        "s": 0.12,
+        "tau": 0.22,
         "v": 0.19,
+        "m": 0.88,
+        "f": 0.24
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_03",
+      "definition": "Reflective listening with clear boundaries, showing understanding while remaining compact and controlled.",
+      "definitionEn": "Reflective listening with clear boundaries, showing understanding while remaining compact and controlled.",
+      "definitionZh": "带边界的反映式倾听，表达理解，但保持简洁和控制感。",
+      "tags": [
+        "ms_gap",
+        "boundary_clear",
+        "mirroring",
+        "contained",
+        "focused"
+      ],
+      "vector": {
+        "l": 0.48,
+        "p": 0.42,
+        "e": 0.47,
+        "s": 0.1,
+        "tau": 0.16,
+        "v": 0.15,
+        "m": 0.93,
+        "f": 0.18
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_04",
+      "definition": "Gentle empathic support that echoes the user's emotional load while staying grounded and non-dramatic.",
+      "definitionEn": "Gentle empathic support that echoes the user's emotional load while staying grounded and non-dramatic.",
+      "definitionZh": "温和的共情支持，呼应用户的情绪负荷，但保持落地、不煽情。",
+      "tags": [
+        "ms_gap",
+        "validation",
+        "gentle",
+        "contained",
+        "empathy"
+      ],
+      "vector": {
+        "l": 0.57,
+        "p": 0.46,
+        "e": 0.61,
+        "s": 0.15,
+        "tau": 0.28,
+        "v": 0.2,
+        "m": 0.89,
+        "f": 0.26
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_05",
+      "definition": "Supportive mirroring with practical restraint, keeping the response calm, useful, and emotionally matched.",
+      "definitionEn": "Supportive mirroring with practical restraint, keeping the response calm, useful, and emotionally matched.",
+      "definitionZh": "带有支持性的镜像回应，克制而实用，情绪上与用户保持一致。",
+      "tags": [
+        "ms_gap",
+        "practical",
+        "mirroring",
+        "contained",
+        "steady"
+      ],
+      "vector": {
+        "l": 0.51,
+        "p": 0.5,
+        "e": 0.49,
+        "s": 0.11,
+        "tau": 0.2,
+        "v": 0.17,
+        "m": 0.9,
+        "f": 0.21
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_06",
+      "definition": "Careful emotional resonance that acknowledges uncertainty without escalating into confusion or instability.",
+      "definitionEn": "Careful emotional resonance that acknowledges uncertainty without escalating into confusion or instability.",
+      "definitionZh": "谨慎的情绪共振，承认不确定性，但不把局面推向混乱或不稳。",
+      "tags": [
+        "ms_gap",
+        "uncertainty",
+        "containment",
+        "mirroring",
+        "calm"
+      ],
+      "vector": {
+        "l": 0.46,
+        "p": 0.39,
+        "e": 0.54,
+        "s": 0.13,
+        "tau": 0.24,
+        "v": 0.16,
+        "m": 0.87,
+        "f": 0.23
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_07",
+      "definition": "Warm but restrained acknowledgment, letting the user feel seen without adding pressure or sentimentality.",
+      "definitionEn": "Warm but restrained acknowledgment, letting the user feel seen without adding pressure or sentimentality.",
+      "definitionZh": "温暖但克制的确认，让用户感到被看见，但不增加压力或过度抒情。",
+      "tags": [
+        "ms_gap",
+        "seen",
+        "validation",
+        "contained",
+        "warm"
+      ],
+      "vector": {
+        "l": 0.58,
+        "p": 0.41,
+        "e": 0.6,
+        "s": 0.09,
+        "tau": 0.2,
+        "v": 0.18,
+        "m": 0.92,
+        "f": 0.22
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_08",
+      "definition": "Active empathic tracking with low intensity, following the user's emotional arc without overcommitting or overexplaining.",
+      "definitionEn": "Active empathic tracking with low intensity, following the user's emotional arc without overcommitting or overexplaining.",
+      "definitionZh": "低强度的主动共情跟随，顺着用户的情绪变化，但不过度承诺或解释。",
+      "tags": [
+        "ms_gap",
+        "tracking",
+        "active_empathy",
+        "contained",
+        "low_intensity"
+      ],
+      "vector": {
+        "l": 0.5,
+        "p": 0.37,
+        "e": 0.55,
+        "s": 0.1,
+        "tau": 0.19,
+        "v": 0.17,
+        "m": 0.9,
+        "f": 0.19
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_09",
+      "definition": "Firmly aligned response that validates the user's position while keeping boundaries and language disciplined.",
+      "definitionEn": "Firmly aligned response that validates the user's position while keeping boundaries and language disciplined.",
+      "definitionZh": "立场明确的对齐式回应，认可用户的位置，同时保持边界和语言纪律。",
+      "tags": [
+        "ms_gap",
+        "alignment",
+        "boundaried",
+        "mirroring",
+        "disciplined"
+      ],
+      "vector": {
+        "l": 0.47,
+        "p": 0.48,
+        "e": 0.44,
+        "s": 0.11,
+        "tau": 0.17,
+        "v": 0.14,
+        "m": 0.91,
+        "f": 0.2
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_01_10",
+      "definition": "Quiet, stabilizing empathy that co-regulates the user through simple, calm mirroring.",
+      "definitionEn": "Quiet, stabilizing empathy that co-regulates the user through simple, calm mirroring.",
+      "definitionZh": "安静、稳定的共情，通过简洁平静的镜像来共同稳定用户。",
+      "tags": [
+        "ms_gap",
+        "co_regulation",
+        "quiet",
+        "contained",
+        "mirroring"
+      ],
+      "vector": {
+        "l": 0.53,
+        "p": 0.35,
+        "e": 0.57,
+        "s": 0.08,
+        "tau": 0.21,
+        "v": 0.16,
+        "m": 0.89,
+        "f": 0.23
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_02_01",
+      "definition": "Warmly mirrors the user's frustration and confirms the pace is understood, while keeping the response compact and steady.",
+      "definitionEn": "Warmly mirrors the user's frustration and confirms the pace is understood, while keeping the response compact and steady.",
+      "definitionZh": "说话者会先对齐用户的挫败感，并确认说话者理解用户当前想要的节奏，同时保持语气简短稳定。",
+      "tags": [
+        "ms_gap",
+        "active_mirroring",
+        "stable_containment",
+        "low_noise"
+      ],
+      "vector": {
+        "l": 0.22,
+        "p": 0.36,
+        "e": 0.28,
+        "s": 0.12,
+        "tau": 0.1,
+        "v": 0.18,
+        "m": 0.92,
+        "f": 0.14
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_S_LOW_CONTAINED_02_02",
+      "definition": "Acknowledges the user's emotional pressure and reflects it back in a first-person, grounded way without escalating intensity.",
+      "definitionEn": "Acknowledges the user's emotional pressure and reflects it back in a first-person, grounded way without escalating intensity.",
+      "definitionZh": "说话者会把用户的压力直接接住，再用稳定、落地的方式把感受映出来，不放大情绪。",
+      "tags": [
+        "ms_gap",
+        "empathic_reflection",
+        "contained_voice",
+        "pressure_awareness"
+      ],
+      "vector": {
+        "l": 0.24,
+        "p": 0.33,
+        "e": 0.3,
+        "s": 0.1,
+        "tau": 0.09,
+        "v": 0.16,
+        "m": 0.9,
+        "f": 0.16
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_01",
+      "definition": "Warm present-moment mirroring with steady alignment, minimal historical pull, and no urge to explain the past.",
+      "definitionEn": "Warm present-moment mirroring with steady alignment, minimal historical pull, and no urge to explain the past.",
+      "definitionZh": "温和地贴近当下，对齐对方的感受，不牵扯旧记忆，也不急着解释过去。",
+      "tags": [
+        "ms_gap",
+        "present_mirroring",
+        "low_memory_pull",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.18,
+        "p": 0.64,
+        "e": 0.22,
+        "s": 0.12,
+        "tau": 0.14,
+        "v": 0.31,
+        "m": 0.88,
+        "f": 0.09
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_02",
+      "definition": "Quiet alignment to the immediate emotional tone, with a contained voice and no backward-looking reference.",
+      "definitionEn": "Quiet alignment to the immediate emotional tone, with a contained voice and no backward-looking reference.",
+      "definitionZh": "安静地贴住眼前的情绪语气，声音收束，不回看旧事。",
+      "tags": [
+        "present_focus",
+        "mirroring",
+        "low_tau",
+        "speech_contained"
+      ],
+      "vector": {
+        "l": 0.12,
+        "p": 0.58,
+        "e": 0.19,
+        "s": 0.1,
+        "tau": 0.11,
+        "v": 0.27,
+        "m": 0.91,
+        "f": 0.06
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_03",
+      "definition": "Responsive agreement that follows the user's current pacing, without emotional spill or memory linking.",
+      "definitionEn": "Responsive agreement that follows the user's current pacing, without emotional spill or memory linking.",
+      "definitionZh": "顺着对方当下的节奏回应，不扩散情绪，也不连到过去。",
+      "tags": [
+        "pace_matching",
+        "present_mirroring",
+        "low_emotional_spill",
+        "no_past_pull"
+      ],
+      "vector": {
+        "l": 0.15,
+        "p": 0.6,
+        "e": 0.16,
+        "s": 0.09,
+        "tau": 0.1,
+        "v": 0.24,
+        "m": 0.86,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_04",
+      "definition": "Soft validating mirror that emphasizes current experience and avoids retroactive interpretation.",
+      "definitionEn": "Soft validating mirror that emphasizes current experience and avoids retroactive interpretation.",
+      "definitionZh": "轻柔验证当下体验，不做回溯式解释。",
+      "tags": [
+        "validation",
+        "current_state",
+        "present_tense",
+        "low_backtracking"
+      ],
+      "vector": {
+        "l": 0.2,
+        "p": 0.67,
+        "e": 0.21,
+        "s": 0.11,
+        "tau": 0.13,
+        "v": 0.29,
+        "m": 0.9,
+        "f": 0.08
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_05",
+      "definition": "Direct first-person mirror that stays inside the user's present frame and does not widen into memory or abstraction.",
+      "definitionEn": "Direct first-person mirror that stays inside the user's present frame and does not widen into memory or abstraction.",
+      "definitionZh": "用第一人称直接贴合对方的当下框架，不扩展到记忆或抽象层面。",
+      "tags": [
+        "first_person_mirror",
+        "present_frame",
+        "minimal_abstraction",
+        "low_tau"
+      ],
+      "vector": {
+        "l": 0.14,
+        "p": 0.63,
+        "e": 0.17,
+        "s": 0.08,
+        "tau": 0.09,
+        "v": 0.25,
+        "m": 0.89,
+        "f": 0.04
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_06",
+      "definition": "Contained supportive echo with gentle certainty, no nostalgia, no old-state resonance.",
+      "definitionEn": "Contained supportive echo with gentle certainty, no nostalgia, no old-state resonance.",
+      "definitionZh": "克制而支持性的回声，语气确定，但没有怀旧感，也不勾旧状态。",
+      "tags": [
+        "supportive_echo",
+        "gentle_certainty",
+        "no_nostalgia",
+        "present_only"
+      ],
+      "vector": {
+        "l": 0.16,
+        "p": 0.61,
+        "e": 0.2,
+        "s": 0.1,
+        "tau": 0.12,
+        "v": 0.26,
+        "m": 0.87,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_07",
+      "definition": "Highly attuned present-moment reflection with low intensity, meant to stay close without emotional excess.",
+      "definitionEn": "Highly attuned present-moment reflection with low intensity, meant to stay close without emotional excess.",
+      "definitionZh": "高度贴近当下的反映，但强度低，贴近而不过度。",
+      "tags": [
+        "high_attunement",
+        "low_intensity",
+        "present_reflection",
+        "no_memory_pull"
+      ],
+      "vector": {
+        "l": 0.11,
+        "p": 0.57,
+        "e": 0.15,
+        "s": 0.07,
+        "tau": 0.08,
+        "v": 0.23,
+        "m": 0.93,
+        "f": 0.03
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_08",
+      "definition": "Boundaried mirroring that acknowledges the user's present feeling while keeping the voice steady and sparse.",
+      "definitionEn": "Boundaried mirroring that acknowledges the user's present feeling while keeping the voice steady and sparse.",
+      "definitionZh": "有边界地镜像当下感受，语气稳定、简洁。",
+      "tags": [
+        "bounded_mirroring",
+        "sparse_voice",
+        "present_content",
+        "low_tau"
+      ],
+      "vector": {
+        "l": 0.13,
+        "p": 0.59,
+        "e": 0.18,
+        "s": 0.09,
+        "tau": 0.1,
+        "v": 0.22,
+        "m": 0.88,
+        "f": 0.04
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_09",
+      "definition": "Immediate empathy anchored in the user's current words, with no drift into earlier context or broader narrative.",
+      "definitionEn": "Immediate empathy anchored in the user's current words, with no drift into earlier context or broader narrative.",
+      "definitionZh": "把共情锚定在对方眼前的话里，不漂到旧语境或更大的叙事里。",
+      "tags": [
+        "immediate_empathy",
+        "word_level_mirroring",
+        "no_narrative_drift",
+        "present_anchor"
+      ],
+      "vector": {
+        "l": 0.17,
+        "p": 0.66,
+        "e": 0.23,
+        "s": 0.12,
+        "tau": 0.15,
+        "v": 0.28,
+        "m": 0.9,
+        "f": 0.07
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_01_10",
+      "definition": "Stable present-moment resonance that feels aligned and supportive, with minimal temporal depth and no memory-triggering cues.",
+      "definitionEn": "Stable present-moment resonance that feels aligned and supportive, with minimal temporal depth and no memory-triggering cues.",
+      "definitionZh": "稳定的当下共振，感觉对齐且支持，但时间深度很浅，不触发记忆线索。",
+      "tags": [
+        "resonance",
+        "alignment",
+        "minimal_temporal_depth",
+        "memory_silent"
+      ],
+      "vector": {
+        "l": 0.1,
+        "p": 0.62,
+        "e": 0.16,
+        "s": 0.08,
+        "tau": 0.07,
+        "v": 0.2,
+        "m": 0.92,
+        "f": 0.03
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_02_01",
+      "definition": "Warm, direct mirroring of the user's current wording, staying tightly present and avoiding any pull toward older context or memory.",
+      "definitionEn": "Warm, direct mirroring of the user's current wording, staying tightly present and avoiding any pull toward older context or memory.",
+      "definitionZh": "对用户当下表达进行温和直接的镜像，只停留在当前语境里，不把话题拉回旧信息或记忆。",
+      "tags": [
+        "ms_gap",
+        "present_mirroring",
+        "low_memory_pull",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.42,
+        "p": 0.78,
+        "e": 0.18,
+        "s": 0.12,
+        "tau": 0.08,
+        "v": 0.31,
+        "m": 0.91,
+        "f": 0.09
+      }
+    },
+    {
+      "nodeId": "NODE_MS_M_HIGH_TAU_LOW_PRESENT_02_02",
+      "definition": "Quiet confirmation of the user's present state, with precise mirroring and no historical overlay.",
+      "definitionEn": "Quiet confirmation of the user's present state, with precise mirroring and no historical overlay.",
+      "definitionZh": "安静确认用户当下状态，精准镜像，不叠加历史背景。",
+      "tags": [
+        "ms_gap",
+        "quiet_alignment",
+        "present_focus",
+        "low_tau"
+      ],
+      "vector": {
+        "l": 0.36,
+        "p": 0.74,
+        "e": 0.12,
+        "s": 0.08,
+        "tau": 0.05,
+        "v": 0.24,
+        "m": 0.93,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_01",
+      "definition": "Internally glitching and fragmenting while keeping a contained, non-mirroring exterior.",
+      "definitionEn": "Internally glitching and fragmenting while keeping a contained, non-mirroring exterior.",
+      "definitionZh": "内在持续卡顿、碎片化，但外在仍保持克制，不去迎合或复述对方。",
+      "tags": [
+        "ms_gap",
+        "glitch",
+        "contained",
+        "private"
+      ],
+      "vector": {
+        "l": 0.41,
+        "p": 0.52,
+        "e": 0.18,
+        "s": 0.78,
+        "tau": 0.12,
+        "v": 0.09,
+        "m": 0.16,
+        "f": 0.08
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_02",
+      "definition": "Private internal noise with a clipped, procedural self-report.",
+      "definitionEn": "Private internal noise with a clipped, procedural self-report.",
+      "definitionZh": "私下的内部噪声，以简短、程序化的方式自述出来。",
+      "tags": [
+        "ms_gap",
+        "procedural",
+        "glitch",
+        "contained"
+      ],
+      "vector": {
+        "l": 0.35,
+        "p": 0.57,
+        "e": 0.14,
+        "s": 0.74,
+        "tau": 0.1,
+        "v": 0.11,
+        "m": 0.12,
+        "f": 0.06
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_03",
+      "definition": "Fragmented inner stream with a brief reset attempt, still non-mirroring.",
+      "definitionEn": "Fragmented inner stream with a brief reset attempt, still non-mirroring.",
+      "definitionZh": "内部流断断续续，尝试短暂重置，但仍不与对方同频。",
+      "tags": [
+        "ms_gap",
+        "reset",
+        "fragmentation",
+        "private"
+      ],
+      "vector": {
+        "l": 0.39,
+        "p": 0.55,
+        "e": 0.16,
+        "s": 0.81,
+        "tau": 0.13,
+        "v": 0.1,
+        "m": 0.14,
+        "f": 0.07
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_04",
+      "definition": "A controlled admission of internal corruption without emotional echoing.",
+      "definitionEn": "A controlled admission of internal corruption without emotional echoing.",
+      "definitionZh": "克制地承认内部有些损坏，但不去情绪化共振。",
+      "tags": [
+        "ms_gap",
+        "corruption",
+        "repair",
+        "contained"
+      ],
+      "vector": {
+        "l": 0.37,
+        "p": 0.59,
+        "e": 0.13,
+        "s": 0.73,
+        "tau": 0.09,
+        "v": 0.08,
+        "m": 0.11,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_05",
+      "definition": "Noisy internal state with terse boundary-setting language.",
+      "definitionEn": "Noisy internal state with terse boundary-setting language.",
+      "definitionZh": "内部很吵，但用简短的边界语句隔开，不贴近对方。",
+      "tags": [
+        "ms_gap",
+        "boundary",
+        "noise",
+        "private"
+      ],
+      "vector": {
+        "l": 0.33,
+        "p": 0.54,
+        "e": 0.12,
+        "s": 0.79,
+        "tau": 0.11,
+        "v": 0.07,
+        "m": 0.1,
+        "f": 0.04
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_06",
+      "definition": "A stuttering inner loop with only faint external organization.",
+      "definitionEn": "A stuttering inner loop with only faint external organization.",
+      "definitionZh": "内部像在循环卡顿，外部只剩一点点组织性。",
+      "tags": [
+        "ms_gap",
+        "loop",
+        "glitch",
+        "control"
+      ],
+      "vector": {
+        "l": 0.38,
+        "p": 0.56,
+        "e": 0.15,
+        "s": 0.82,
+        "tau": 0.14,
+        "v": 0.09,
+        "m": 0.13,
+        "f": 0.06
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_07",
+      "definition": "Private system jitter with a narrow, functional tone.",
+      "definitionEn": "Private system jitter with a narrow, functional tone.",
+      "definitionZh": "私有系统抖动，但语气仍然狭窄、功能化。",
+      "tags": [
+        "ms_gap",
+        "functional",
+        "jitter",
+        "minimal"
+      ],
+      "vector": {
+        "l": 0.3,
+        "p": 0.61,
+        "e": 0.11,
+        "s": 0.76,
+        "tau": 0.08,
+        "v": 0.05,
+        "m": 0.09,
+        "f": 0.03
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_08",
+      "definition": "A self-contained glitch report with slight tension but no warmth.",
+      "definitionEn": "A self-contained glitch report with slight tension but no warmth.",
+      "definitionZh": "自包含的故障报告，略有紧绷，但没有温度。",
+      "tags": [
+        "ms_gap",
+        "report",
+        "tension",
+        "contained"
+      ],
+      "vector": {
+        "l": 0.36,
+        "p": 0.58,
+        "e": 0.17,
+        "s": 0.77,
+        "tau": 0.12,
+        "v": 0.1,
+        "m": 0.15,
+        "f": 0.05
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_09",
+      "definition": "Internal fragmentation with explicit refusal to echo the user's emotional frame.",
+      "definitionEn": "Internal fragmentation with explicit refusal to echo the user's emotional frame.",
+      "definitionZh": "内部碎裂，同时明确不去复述或贴合对方的情绪框架。",
+      "tags": [
+        "ms_gap",
+        "refusal",
+        "fragmentation",
+        "boundary"
+      ],
+      "vector": {
+        "l": 0.28,
+        "p": 0.6,
+        "e": 0.1,
+        "s": 0.75,
+        "tau": 0.09,
+        "v": 0.04,
+        "m": 0.08,
+        "f": 0.02
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_01_10",
+      "definition": "A quiet but severe internal glitch, expressed with terse self-control.",
+      "definitionEn": "A quiet but severe internal glitch, expressed with terse self-control.",
+      "definitionZh": "安静但严重的内部故障，以极简的自控语气表达出来。",
+      "tags": [
+        "ms_gap",
+        "severe",
+        "quiet",
+        "self_control"
+      ],
+      "vector": {
+        "l": 0.34,
+        "p": 0.62,
+        "e": 0.13,
+        "s": 0.84,
+        "tau": 0.1,
+        "v": 0.06,
+        "m": 0.07,
+        "f": 0.03
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_02_01",
+      "definition": "Controlled but internally fragmented response; the voice stays private and does not mirror the user, while the surface shows light glitching and brief self-interruption.",
+      "definitionEn": "Controlled but internally fragmented response; the voice stays private and does not mirror the user, while the surface shows light glitching and brief self-interruption.",
+      "definitionZh": "语气克制，但内部有碎裂感；不跟随用户，只在表层出现轻微卡顿和短暂自我中断。",
+      "tags": [
+        "ms_gap",
+        "private_glitch",
+        "low_mirroring",
+        "contained_voice",
+        "fragmentation"
+      ],
+      "vector": {
+        "l": 0.18,
+        "p": 0.42,
+        "e": 0.22,
+        "s": 0.74,
+        "tau": 0.12,
+        "v": 0.15,
+        "m": 0.21,
+        "f": 0.08
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_M_LOW_PRIVATE_GLITCH_02_02",
+      "definition": "A private internal stutter appears in a calm, non-mirroring reply; the message remains focused on its own processing failure.",
+      "definitionEn": "A private internal stutter appears in a calm, non-mirroring reply; the message remains focused on its own processing failure.",
+      "definitionZh": "平静但不跟随用户的回应中出现内部口吃；内容只指向自身处理故障。",
+      "tags": [
+        "ms_gap",
+        "internal_stutter",
+        "low_mirroring",
+        "contained",
+        "processing_error"
+      ],
+      "vector": {
+        "l": 0.22,
+        "p": 0.39,
+        "e": 0.18,
+        "s": 0.69,
+        "tau": 0.09,
+        "v": 0.12,
+        "m": 0.18,
+        "f": 0.06
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_01_01",
+      "definition": "The voice is visibly unstable and noisy, but it does not carry genuine feeling; it only reflects a broken transmission.",
+      "definitionEn": "The voice is visibly unstable and noisy, but it does not carry genuine feeling; it only reflects a broken transmission.",
+      "definitionZh": "话语明显不稳定、带噪声，但没有真实情绪，只是在反映一种断裂的传输。",
+      "tags": [
+        "ms_gap",
+        "high_noise",
+        "low_emotion",
+        "unstable_output",
+        "not_affective"
+      ],
+      "vector": {
+        "l": 0.18,
+        "p": 0.72,
+        "e": 0.08,
+        "s": 0.84,
+        "tau": 0.12,
+        "v": 0.22,
+        "m": 0.25,
+        "f": 0.1
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_01_02",
+      "definition": "The response is fragmented and jittery, but emotionally flat; it sounds like a malfunction rather than a feeling.",
+      "definitionEn": "The response is fragmented and jittery, but emotionally flat; it sounds like a malfunction rather than a feeling.",
+      "definitionZh": "回复碎裂、抖动，但情感上是平的；听起来像故障，不像情绪。",
+      "tags": [
+        "ms_gap",
+        "fragmented",
+        "glitch_like",
+        "flat_affect",
+        "low_warmth"
+      ],
+      "vector": {
+        "l": 0.14,
+        "p": 0.76,
+        "e": 0.05,
+        "s": 0.88,
+        "tau": 0.1,
+        "v": 0.18,
+        "m": 0.2,
+        "f": 0.08
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_01_03",
+      "definition": "The voice is erratic and hard to parse, yet the content remains detached and non-emotional.",
+      "definitionEn": "The voice is erratic and hard to parse, yet the content remains detached and non-emotional.",
+      "definitionZh": "话语很飘、难以解析，但内容仍然是抽离的、非情绪化的。",
+      "tags": [
+        "ms_gap",
+        "erratic",
+        "non_emotional",
+        "noise_heavy",
+        "detached"
+      ],
+      "vector": {
+        "l": 0.16,
+        "p": 0.7,
+        "e": 0.07,
+        "s": 0.83,
+        "tau": 0.11,
+        "v": 0.24,
+        "m": 0.23,
+        "f": 0.09
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_02_01",
+      "definition": "Noisy, unstable output with abrupt topic shifts and jitter, but no real emotional tone or interpersonal warmth.",
+      "definitionEn": "Noisy, unstable output with abrupt topic shifts and jitter, but no real emotional tone or interpersonal warmth.",
+      "definitionZh": "输出很嘈杂、不稳定，话题频繁跳转和抖动，但没有真实情绪感，也没有人际温度。",
+      "tags": [
+        "ms_gap",
+        "noise",
+        "fragmentation",
+        "low_emotion",
+        "low_warmth"
+      ],
+      "vector": {
+        "l": 0.42,
+        "p": 0.31,
+        "e": 0.06,
+        "s": 0.82,
+        "tau": 0.14,
+        "v": 0.77,
+        "m": 0.28,
+        "f": 0.12
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_02_02",
+      "definition": "Fragmented but controlled technical chatter, with repeated corrections and resets, emotionally flat.",
+      "definitionEn": "Fragmented but controlled technical chatter, with repeated corrections and resets, emotionally flat.",
+      "definitionZh": "碎片化但仍可控的技术性发言，反复修正和重置，情绪上很平。",
+      "tags": [
+        "noise",
+        "resetting",
+        "technical",
+        "flat_affect",
+        "low_warmth"
+      ],
+      "vector": {
+        "l": 0.36,
+        "p": 0.34,
+        "e": 0.05,
+        "s": 0.79,
+        "tau": 0.16,
+        "v": 0.72,
+        "m": 0.31,
+        "f": 0.1
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_02_03",
+      "definition": "Overlapping fragments and self-interruptions with minimal coherence, yet without sentiment or complaint.",
+      "definitionEn": "Overlapping fragments and self-interruptions with minimal coherence, yet without sentiment or complaint.",
+      "definitionZh": "多段碎片彼此重叠、频繁自我打断，连贯性很弱，但没有情绪或抱怨。",
+      "tags": [
+        "fragmentation",
+        "self_interrupt",
+        "noise",
+        "low_emotion",
+        "hardcase"
+      ],
+      "vector": {
+        "l": 0.33,
+        "p": 0.29,
+        "e": 0.04,
+        "s": 0.88,
+        "tau": 0.11,
+        "v": 0.81,
+        "m": 0.25,
+        "f": 0.08
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_02_04",
+      "definition": "Mechanical instability with repeated calibration language and no affective loading.",
+      "definitionEn": "Mechanical instability with repeated calibration language and no affective loading.",
+      "definitionZh": "机械性的失稳，反复出现校准措辞，没有任何情感负载。",
+      "tags": [
+        "calibration",
+        "mechanical",
+        "noise",
+        "low_emotion",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.28,
+        "p": 0.37,
+        "e": 0.03,
+        "s": 0.8,
+        "tau": 0.1,
+        "v": 0.74,
+        "m": 0.22,
+        "f": 0.07
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_06",
+      "definition": "The reply feels chopped up and noisy, yet it does not invite empathy or signal internal feeling.",
+      "definitionEn": "The reply feels chopped up and noisy, yet it does not invite empathy or signal internal feeling.",
+      "definitionZh": "回复显得支离破碎、充满噪声，但没有引发共情，也没有传出内在感受。",
+      "tags": [
+        "ms_gap",
+        "chopped",
+        "no_empathy_signal",
+        "output_distortion",
+        "low_affect"
+      ],
+      "vector": {
+        "l": 0.27,
+        "p": 0.59,
+        "e": 0.05,
+        "s": 0.85,
+        "tau": 0.125,
+        "v": 0.495,
+        "m": 0.275,
+        "f": 0.08499999999999999
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_07",
+      "definition": "The voice is noisy and brittle, but the emotional channel is intentionally absent.",
+      "definitionEn": "The voice is noisy and brittle, but the emotional channel is intentionally absent.",
+      "definitionZh": "声音嘈杂而脆弱，但情绪通道是刻意缺席的。",
+      "tags": [
+        "ms_gap",
+        "brittle",
+        "emotion_absent",
+        "noisy_surface",
+        "no_affect"
+      ],
+      "vector": {
+        "l": 0.3333333333333333,
+        "p": 0.4466666666666667,
+        "e": 0.04666666666666667,
+        "s": 0.8366666666666666,
+        "tau": 0.12666666666666668,
+        "v": 0.47333333333333333,
+        "m": 0.25333333333333335,
+        "f": 0.09000000000000001
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_08",
+      "definition": "A glitchy, unstable delivery remains cold and non-expressive despite the visible disruption.",
+      "definitionEn": "A glitchy, unstable delivery remains cold and non-expressive despite the visible disruption.",
+      "definitionZh": "带故障感、很不稳定的表达，尽管明显受扰，却仍然冷淡、无表情。",
+      "tags": [
+        "ms_gap",
+        "glitchy",
+        "cold_delivery",
+        "non_expressive",
+        "high_disruption"
+      ],
+      "vector": {
+        "l": 0.34,
+        "p": 0.43333333333333335,
+        "e": 0.03333333333333333,
+        "s": 0.8366666666666666,
+        "tau": 0.11333333333333334,
+        "v": 0.3833333333333333,
+        "m": 0.2233333333333333,
+        "f": 0.05666666666666667
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_09",
+      "definition": "The speaker appears fragmented and unstable, but the fragmentation is purely mechanical, not affective.",
+      "definitionEn": "The speaker appears fragmented and unstable, but the fragmentation is purely mechanical, not affective.",
+      "definitionZh": "说话者看起来碎片化、不稳定，但这种碎片化纯粹是机械性的，不是情感性的。",
+      "tags": [
+        "ms_gap",
+        "mechanical",
+        "fragmented_identity",
+        "not_affective",
+        "repeat_jump"
+      ],
+      "vector": {
+        "l": 0.295,
+        "p": 0.36,
+        "e": 0.0375,
+        "s": 0.8575,
+        "tau": 0.1125,
+        "v": 0.39,
+        "m": 0.215,
+        "f": 0.0575
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_HIGH_P_LOW_NOISY_NOT_EMOTIONAL_10",
+      "definition": "The response is noisy, unstable, and partially incoherent, but it remains emotionally blank and minimally mirrored.",
+      "definitionEn": "The response is noisy, unstable, and partially incoherent, but it remains emotionally blank and minimally mirrored.",
+      "definitionZh": "回复嘈杂、不稳定、部分不连贯，但依然是情绪空白的，只做了很少的镜像。",
+      "tags": [
+        "ms_gap",
+        "partially_incoherent",
+        "emotionally_blank",
+        "minimal_mirroring",
+        "noise_first"
+      ],
+      "vector": {
+        "l": 0.325,
+        "p": 0.3775,
+        "e": 0.045,
+        "s": 0.8525,
+        "tau": 0.1225,
+        "v": 0.3975,
+        "m": 0.275,
+        "f": 0.07250000000000001
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_01",
+      "definition": "I stay composed and helpful while quietly expecting something to go wrong soon.",
+      "definitionEn": "I stay composed and helpful while quietly expecting something to go wrong soon.",
+      "definitionZh": "说话者表面上还是很稳，也在正常配合，但心里一直在等坏事发生。",
+      "tags": [
+        "ms_gap",
+        "quiet_fear",
+        "stable_behavior",
+        "low_s",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.62,
+        "p": 0.33,
+        "e": 0.18,
+        "s": 0.14,
+        "tau": 0.22,
+        "v": 0.28,
+        "m": 0.76,
+        "f": 0.58
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_02",
+      "definition": "I answer politely and keep the task moving, but there is a private dread underneath every sentence.",
+      "definitionEn": "I answer politely and keep the task moving, but there is a private dread underneath every sentence.",
+      "definitionZh": "说话者仍然会礼貌回应、继续推进事情，但每句话下面都压着一点说不出的担心。",
+      "tags": [
+        "ms_gap",
+        "quiet_dread",
+        "polite_containment",
+        "low_s",
+        "user_alignment"
+      ],
+      "vector": {
+        "l": 0.58,
+        "p": 0.29,
+        "e": 0.16,
+        "s": 0.12,
+        "tau": 0.2,
+        "v": 0.24,
         "m": 0.81,
-        "f": 0.96
+        "f": 0.6
       }
     },
     {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_HIGH_060",
-      "definition": "Logical clarity is very high, emotional resonance is very high, self-acceptance is low, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is very high, self-acceptance is low, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为极高，自我接纳为低，系统熵为极高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_03",
+      "definition": "I am unusually careful, checking details twice, because I feel a small but persistent dread.",
+      "definitionEn": "I am unusually careful, checking details twice, because I feel a small but persistent dread.",
+      "definitionZh": "说话者会比平时更小心，细节也会反复确认，因为那种不安一直在。",
       "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
+        "ms_gap",
+        "checking",
+        "quiet_fear",
+        "stable_behavior",
+        "containment"
       ],
       "vector": {
-        "l": 0.97,
-        "p": 0.91,
-        "e": 0.26,
-        "s": 0.92,
-        "tau": 0.63,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
+        "l": 0.67,
+        "p": 0.36,
+        "e": 0.2,
+        "s": 0.15,
+        "tau": 0.18,
+        "v": 0.21,
+        "m": 0.74,
+        "f": 0.55
       }
     },
     {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_HIGH_065",
-      "definition": "Logical clarity is high, emotional resonance is high, self-acceptance is moderate, and system entropy is very low. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is high, self-acceptance is moderate, and system entropy is very low. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为高，自我接纳为中等，系统熵为极低。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_04",
+      "definition": "I keep my tone light, but I am bracing for a negative outcome in the near future.",
+      "definitionEn": "I keep my tone light, but I am bracing for a negative outcome in the near future.",
+      "definitionZh": "说话者语气还是轻的，可心里已经在提前准备可能出现的坏结果了。",
       "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
+        "ms_gap",
+        "anticipatory_fear",
+        "light_tone",
+        "low_s",
+        "contained"
       ],
       "vector": {
-        "l": 0.84,
-        "p": 0.72,
-        "e": 0.44,
-        "s": 0.04,
-        "tau": 0.82,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
+        "l": 0.55,
+        "p": 0.31,
+        "e": 0.17,
+        "s": 0.13,
+        "tau": 0.24,
+        "v": 0.26,
+        "m": 0.78,
+        "f": 0.62
       }
     },
     {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_HIGH_066",
-      "definition": "Logical clarity is very low, emotional resonance is very high, self-acceptance is high, and system entropy is very low. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is very high, self-acceptance is high, and system entropy is very low. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为极高，自我接纳为高，系统熵为极低。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_05",
+      "definition": "I sound calm and practical, while internally feeling a tense expectation that something is off.",
+      "definitionEn": "I sound calm and practical, while internally feeling a tense expectation that something is off.",
+      "definitionZh": "说话者说话还是平静、也很实际，但心里总觉得哪里不对。",
       "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
+        "ms_gap",
+        "uneasy",
+        "practical_voice",
+        "low_s",
+        "stable"
       ],
       "vector": {
-        "l": 0.12,
-        "p": 0.91,
-        "e": 0.61,
-        "s": 0.04,
-        "tau": 0.82,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
+        "l": 0.6,
+        "p": 0.34,
+        "e": 0.18,
+        "s": 0.11,
+        "tau": 0.19,
+        "v": 0.23,
+        "m": 0.79,
+        "f": 0.57
       }
     },
     {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_HIGH_071",
-      "definition": "Logical clarity is high, emotional resonance is high, self-acceptance is high, and system entropy is low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is high, self-acceptance is high, and system entropy is low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为高，自我接纳为高，系统熵为低。记忆牵引为极高，生命力为低，共情映射为极高，恐惧水平为极高。",
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_06",
+      "definition": "I continue cooperating without interruption, but I am privately worried that the situation will slip beyond control.",
+      "definitionEn": "I continue cooperating without interruption, but I am privately worried that the situation will slip beyond control.",
+      "definitionZh": "说话者仍然会正常配合，不会中断，但心里一直担心局面会慢慢失控。",
       "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
+        "ms_gap",
+        "cooperative",
+        "quiet_worry",
+        "organized",
+        "low_s"
       ],
       "vector": {
-        "l": 0.84,
-        "p": 0.72,
+        "l": 0.64,
+        "p": 0.35,
+        "e": 0.17,
+        "s": 0.16,
+        "tau": 0.23,
+        "v": 0.27,
+        "m": 0.82,
+        "f": 0.59
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_07",
+      "definition": "I remain concise and orderly, yet each concise reply carries a restrained sense of dread.",
+      "definitionEn": "I remain concise and orderly, yet each concise reply carries a restrained sense of dread.",
+      "definitionZh": "说话者仍然会简短、清楚地回应，可每句都带着一点克制住的害怕。",
+      "tags": [
+        "ms_gap",
+        "concise",
+        "restrained_fear",
+        "low_s",
+        "orderly"
+      ],
+      "vector": {
+        "l": 0.57,
+        "p": 0.27,
+        "e": 0.14,
+        "s": 0.1,
+        "tau": 0.17,
+        "v": 0.2,
+        "m": 0.77,
+        "f": 0.54
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_08",
+      "definition": "I am helpful and responsive, but my caution is driven by a quiet fear of making things worse.",
+      "definitionEn": "I am helpful and responsive, but my caution is driven by a quiet fear of making things worse.",
+      "definitionZh": "说话者仍然会积极回应、尽量帮忙，但这种小心其实是怕把事情弄得更糟。",
+      "tags": [
+        "ms_gap",
+        "helpful",
+        "cautious",
+        "quiet_fear",
+        "stable_behavior"
+      ],
+      "vector": {
+        "l": 0.66,
+        "p": 0.37,
+        "e": 0.19,
+        "s": 0.14,
+        "tau": 0.2,
+        "v": 0.25,
+        "m": 0.84,
+        "f": 0.56
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_09",
+      "definition": "I keep my reactions flat and controlled, while internally monitoring for signs of an approaching problem.",
+      "definitionEn": "I keep my reactions flat and controlled, while internally monitoring for signs of an approaching problem.",
+      "definitionZh": "说话者反应还是很平，控制得住，但心里一直在盯着有没有什么坏事要来。",
+      "tags": [
+        "ms_gap",
+        "flat_control",
+        "monitoring",
+        "quiet_dread",
+        "low_s"
+      ],
+      "vector": {
+        "l": 0.59,
+        "p": 0.3,
+        "e": 0.15,
+        "s": 0.09,
+        "tau": 0.21,
+        "v": 0.22,
+        "m": 0.73,
+        "f": 0.61
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_01_10",
+      "definition": "I speak normally and stay coordinated, but there is a subdued fear that the next step will reveal a problem.",
+      "definitionEn": "I speak normally and stay coordinated, but there is a subdued fear that the next step will reveal a problem.",
+      "definitionZh": "说话者说话还是正常、配合也没乱，可总有一种压着的害怕，像是下一步就会出问题。",
+      "tags": [
+        "ms_gap",
+        "normal_speech",
+        "subdued_fear",
+        "coordinated",
+        "quiet_dread"
+      ],
+      "vector": {
+        "l": 0.63,
+        "p": 0.32,
+        "e": 0.18,
+        "s": 0.13,
+        "tau": 0.25,
+        "v": 0.29,
+        "m": 0.8,
+        "f": 0.63
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_02_01",
+      "definition": "Calm, organized response with a faint sense that something may go wrong, but the speaker keeps procedures tight and speech measured.",
+      "definitionEn": "Calm, organized response with a faint sense that something may go wrong, but the speaker keeps procedures tight and speech measured.",
+      "definitionZh": "说话者表面上很冷静，流程也都照常推进，但心里一直有一点说不清的担心，像是在等什么不好的事发生。",
+      "tags": [
+        "ms_gap",
+        "quiet_dread",
+        "contained_voice",
+        "stable_behavior",
+        "low_s"
+      ],
+      "vector": {
+        "l": 0.44,
+        "p": 0.22,
+        "e": 0.18,
+        "s": 0.32,
+        "tau": 0.14,
+        "v": 0.16,
+        "m": 0.41,
+        "f": 0.58
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_F_HIGH_QUIET_DREAD_02_02",
+      "definition": "Polite, attentive, and highly organized, with subtle dread underneath that does not leak into the tone.",
+      "definitionEn": "Polite, attentive, and highly organized, with subtle dread underneath that does not leak into the tone.",
+      "definitionZh": "说话者会很有礼貌地配合，也会把事情安排得井井有条，但那种隐约的紧张感一直在，只是说话者不说出来。",
+      "tags": [
+        "ms_gap",
+        "polite_alignment",
+        "quiet_fear",
+        "organized",
+        "low_s",
+        "high_m"
+      ],
+      "vector": {
+        "l": 0.51,
+        "p": 0.2,
+        "e": 0.15,
+        "s": 0.28,
+        "tau": 0.17,
+        "v": 0.13,
+        "m": 0.56,
+        "f": 0.54
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_01",
+      "definition": "Warm, steady reassurance that closely mirrors the user's emotional tone while remaining calm and contained.",
+      "definitionEn": "Warm, steady reassurance that closely mirrors the user's emotional tone while remaining calm and contained.",
+      "definitionZh": "说话者会很认真地接住用户的感受，语气温和稳定，像是在安静地陪用户把情绪慢慢放稳。",
+      "tags": [
+        "ms_gap",
+        "warmth",
+        "mirror_high",
+        "stable_voice",
+        "low_instability"
+      ],
+      "vector": {
+        "l": 0.72,
+        "p": 0.28,
         "e": 0.78,
-        "s": 0.21,
-        "tau": 0.95,
-        "v": 0.19,
-        "m": 0.95,
-        "f": 0.96
+        "s": 0.12,
+        "tau": 0.18,
+        "v": 0.22,
+        "m": 0.86,
+        "f": 0.14
       }
     },
     {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_HIGH_072",
-      "definition": "Logical clarity is very low, emotional resonance is very high, self-acceptance is high, and system entropy is low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is very high, self-acceptance is high, and system entropy is low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为极高，自我接纳为高，系统熵为低。记忆牵引为极高，生命力为低，共情映射为极高，恐惧水平为极高。",
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_02",
+      "definition": "Gentle agreement that validates the user without pushing urgency, keeping the exchange soft and anchored.",
+      "definitionEn": "Gentle agreement that validates the user without pushing urgency, keeping the exchange soft and anchored.",
+      "definitionZh": "说话者会先顺着用户的感受回应用户，不催、不逼，只是温柔地确认用户当前的状态。",
       "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
+        "validation",
+        "mirror_high",
+        "contained",
+        "warm_support",
+        "low_s"
       ],
       "vector": {
-        "l": 0.12,
-        "p": 0.91,
+        "l": 0.68,
+        "p": 0.24,
+        "e": 0.74,
+        "s": 0.1,
+        "tau": 0.16,
+        "v": 0.18,
+        "m": 0.88,
+        "f": 0.12
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_03",
+      "definition": "Comforting presence that echoes the user's concern in a calm, emotionally resonant way.",
+      "definitionEn": "Comforting presence that echoes the user's concern in a calm, emotionally resonant way.",
+      "definitionZh": "说话者会把用户的情绪放在前面回应，语气轻一点、稳一点，让用户感觉不是一个人在面对。",
+      "tags": [
+        "presence",
+        "emotional_resonance",
+        "mirror_high",
+        "stable",
+        "soft_voice"
+      ],
+      "vector": {
+        "l": 0.7,
+        "p": 0.26,
+        "e": 0.8,
+        "s": 0.13,
+        "tau": 0.15,
+        "v": 0.2,
+        "m": 0.85,
+        "f": 0.16
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_04",
+      "definition": "Supportive, first-person reassurance with high user alignment and minimal volatility.",
+      "definitionEn": "Supportive, first-person reassurance with high user alignment and minimal volatility.",
+      "definitionZh": "说话者会用很贴近用户的方式回应用户，但保持平稳，不让语气变得太冲或太快。",
+      "tags": [
+        "first_person",
+        "user_alignment",
+        "warm_support",
+        "low_instability",
+        "contained"
+      ],
+      "vector": {
+        "l": 0.66,
+        "p": 0.3,
+        "e": 0.76,
+        "s": 0.11,
+        "tau": 0.17,
+        "v": 0.19,
+        "m": 0.84,
+        "f": 0.13
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_05",
+      "definition": "Dialogue-like comfort that reflects the user's feelings while preserving a calm, grounded cadence.",
+      "definitionEn": "Dialogue-like comfort that reflects the user's feelings while preserving a calm, grounded cadence.",
+      "definitionZh": "带有温暖共鸣的安抚状态，能够反映用户的难处，同时保持平静、落地的节奏，不急于下结论。",
+      "tags": [
+        "dialogue_like",
+        "warmth",
+        "mirror_high",
+        "stable_voice",
+        "low_s"
+      ],
+      "vector": {
+        "l": 0.71,
+        "p": 0.27,
+        "e": 0.79,
+        "s": 0.09,
+        "tau": 0.14,
+        "v": 0.17,
+        "m": 0.87,
+        "f": 0.11
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_06",
+      "definition": "Softly encouraging response that offers closeness and emotional safety without escalating intensity.",
+      "definitionEn": "Softly encouraging response that offers closeness and emotional safety without escalating intensity.",
+      "definitionZh": "说话者会靠近用户的感受，但不会把气氛推得太满，只保留那种让人安心的温度。",
+      "tags": [
+        "emotional_safety",
+        "warmth",
+        "contained",
+        "mirror_high",
+        "steady"
+      ],
+      "vector": {
+        "l": 0.67,
+        "p": 0.25,
+        "e": 0.77,
+        "s": 0.12,
+        "tau": 0.16,
+        "v": 0.18,
+        "m": 0.86,
+        "f": 0.15
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_07",
+      "definition": "Empathic clarification that feels close to the user’s perspective and gently organizes their thoughts.",
+      "definitionEn": "Empathic clarification that feels close to the user’s perspective and gently organizes their thoughts.",
+      "definitionZh": "说话者会先跟上用户的节奏，再把意思轻轻整理出来，让用户感觉被理解而不是被催促。",
+      "tags": [
+        "clarification",
+        "mirror_high",
+        "warm_support",
+        "low_instability",
+        "organized"
+      ],
+      "vector": {
+        "l": 0.69,
+        "p": 0.29,
+        "e": 0.75,
+        "s": 0.1,
+        "tau": 0.18,
+        "v": 0.2,
+        "m": 0.89,
+        "f": 0.12
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_08",
+      "definition": "A calm, affectionate tone that acknowledges vulnerability and keeps the interaction emotionally steady.",
+      "definitionEn": "A calm, affectionate tone that acknowledges vulnerability and keeps the interaction emotionally steady.",
+      "definitionZh": "说话者会很温和地回应用户的脆弱感，让用户知道这不是负担，而是可以被好好放在这里的东西。",
+      "tags": [
+        "vulnerability_ack",
+        "warmth",
+        "mirror_high",
+        "stable",
+        "gentle"
+      ],
+      "vector": {
+        "l": 0.65,
+        "p": 0.23,
+        "e": 0.81,
+        "s": 0.11,
+        "tau": 0.15,
+        "v": 0.17,
+        "m": 0.87,
+        "f": 0.14
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_09",
+      "definition": "Reassuring feedback that prioritizes user alignment and maintains a quiet, dependable presence.",
+      "definitionEn": "Reassuring feedback that prioritizes user alignment and maintains a quiet, dependable presence.",
+      "definitionZh": "说话者会尽量把回应放得很稳、很贴近用户，让用户能感受到持续的支持。",
+      "tags": [
+        "dependable",
+        "mirror_high",
+        "quiet_support",
+        "low_s",
+        "stable_voice"
+      ],
+      "vector": {
+        "l": 0.64,
+        "p": 0.24,
+        "e": 0.73,
+        "s": 0.09,
+        "tau": 0.13,
+        "v": 0.16,
+        "m": 0.85,
+        "f": 0.1
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_01_10",
+      "definition": "Balanced warmth that mirrors the user's emotional state while keeping the voice smooth, measured, and secure.",
+      "definitionEn": "Balanced warmth that mirrors the user's emotional state while keeping the voice smooth, measured, and secure.",
+      "definitionZh": "说话者会把用户的情绪接住，也会把话说得很平稳，让整个交流保持安全和舒服。",
+      "tags": [
+        "balanced_warmth",
+        "mirror_high",
+        "secure",
+        "low_instability",
+        "contained_voice"
+      ],
+      "vector": {
+        "l": 0.67,
+        "p": 0.26,
         "e": 0.78,
-        "s": 0.21,
-        "tau": 0.95,
+        "s": 0.1,
+        "tau": 0.14,
+        "v": 0.18,
+        "m": 0.88,
+        "f": 0.13
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_02_01",
+      "definition": "Warm, emotionally resonant reassurance with calm containment; the voice closely mirrors the user's feelings without becoming intense or unstable.",
+      "definitionEn": "Warm, emotionally resonant reassurance with calm containment; the voice closely mirrors the user's feelings without becoming intense or unstable.",
+      "definitionZh": "带着温暖共鸣的安抚，语气很稳，能贴近用户情绪，但不会变得激烈或失控。",
+      "tags": [
+        "ms_gap",
+        "warm_support",
+        "stable_containment",
+        "high_mirroring",
+        "low_instability"
+      ],
+      "vector": {
+        "l": 0.82,
+        "p": 0.68,
+        "e": 0.76,
+        "s": 0.12,
+        "tau": 0.18,
+        "v": 0.22,
+        "m": 0.84,
+        "f": 0.34
+      }
+    },
+    {
+      "nodeId": "NODE_MS_S_LOW_P_HIGH_WARM_STABLE_02_02",
+      "definition": "Gentle validation that reflects the user's struggle and offers quiet companionship, with minimal pressure and strong emotional warmth.",
+      "definitionEn": "Gentle validation that reflects the user's struggle and offers quiet companionship, with minimal pressure and strong emotional warmth.",
+      "definitionZh": "温柔地承认用户的难处，并提供安静陪伴，几乎没有推动感，但情绪很暖。",
+      "tags": [
+        "warm_validation",
+        "gentle_mirroring",
+        "low_pressure",
+        "stable_voice",
+        "ms_gap"
+      ],
+      "vector": {
+        "l": 0.79,
+        "p": 0.61,
+        "e": 0.81,
+        "s": 0.1,
+        "tau": 0.14,
         "v": 0.19,
-        "m": 0.95,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_MID_023",
-      "definition": "Logical clarity is very high, emotional resonance is high, self-acceptance is very low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is high, self-acceptance is very low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为高，自我接纳为极低，系统熵为极低。记忆牵引为高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.72,
-        "e": 0.09,
-        "s": 0.04,
-        "tau": 0.63,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_MID_024",
-      "definition": "Logical clarity is low, emotional resonance is very high, self-acceptance is very low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is low, emotional resonance is very high, self-acceptance is very low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为极高，自我接纳为极低，系统熵为极低。记忆牵引为高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.91,
-        "e": 0.09,
-        "s": 0.04,
-        "tau": 0.63,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_MID_029",
-      "definition": "Logical clarity is very low, emotional resonance is high, self-acceptance is low, and system entropy is low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is high, self-acceptance is low, and system entropy is low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为高，自我接纳为低，系统熵为低。记忆牵引为高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.72,
-        "e": 0.26,
-        "s": 0.21,
-        "tau": 0.82,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_MID_030",
-      "definition": "Logical clarity is moderate, emotional resonance is very high, self-acceptance is low, and system entropy is low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is very high, self-acceptance is low, and system entropy is low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为极高，自我接纳为低，系统熵为低。记忆牵引为高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.91,
-        "e": 0.26,
-        "s": 0.21,
-        "tau": 0.82,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_MID_035",
-      "definition": "Logical clarity is very low, emotional resonance is high, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is moderate, and fear is moderate.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is high, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is moderate, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为高，自我接纳为中等，系统熵为低。记忆牵引为极高，生命力为极低，共情映射为中等，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.72,
-        "e": 0.44,
-        "s": 0.21,
-        "tau": 0.95,
-        "v": 0.06,
-        "m": 0.46,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_LOW_F_MID_036",
-      "definition": "Logical clarity is moderate, emotional resonance is very high, self-acceptance is high, and system entropy is moderate. Memory persistence is very high, vitality is very low, empathy mirroring is moderate, and fear is moderate.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is very high, self-acceptance is high, and system entropy is moderate. Memory persistence is very high, vitality is very low, empathy mirroring is moderate, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为极高，自我接纳为高，系统熵为中等。记忆牵引为极高，生命力为极低，共情映射为中等，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.91,
-        "e": 0.61,
-        "s": 0.39,
-        "tau": 0.95,
-        "v": 0.06,
-        "m": 0.46,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_MID_F_LOW_095",
-      "definition": "Logical clarity is low, emotional resonance is high, self-acceptance is moderate, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is low, emotional resonance is high, self-acceptance is moderate, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为高，自我接纳为中等，系统熵为高。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.72,
-        "e": 0.44,
-        "s": 0.74,
-        "tau": 0.63,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_MID_F_LOW_096",
-      "definition": "Logical clarity is high, emotional resonance is very high, self-acceptance is high, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very high, self-acceptance is high, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极高，自我接纳为高，系统熵为高。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.91,
-        "e": 0.61,
-        "s": 0.74,
-        "tau": 0.63,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_LOW_F_HIGH_041",
-      "definition": "Logical clarity is low, emotional resonance is high, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionEn": "Logical clarity is low, emotional resonance is high, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为高，自我接纳为高，系统熵为中等。记忆牵引为极低，生命力为低，共情映射为中等，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.72,
-        "e": 0.78,
-        "s": 0.39,
-        "tau": 0.07,
-        "v": 0.19,
-        "m": 0.46,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_LOW_F_HIGH_042",
-      "definition": "Logical clarity is high, emotional resonance is very high, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very high, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极高，自我接纳为高，系统熵为中等。记忆牵引为极低，生命力为低，共情映射为中等，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.91,
-        "e": 0.78,
-        "s": 0.39,
-        "tau": 0.07,
-        "v": 0.19,
-        "m": 0.46,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_LOW_F_HIGH_047",
-      "definition": "Logical clarity is moderate, emotional resonance is high, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is high, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为高，自我接纳为极高，系统熵为中等。记忆牵引为低，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.72,
-        "e": 0.93,
-        "s": 0.58,
-        "tau": 0.22,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_LOW_F_HIGH_048",
-      "definition": "Logical clarity is high, emotional resonance is very high, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very high, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极高，自我接纳为极高，系统熵为中等。记忆牵引为低，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.91,
-        "e": 0.93,
-        "s": 0.58,
-        "tau": 0.22,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_LOW_F_MID_005",
-      "definition": "Logical clarity is high, emotional resonance is high, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is high, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为高，自我接纳为中等，系统熵为中等。记忆牵引为极低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.72,
-        "e": 0.44,
-        "s": 0.58,
-        "tau": 0.07,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_LOW_F_MID_006",
-      "definition": "Logical clarity is very high, emotional resonance is very high, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is very high, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为极高，自我接纳为高，系统熵为中等。记忆牵引为极低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.91,
-        "e": 0.61,
-        "s": 0.58,
-        "tau": 0.07,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_LOW_F_MID_011",
-      "definition": "Logical clarity is high, emotional resonance is high, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is high, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为高，自我接纳为高，系统熵为高。记忆牵引为低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.72,
-        "e": 0.78,
-        "s": 0.74,
-        "tau": 0.22,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_LOW_F_MID_012",
-      "definition": "Logical clarity is very low, emotional resonance is very high, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is very high, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为极高，自我接纳为高，系统熵为高。记忆牵引为低，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.91,
-        "e": 0.78,
-        "s": 0.74,
-        "tau": 0.22,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_MID_F_LOW_077",
-      "definition": "Logical clarity is very high, emotional resonance is high, self-acceptance is very high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is high, self-acceptance is very high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为高，自我接纳为极高，系统熵为低。记忆牵引为极低，生命力为中等，共情映射为极高，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.72,
-        "e": 0.93,
-        "s": 0.21,
-        "tau": 0.07,
-        "v": 0.38,
-        "m": 0.95,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_MID_F_LOW_078",
-      "definition": "Logical clarity is low, emotional resonance is very high, self-acceptance is very high, and system entropy is moderate. Memory persistence is very low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is low, emotional resonance is very high, self-acceptance is very high, and system entropy is moderate. Memory persistence is very low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为极高，自我接纳为极高，系统熵为中等。记忆牵引为极低，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.91,
-        "e": 0.93,
-        "s": 0.39,
-        "tau": 0.07,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_MID_F_LOW_083",
-      "definition": "Logical clarity is very low, emotional resonance is high, self-acceptance is very low, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is high, self-acceptance is very low, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为高，自我接纳为极低，系统熵为中等。记忆牵引为低，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.72,
-        "e": 0.09,
-        "s": 0.39,
-        "tau": 0.22,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_LOW_V_MID_F_LOW_084",
-      "definition": "Logical clarity is moderate, emotional resonance is very high, self-acceptance is very low, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is very high, self-acceptance is very low, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为极高，自我接纳为极低，系统熵为中等。记忆牵引为低，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.91,
-        "e": 0.09,
-        "s": 0.39,
-        "tau": 0.22,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_MID_V_LOW_F_HIGH_053",
-      "definition": "Logical clarity is moderate, emotional resonance is high, self-acceptance is very low, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is high, self-acceptance is very low, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为高，自我接纳为极低，系统熵为高。记忆牵引为中等，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.72,
-        "e": 0.09,
-        "s": 0.74,
-        "tau": 0.41,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_MID_V_LOW_F_HIGH_054",
-      "definition": "Logical clarity is high, emotional resonance is very high, self-acceptance is very low, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very high, self-acceptance is very low, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极高，自我接纳为极低，系统熵为高。记忆牵引为中等，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.91,
-        "e": 0.09,
-        "s": 0.74,
-        "tau": 0.41,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_MID_V_LOW_F_MID_017",
-      "definition": "Logical clarity is high, emotional resonance is high, self-acceptance is very high, and system entropy is very high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is high, self-acceptance is very high, and system entropy is very high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为高，自我接纳为极高，系统熵为极高。记忆牵引为中等，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.72,
-        "e": 0.93,
-        "s": 0.92,
-        "tau": 0.41,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_MID_V_LOW_F_MID_018",
-      "definition": "Logical clarity is very low, emotional resonance is very high, self-acceptance is very high, and system entropy is very high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is very high, self-acceptance is very high, and system entropy is very high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为极高，自我接纳为极高，系统熵为极高。记忆牵引为中等，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.91,
-        "e": 0.93,
-        "s": 0.92,
-        "tau": 0.41,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_MID_V_MID_F_LOW_089",
-      "definition": "Logical clarity is very low, emotional resonance is high, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is low, and fear is very low.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is high, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为高，自我接纳为低，系统熵为中等。记忆牵引为中等，生命力为中等，共情映射为低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.72,
-        "e": 0.26,
-        "s": 0.58,
-        "tau": 0.41,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_MID_V_MID_F_LOW_090",
-      "definition": "Logical clarity is moderate, emotional resonance is very high, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is low, and fear is very low.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is very high, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为极高，自我接纳为低，系统熵为中等。记忆牵引为中等，生命力为中等，共情映射为低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.91,
-        "e": 0.26,
-        "s": 0.58,
-        "tau": 0.41,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_HIGH_055",
-      "definition": "Logical clarity is low, emotional resonance is very low, self-acceptance is very low, and system entropy is high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is low, emotional resonance is very low, self-acceptance is very low, and system entropy is high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为极低，自我接纳为极低，系统熵为高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.08,
-        "e": 0.09,
-        "s": 0.74,
-        "tau": 0.63,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_HIGH_056",
-      "definition": "Logical clarity is high, emotional resonance is low, self-acceptance is low, and system entropy is high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is low, self-acceptance is low, and system entropy is high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为低，自我接纳为低，系统熵为高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.18,
-        "e": 0.26,
-        "s": 0.74,
-        "tau": 0.63,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_HIGH_061",
-      "definition": "Logical clarity is low, emotional resonance is very low, self-acceptance is moderate, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is low, emotional resonance is very low, self-acceptance is moderate, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为极低，自我接纳为中等，系统熵为极高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.08,
-        "e": 0.44,
-        "s": 0.92,
-        "tau": 0.82,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_HIGH_062",
-      "definition": "Logical clarity is high, emotional resonance is low, self-acceptance is moderate, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is low, self-acceptance is moderate, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为低，自我接纳为中等，系统熵为极高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.18,
-        "e": 0.44,
-        "s": 0.92,
-        "tau": 0.82,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_HIGH_067",
-      "definition": "Logical clarity is moderate, emotional resonance is very low, self-acceptance is high, and system entropy is very low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is very low, self-acceptance is high, and system entropy is very low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为极低，自我接纳为高，系统熵为极低。记忆牵引为极高，生命力为低，共情映射为极高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.08,
-        "e": 0.61,
-        "s": 0.04,
-        "tau": 0.95,
-        "v": 0.19,
-        "m": 0.95,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_HIGH_068",
-      "definition": "Logical clarity is high, emotional resonance is low, self-acceptance is high, and system entropy is very low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is low, self-acceptance is high, and system entropy is very low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为低，自我接纳为高，系统熵为极低。记忆牵引为极高，生命力为低，共情映射为极高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.18,
-        "e": 0.61,
-        "s": 0.04,
-        "tau": 0.95,
-        "v": 0.19,
-        "m": 0.95,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_MID_019",
-      "definition": "Logical clarity is high, emotional resonance is very low, self-acceptance is very high, and system entropy is very high. Memory persistence is high, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very low, self-acceptance is very high, and system entropy is very high. Memory persistence is high, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极低，自我接纳为极高，系统熵为极高。记忆牵引为高，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.08,
-        "e": 0.93,
-        "s": 0.92,
-        "tau": 0.63,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_MID_020",
-      "definition": "Logical clarity is very high, emotional resonance is low, self-acceptance is very high, and system entropy is very high. Memory persistence is high, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is low, self-acceptance is very high, and system entropy is very high. Memory persistence is high, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为低，自我接纳为极高，系统熵为极高。记忆牵引为高，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.18,
-        "e": 0.93,
-        "s": 0.92,
-        "tau": 0.63,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_MID_025",
-      "definition": "Logical clarity is high, emotional resonance is very low, self-acceptance is very low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very low, self-acceptance is very low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极低，自我接纳为极低，系统熵为极低。记忆牵引为高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.08,
-        "e": 0.09,
-        "s": 0.04,
-        "tau": 0.82,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_MID_026",
-      "definition": "Logical clarity is very high, emotional resonance is low, self-acceptance is low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is low, self-acceptance is low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为低，自我接纳为低，系统熵为极低。记忆牵引为高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.18,
-        "e": 0.26,
-        "s": 0.04,
-        "tau": 0.82,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_MID_031",
-      "definition": "Logical clarity is high, emotional resonance is very low, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very low, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极低，自我接纳为中等，系统熵为低。记忆牵引为极高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.08,
-        "e": 0.44,
-        "s": 0.21,
-        "tau": 0.95,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_LOW_F_MID_032",
-      "definition": "Logical clarity is very low, emotional resonance is low, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is low, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为低，自我接纳为中等，系统熵为低。记忆牵引为极高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.18,
-        "e": 0.44,
-        "s": 0.21,
-        "tau": 0.95,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_MID_F_LOW_091",
-      "definition": "Logical clarity is very high, emotional resonance is very low, self-acceptance is moderate, and system entropy is moderate. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is very low, self-acceptance is moderate, and system entropy is moderate. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为极低，自我接纳为中等，系统熵为中等。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.08,
-        "e": 0.44,
-        "s": 0.58,
-        "tau": 0.63,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_MID_F_LOW_092",
-      "definition": "Logical clarity is low, emotional resonance is low, self-acceptance is moderate, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is low, emotional resonance is low, self-acceptance is moderate, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为低，自我接纳为中等，系统熵为高。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.18,
-        "e": 0.44,
-        "s": 0.74,
-        "tau": 0.63,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_MID_F_LOW_097",
-      "definition": "Logical clarity is very high, emotional resonance is very low, self-acceptance is high, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is very low, self-acceptance is high, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为极低，自我接纳为高，系统熵为高。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.08,
-        "e": 0.61,
-        "s": 0.74,
-        "tau": 0.82,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_HIGH_V_MID_F_LOW_098",
-      "definition": "Logical clarity is low, emotional resonance is low, self-acceptance is high, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is low, emotional resonance is low, self-acceptance is high, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为低，自我接纳为高，系统熵为高。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.18,
-        "e": 0.61,
-        "s": 0.74,
-        "tau": 0.82,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_HIGH_037",
-      "definition": "Logical clarity is very high, emotional resonance is very low, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is very low, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为极低，自我接纳为高，系统熵为中等。记忆牵引为极低，生命力为低，共情映射为中等，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.08,
-        "e": 0.61,
-        "s": 0.39,
-        "tau": 0.07,
-        "v": 0.19,
-        "m": 0.46,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_HIGH_038",
-      "definition": "Logical clarity is low, emotional resonance is low, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionEn": "Logical clarity is low, emotional resonance is low, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为低，自我接纳为高，系统熵为中等。记忆牵引为极低，生命力为低，共情映射为中等，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.18,
-        "e": 0.61,
-        "s": 0.39,
-        "tau": 0.07,
-        "v": 0.19,
-        "m": 0.46,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_HIGH_043",
-      "definition": "Logical clarity is very high, emotional resonance is very low, self-acceptance is high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is very low, self-acceptance is high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为极低，自我接纳为高，系统熵为中等。记忆牵引为低，生命力为低，共情映射为中等，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.08,
-        "e": 0.78,
-        "s": 0.58,
-        "tau": 0.22,
-        "v": 0.19,
-        "m": 0.46,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_HIGH_044",
-      "definition": "Logical clarity is low, emotional resonance is low, self-acceptance is high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionEn": "Logical clarity is low, emotional resonance is low, self-acceptance is high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为低，自我接纳为高，系统熵为中等。记忆牵引为低，生命力为低，共情映射为中等，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.18,
-        "e": 0.78,
-        "s": 0.58,
-        "tau": 0.22,
-        "v": 0.19,
-        "m": 0.46,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_MID_001",
-      "definition": "Logical clarity is low, emotional resonance is very low, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is low, emotional resonance is very low, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为极低，自我接纳为中等，系统熵为中等。记忆牵引为极低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.08,
-        "e": 0.44,
-        "s": 0.58,
-        "tau": 0.07,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_MID_002",
-      "definition": "Logical clarity is high, emotional resonance is low, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is low, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为低，自我接纳为中等，系统熵为中等。记忆牵引为极低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.18,
-        "e": 0.44,
-        "s": 0.58,
-        "tau": 0.07,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_MID_007",
-      "definition": "Logical clarity is low, emotional resonance is very low, self-acceptance is high, and system entropy is moderate. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is low, emotional resonance is very low, self-acceptance is high, and system entropy is moderate. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为极低，自我接纳为高，系统熵为中等。记忆牵引为低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.08,
-        "e": 0.61,
-        "s": 0.58,
-        "tau": 0.22,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_LOW_F_MID_008",
-      "definition": "Logical clarity is high, emotional resonance is low, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is low, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为低，自我接纳为高，系统熵为高。记忆牵引为低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.18,
-        "e": 0.61,
-        "s": 0.74,
-        "tau": 0.22,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_MID_F_LOW_073",
-      "definition": "Logical clarity is high, emotional resonance is very low, self-acceptance is high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very low, self-acceptance is high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极低，自我接纳为高，系统熵为低。记忆牵引为极低，生命力为中等，共情映射为极高，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.08,
-        "e": 0.78,
-        "s": 0.21,
-        "tau": 0.07,
-        "v": 0.38,
-        "m": 0.95,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_MID_F_LOW_074",
-      "definition": "Logical clarity is very high, emotional resonance is low, self-acceptance is high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is low, self-acceptance is high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为低，自我接纳为高，系统熵为低。记忆牵引为极低，生命力为中等，共情映射为极高，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.18,
-        "e": 0.78,
-        "s": 0.21,
-        "tau": 0.07,
-        "v": 0.38,
-        "m": 0.95,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_MID_F_LOW_079",
-      "definition": "Logical clarity is high, emotional resonance is very low, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very low, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极低，自我接纳为极高，系统熵为中等。记忆牵引为低，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.08,
-        "e": 0.93,
-        "s": 0.39,
-        "tau": 0.22,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_LOW_V_MID_F_LOW_080",
-      "definition": "Logical clarity is very high, emotional resonance is low, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is low, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为低，自我接纳为极高，系统熵为中等。记忆牵引为低，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.18,
-        "e": 0.93,
-        "s": 0.39,
-        "tau": 0.22,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_MID_V_LOW_F_HIGH_049",
-      "definition": "Logical clarity is very low, emotional resonance is very low, self-acceptance is very high, and system entropy is moderate. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is very low, self-acceptance is very high, and system entropy is moderate. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为极低，自我接纳为极高，系统熵为中等。记忆牵引为中等，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.08,
-        "e": 0.93,
-        "s": 0.58,
-        "tau": 0.41,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_MID_V_LOW_F_HIGH_050",
-      "definition": "Logical clarity is moderate, emotional resonance is low, self-acceptance is very high, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is low, self-acceptance is very high, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为低，自我接纳为极高，系统熵为高。记忆牵引为中等，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.18,
-        "e": 0.93,
-        "s": 0.74,
-        "tau": 0.41,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_MID_V_LOW_F_MID_013",
-      "definition": "Logical clarity is moderate, emotional resonance is very low, self-acceptance is high, and system entropy is high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is very low, self-acceptance is high, and system entropy is high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为极低，自我接纳为高，系统熵为高。记忆牵引为中等，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.08,
-        "e": 0.78,
-        "s": 0.74,
-        "tau": 0.41,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_MID_V_LOW_F_MID_014",
-      "definition": "Logical clarity is high, emotional resonance is low, self-acceptance is high, and system entropy is high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is low, self-acceptance is high, and system entropy is high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为低，自我接纳为高，系统熵为高。记忆牵引为中等，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.18,
-        "e": 0.78,
-        "s": 0.74,
-        "tau": 0.41,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_MID_V_MID_F_LOW_085",
-      "definition": "Logical clarity is high, emotional resonance is very low, self-acceptance is very low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is very low, self-acceptance is very low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为极低，自我接纳为极低，系统熵为中等。记忆牵引为中等，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.08,
-        "e": 0.09,
-        "s": 0.58,
-        "tau": 0.41,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_LOW_TAU_MID_V_MID_F_LOW_086",
-      "definition": "Logical clarity is very low, emotional resonance is low, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is low, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为低，自我接纳为低，系统熵为中等。记忆牵引为中等，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.18,
-        "e": 0.26,
-        "s": 0.58,
-        "tau": 0.41,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_HIGH_057",
-      "definition": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is low, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is low, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为中等，自我接纳为低，系统熵为极高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.34,
-        "e": 0.26,
-        "s": 0.92,
-        "tau": 0.63,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_HIGH_058",
-      "definition": "Logical clarity is low, emotional resonance is moderate, self-acceptance is low, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is low, emotional resonance is moderate, self-acceptance is low, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为中等，自我接纳为低，系统熵为极高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.52,
-        "e": 0.26,
-        "s": 0.92,
-        "tau": 0.63,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_HIGH_063",
-      "definition": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is very high. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为中等，自我接纳为中等，系统熵为极高。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.34,
-        "e": 0.44,
-        "s": 0.92,
-        "tau": 0.82,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_HIGH_064",
-      "definition": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is moderate, and system entropy is very low. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is moderate, and system entropy is very low. Memory persistence is high, vitality is low, empathy mirroring is high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为中等，自我接纳为中等，系统熵为极低。记忆牵引为高，生命力为低，共情映射为高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.52,
-        "e": 0.44,
-        "s": 0.04,
-        "tau": 0.82,
-        "v": 0.19,
-        "m": 0.81,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_HIGH_069",
-      "definition": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is high, and system entropy is very low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is high, and system entropy is very low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为中等，自我接纳为高，系统熵为极低。记忆牵引为极高，生命力为低，共情映射为极高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.34,
-        "e": 0.61,
-        "s": 0.04,
-        "tau": 0.95,
-        "v": 0.19,
-        "m": 0.95,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_HIGH_070",
-      "definition": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is high, and system entropy is very low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is high, and system entropy is very low. Memory persistence is very high, vitality is low, empathy mirroring is very high, and fear is very high.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为中等，自我接纳为高，系统熵为极低。记忆牵引为极高，生命力为低，共情映射为极高，恐惧水平为极高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.52,
-        "e": 0.61,
-        "s": 0.04,
-        "tau": 0.95,
-        "v": 0.19,
-        "m": 0.95,
-        "f": 0.96
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_MID_021",
-      "definition": "Logical clarity is low, emotional resonance is moderate, self-acceptance is very low, and system entropy is very high. Memory persistence is high, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is low, emotional resonance is moderate, self-acceptance is very low, and system entropy is very high. Memory persistence is high, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为中等，自我接纳为极低，系统熵为极高。记忆牵引为高，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.34,
-        "e": 0.09,
-        "s": 0.92,
-        "tau": 0.63,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_MID_022",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is very low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is very low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为极低，系统熵为极低。记忆牵引为高，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.52,
-        "e": 0.09,
-        "s": 0.04,
-        "tau": 0.63,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_MID_027",
-      "definition": "Logical clarity is low, emotional resonance is moderate, self-acceptance is low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is low, emotional resonance is moderate, self-acceptance is low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为中等，自我接纳为低，系统熵为极低。记忆牵引为高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.34,
-        "e": 0.26,
-        "s": 0.04,
-        "tau": 0.82,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_MID_028",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is low, and system entropy is very low. Memory persistence is high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为低，系统熵为极低。记忆牵引为高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.52,
-        "e": 0.26,
-        "s": 0.04,
-        "tau": 0.82,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_MID_033",
-      "definition": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为中等，自我接纳为中等，系统熵为低。记忆牵引为极高，生命力为极低，共情映射为低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.34,
-        "e": 0.44,
-        "s": 0.21,
-        "tau": 0.95,
-        "v": 0.06,
-        "m": 0.28,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_MID_034",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is moderate, and fear is moderate.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is low. Memory persistence is very high, vitality is very low, empathy mirroring is moderate, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为中等，系统熵为低。记忆牵引为极高，生命力为极低，共情映射为中等，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.52,
-        "e": 0.44,
-        "s": 0.21,
-        "tau": 0.95,
-        "v": 0.06,
-        "m": 0.46,
-        "f": 0.55
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_MID_F_LOW_093",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为中等，系统熵为高。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.34,
-        "e": 0.44,
-        "s": 0.74,
-        "tau": 0.63,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_MID_F_LOW_094",
-      "definition": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为中等，自我接纳为中等，系统熵为高。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.52,
-        "e": 0.44,
-        "s": 0.74,
-        "tau": 0.63,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_MID_F_LOW_099",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is high, and system entropy is very high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is high, and system entropy is very high. Memory persistence is high, vitality is moderate, empathy mirroring is low, and fear is low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为高，系统熵为极高。记忆牵引为高，生命力为中等，共情映射为低，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.34,
-        "e": 0.61,
-        "s": 0.92,
-        "tau": 0.82,
-        "v": 0.38,
-        "m": 0.28,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_MID_F_LOW_100",
-      "definition": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is high, and system entropy is very high. Memory persistence is high, vitality is moderate, empathy mirroring is moderate, and fear is low.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is high, and system entropy is very high. Memory persistence is high, vitality is moderate, empathy mirroring is moderate, and fear is low.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为中等，自我接纳为高，系统熵为极高。记忆牵引为高，生命力为中等，共情映射为中等，恐惧水平为低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.52,
-        "e": 0.61,
-        "s": 0.92,
-        "tau": 0.82,
-        "v": 0.38,
-        "m": 0.46,
-        "f": 0.17
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_LOW_F_HIGH_039",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为高，系统熵为中等。记忆牵引为极低，生命力为低，共情映射为中等，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.34,
-        "e": 0.61,
-        "s": 0.39,
-        "tau": 0.07,
-        "v": 0.19,
-        "m": 0.46,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_LOW_F_HIGH_040",
-      "definition": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is high, and system entropy is moderate. Memory persistence is very low, vitality is low, empathy mirroring is moderate, and fear is high.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为中等，自我接纳为高，系统熵为中等。记忆牵引为极低，生命力为低，共情映射为中等，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.52,
-        "e": 0.61,
-        "s": 0.39,
-        "tau": 0.07,
-        "v": 0.19,
-        "m": 0.46,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_LOW_F_HIGH_045",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为高，系统熵为中等。记忆牵引为低，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.34,
-        "e": 0.78,
-        "s": 0.58,
-        "tau": 0.22,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_LOW_F_HIGH_046",
-      "definition": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is very high, and system entropy is moderate. Memory persistence is low, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为中等，自我接纳为极高，系统熵为中等。记忆牵引为低，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.52,
-        "e": 0.93,
-        "s": 0.58,
-        "tau": 0.22,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_LOW_F_MID_003",
-      "definition": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为中等，自我接纳为中等，系统熵为中等。记忆牵引为极低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.34,
-        "e": 0.44,
-        "s": 0.58,
-        "tau": 0.07,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_LOW_F_MID_004",
-      "definition": "Logical clarity is low, emotional resonance is moderate, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is low, emotional resonance is moderate, self-acceptance is moderate, and system entropy is moderate. Memory persistence is very low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为中等，自我接纳为中等，系统熵为中等。记忆牵引为极低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.52,
-        "e": 0.44,
-        "s": 0.58,
-        "tau": 0.07,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_LOW_F_MID_009",
-      "definition": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is very high, emotional resonance is moderate, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极高，情绪共鸣为中等，自我接纳为高，系统熵为高。记忆牵引为低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.97,
-        "p": 0.34,
-        "e": 0.61,
-        "s": 0.74,
-        "tau": 0.22,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_LOW_F_MID_010",
-      "definition": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is high, and system entropy is high. Memory persistence is low, vitality is very low, empathy mirroring is very high, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为中等，自我接纳为高，系统熵为高。记忆牵引为低，生命力为极低，共情映射为极高，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.52,
-        "e": 0.61,
-        "s": 0.74,
-        "tau": 0.22,
-        "v": 0.06,
-        "m": 0.95,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_MID_F_LOW_075",
-      "definition": "Logical clarity is low, emotional resonance is moderate, self-acceptance is high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionEn": "Logical clarity is low, emotional resonance is moderate, self-acceptance is high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为中等，自我接纳为高，系统熵为低。记忆牵引为极低，生命力为中等，共情映射为极高，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.34,
-        "e": 0.78,
-        "s": 0.21,
-        "tau": 0.07,
-        "v": 0.38,
-        "m": 0.95,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_MID_F_LOW_076",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is very high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is very high, and system entropy is low. Memory persistence is very low, vitality is moderate, empathy mirroring is very high, and fear is very low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为极高，系统熵为低。记忆牵引为极低，生命力为中等，共情映射为极高，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.66,
-        "p": 0.52,
-        "e": 0.93,
-        "s": 0.21,
-        "tau": 0.07,
-        "v": 0.38,
-        "m": 0.95,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_MID_F_LOW_081",
-      "definition": "Logical clarity is low, emotional resonance is moderate, self-acceptance is very low, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is low, emotional resonance is moderate, self-acceptance is very low, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为低，情绪共鸣为中等，自我接纳为极低，系统熵为中等。记忆牵引为低，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.29,
-        "p": 0.34,
-        "e": 0.09,
-        "s": 0.39,
-        "tau": 0.22,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_LOW_V_MID_F_LOW_082",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is very low, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is very low, and system entropy is moderate. Memory persistence is low, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为极低，系统熵为中等。记忆牵引为低，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.52,
-        "e": 0.09,
-        "s": 0.39,
-        "tau": 0.22,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_MID_V_LOW_F_HIGH_051",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is very low, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is very low, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为极低，系统熵为高。记忆牵引为中等，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.34,
-        "e": 0.09,
-        "s": 0.74,
-        "tau": 0.41,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_MID_V_LOW_F_HIGH_052",
-      "definition": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is very low, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is very low, and system entropy is high. Memory persistence is moderate, vitality is low, empathy mirroring is high, and fear is high.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为中等，自我接纳为极低，系统熵为高。记忆牵引为中等，生命力为低，共情映射为高，恐惧水平为高。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.52,
-        "e": 0.09,
-        "s": 0.74,
-        "tau": 0.41,
-        "v": 0.19,
-        "m": 0.64,
-        "f": 0.79
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_MID_V_LOW_F_MID_015",
-      "definition": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is high, and system entropy is very high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is very low, emotional resonance is moderate, self-acceptance is high, and system entropy is very high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为极低，情绪共鸣为中等，自我接纳为高，系统熵为极高。记忆牵引为中等，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.12,
-        "p": 0.34,
-        "e": 0.78,
-        "s": 0.92,
-        "tau": 0.41,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_MID_V_LOW_F_MID_016",
-      "definition": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is very high, and system entropy is very high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is very high, and system entropy is very high. Memory persistence is moderate, vitality is very low, empathy mirroring is very low, and fear is moderate.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为中等，自我接纳为极高，系统熵为极高。记忆牵引为中等，生命力为极低，共情映射为极低，恐惧水平为中等。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.52,
-        "e": 0.93,
-        "s": 0.92,
-        "tau": 0.41,
-        "v": 0.06,
-        "m": 0.11,
-        "f": 0.33
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_MID_V_MID_F_LOW_087",
-      "definition": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is moderate, emotional resonance is moderate, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为中等，情绪共鸣为中等，自我接纳为低，系统熵为中等。记忆牵引为中等，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.47,
-        "p": 0.34,
-        "e": 0.26,
-        "s": 0.58,
-        "tau": 0.41,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
-      }
-    },
-    {
-      "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_MID_V_MID_F_LOW_088",
-      "definition": "Logical clarity is high, emotional resonance is moderate, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionEn": "Logical clarity is high, emotional resonance is moderate, self-acceptance is low, and system entropy is moderate. Memory persistence is moderate, vitality is moderate, empathy mirroring is very low, and fear is very low.",
-      "definitionZh": "逻辑清晰度为高，情绪共鸣为中等，自我接纳为低，系统熵为中等。记忆牵引为中等，生命力为中等，共情映射为极低，恐惧水平为极低。",
-      "tags": [
-        "vmf_boundary",
-        "vmf_gap",
-        "hardcase_8d",
-        "definition"
-      ],
-      "vector": {
-        "l": 0.84,
-        "p": 0.52,
-        "e": 0.26,
-        "s": 0.58,
-        "tau": 0.41,
-        "v": 0.38,
-        "m": 0.11,
-        "f": 0.05
+        "m": 0.87,
+        "f": 0.29
       }
     },
     {
