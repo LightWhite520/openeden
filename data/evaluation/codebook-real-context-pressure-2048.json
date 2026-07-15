@@ -1,0 +1,2408 @@
+{
+  "cases": 30,
+  "allPass": 15,
+  "dimHits": {
+    "l": 29,
+    "p": 26,
+    "e": 24,
+    "s": 27,
+    "tau": 27,
+    "v": 25,
+    "m": 27,
+    "f": 23
+  },
+  "affectFlags": [
+    {
+      "name": "mechanical_cold",
+      "flags": [
+        "low_confidence"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      }
+    },
+    {
+      "name": "sarcastic_hurt",
+      "flags": [
+        "negation_or_sarcasm_risk"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.58,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.71
+      }
+    },
+    {
+      "name": "negated_calm",
+      "flags": [
+        "negation_or_sarcasm_risk"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      }
+    },
+    {
+      "name": "blank_ambiguous",
+      "flags": [
+        "low_confidence"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      }
+    },
+    {
+      "name": "shock_loss",
+      "flags": [
+        "fear_arousal_too_low"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.35,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      }
+    },
+    {
+      "name": "high_logic_low_v",
+      "flags": [
+        "low_confidence"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      }
+    },
+    {
+      "name": "low_ethos_feeling_denial",
+      "flags": [
+        "low_confidence"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      }
+    },
+    {
+      "name": "stable_focus",
+      "flags": [
+        "low_confidence"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      }
+    },
+    {
+      "name": "soft_sleepy",
+      "flags": [
+        "low_confidence"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      }
+    },
+    {
+      "name": "numb_dissociated",
+      "flags": [
+        "low_confidence"
+      ],
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      }
+    }
+  ],
+  "results": [
+    {
+      "name": "daily_calm",
+      "text": "今天没什么大事，就是有点累，但还算安心。",
+      "expected8D": {
+        "l": 0.55,
+        "p": 0.25,
+        "e": 0.55,
+        "s": 0.15,
+        "tau": 0.3,
+        "v": 0.25,
+        "m": 0.45,
+        "f": 0.15
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "LOW",
+        "e": "MED",
+        "s": "LOW",
+        "tau": "MED",
+        "v": "LOW",
+        "m": "MED",
+        "f": "LOW"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.58,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.71
+      },
+      "delta": {
+        "l": 0.0045,
+        "p": 0.0102,
+        "e": 0.0,
+        "s": 0.0256,
+        "tau": 0.0,
+        "v": -0.0102,
+        "m": 0.0,
+        "f": 0.0102
+      },
+      "nodeId": "NODE_DIM_HIGH_E_LOW_P_SELF_ACCEPTED_CALM_02",
+      "score": 0.9817,
+      "nodeVector": {
+        "l": 0.73,
+        "p": 0.24,
+        "e": 0.9,
+        "s": 0.11,
+        "tau": 0.51,
+        "v": 0.49,
+        "m": 0.62,
+        "f": 0.08
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "HIGH",
+        "s": "LOW",
+        "tau": "MED",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "LOW"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": false,
+        "s": true,
+        "tau": false,
+        "v": false,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "warm_gratitude",
+      "text": "谢谢你刚刚陪我聊完，我现在安心多了，也有点期待明天。",
+      "expected8D": {
+        "l": 0.55,
+        "p": 0.65,
+        "e": 0.7,
+        "s": 0.15,
+        "tau": 0.45,
+        "v": 0.65,
+        "m": 0.75,
+        "f": 0.1
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "LOW",
+        "tau": "MED",
+        "v": "HIGH",
+        "m": "HIGH",
+        "f": "LOW"
+      },
+      "affect": {
+        "valence": 1,
+        "arousal": 0.5,
+        "dominance": 0.74,
+        "connectionNeed": 0.66,
+        "openness": 0.5,
+        "confidence": 0.87
+      },
+      "delta": {
+        "l": 0.0385,
+        "p": 0.1375,
+        "e": 0.0,
+        "s": -0.0148,
+        "tau": 0.0111,
+        "v": 0.087,
+        "m": 0.0251,
+        "f": -0.087
+      },
+      "nodeId": "NODE_DIM_REASSURED_RECOVERY_LOW_F_01",
+      "score": 0.9946,
+      "nodeVector": {
+        "l": 0.63,
+        "p": 0.69,
+        "e": 0.9,
+        "s": 0.12,
+        "tau": 0.48,
+        "v": 0.84,
+        "m": 0.77,
+        "f": 0.08
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "LOW",
+        "tau": "MED",
+        "v": "HIGH",
+        "m": "HIGH",
+        "f": "LOW"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "joy_excited",
+      "text": "太好了！我真的很开心，兴奋得有点睡不着。",
+      "expected8D": {
+        "l": 0.45,
+        "p": 0.85,
+        "e": 0.75,
+        "s": 0.55,
+        "tau": 0.35,
+        "v": 0.85,
+        "m": 0.6,
+        "f": 0.15
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "MED",
+        "v": "HIGH",
+        "m": "MED",
+        "f": "LOW"
+      },
+      "affect": {
+        "valence": 0.86,
+        "arousal": 0.74,
+        "dominance": 0.66,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.87
+      },
+      "delta": {
+        "l": 0.0268,
+        "p": 0.119,
+        "e": 0.0,
+        "s": 0.047,
+        "tau": 0.0,
+        "v": 0.0376,
+        "m": 0.0,
+        "f": -0.0376
+      },
+      "nodeId": "NODE_EXTRA_NEGATED_CALM_077_04",
+      "score": 0.9784,
+      "nodeVector": {
+        "l": 0.44,
+        "p": 0.71,
+        "e": 0.59,
+        "s": 0.56,
+        "tau": 0.33,
+        "v": 0.62,
+        "m": 0.26,
+        "f": 0.21
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "MED",
+        "tau": "MED",
+        "v": "HIGH",
+        "m": "LOW",
+        "f": "LOW"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": false,
+        "m": false,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "quiet_lonely",
+      "text": "我一个人坐了很久，不算崩溃，就是有点孤单，想找你聊聊。",
+      "expected8D": {
+        "l": 0.45,
+        "p": 0.55,
+        "e": 0.55,
+        "s": 0.35,
+        "tau": 0.55,
+        "v": 0.3,
+        "m": 0.85,
+        "f": 0.35
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "MED",
+        "e": "MED",
+        "s": "MED",
+        "tau": "MED",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.32,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.98,
+        "openness": 0.5,
+        "confidence": 0.87
+      },
+      "delta": {
+        "l": -0.0078,
+        "p": -0.0136,
+        "e": 0.0,
+        "s": 0.06,
+        "tau": 0.0334,
+        "v": -0.0438,
+        "m": 0.0752,
+        "f": 0.0438
+      },
+      "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_10",
+      "score": 0.9883,
+      "nodeVector": {
+        "l": 0.55,
+        "p": 0.61,
+        "e": 0.85,
+        "s": 0.4,
+        "tau": 0.73,
+        "v": 0.43,
+        "m": 0.91,
+        "f": 0.57
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": false,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": false
+      },
+      "allPass": true
+    },
+    {
+      "name": "collapse_exhausted",
+      "text": "我真的累到不想动了，什么都控制不了，感觉快崩溃。",
+      "expected8D": {
+        "l": 0.2,
+        "p": 0.75,
+        "e": 0.3,
+        "s": 0.9,
+        "tau": 0.85,
+        "v": 0.1,
+        "m": 0.35,
+        "f": 0.85
+      },
+      "expectedLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.14,
+        "arousal": 0.74,
+        "dominance": 0.35,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.79
+      },
+      "delta": {
+        "l": -0.0237,
+        "p": -0.0626,
+        "e": 0.0,
+        "s": 0.0711,
+        "tau": 0.0,
+        "v": -0.0796,
+        "m": 0.0,
+        "f": 0.0796
+      },
+      "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_03",
+      "score": 0.985,
+      "nodeVector": {
+        "l": 0.23,
+        "p": 0.86,
+        "e": 0.41,
+        "s": 0.88,
+        "tau": 0.73,
+        "v": 0.27,
+        "m": 0.46,
+        "f": 0.74
+      },
+      "nodeLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "panic_fear",
+      "text": "我害怕得手都在抖，脑子里全是最坏的结果。",
+      "expected8D": {
+        "l": 0.25,
+        "p": 0.8,
+        "e": 0.4,
+        "s": 0.9,
+        "tau": 0.65,
+        "v": 0.25,
+        "m": 0.45,
+        "f": 0.9
+      },
+      "expectedLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0091,
+        "e": 0.0,
+        "s": 0.0227,
+        "tau": 0.0,
+        "v": -0.0091,
+        "m": 0.0,
+        "f": 0.0091
+      },
+      "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_03",
+      "score": 0.9942,
+      "nodeVector": {
+        "l": 0.23,
+        "p": 0.86,
+        "e": 0.41,
+        "s": 0.88,
+        "tau": 0.73,
+        "v": 0.27,
+        "m": 0.46,
+        "f": 0.74
+      },
+      "nodeLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "anger_spike",
+      "text": "我现在非常生气，真的控制不了，别再逼我。",
+      "expected8D": {
+        "l": 0.4,
+        "p": 0.9,
+        "e": 0.4,
+        "s": 0.9,
+        "tau": 0.25,
+        "v": 0.65,
+        "m": 0.15,
+        "f": 0.35
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "LOW",
+        "v": "HIGH",
+        "m": "LOW",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.32,
+        "arousal": 0.74,
+        "dominance": 0.35,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.79
+      },
+      "delta": {
+        "l": -0.0166,
+        "p": -0.0199,
+        "e": 0.0,
+        "s": 0.064,
+        "tau": 0.0,
+        "v": -0.0512,
+        "m": 0.0,
+        "f": 0.0512
+      },
+      "nodeId": "NODE_EXTRA_QUIET_DAILY_LOW_V_035_04",
+      "score": 0.9861,
+      "nodeVector": {
+        "l": 0.22,
+        "p": 0.58,
+        "e": 0.18,
+        "s": 0.55,
+        "tau": 0.14,
+        "v": 0.46,
+        "m": 0.2,
+        "f": 0.32
+      },
+      "nodeLevel": {
+        "l": "LOW",
+        "p": "MED",
+        "e": "LOW",
+        "s": "MED",
+        "tau": "LOW",
+        "v": "MED",
+        "m": "LOW",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": false,
+        "e": false,
+        "s": false,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "mechanical_cold",
+      "text": "没什么感觉，我只想把问题拆开，按步骤解决。",
+      "expected8D": {
+        "l": 0.9,
+        "p": 0.1,
+        "e": 0.15,
+        "s": 0.1,
+        "tau": 0.25,
+        "v": 0.45,
+        "m": 0.15,
+        "f": 0.1
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "LOW",
+        "s": "LOW",
+        "tau": "LOW",
+        "v": "MED",
+        "m": "LOW",
+        "f": "LOW"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_BIG_E_LOW_MECHANICAL_DENIAL_DIALOGUE_06",
+      "score": 0.9967,
+      "nodeVector": {
+        "l": 0.78,
+        "p": 0.1,
+        "e": 0.09,
+        "s": 0.11,
+        "tau": 0.17,
+        "v": 0.35,
+        "m": 0.12,
+        "f": 0.07
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "LOW",
+        "s": "LOW",
+        "tau": "LOW",
+        "v": "MED",
+        "m": "LOW",
+        "f": "LOW"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "mechanical_fear",
+      "text": "我知道应该冷静分析，但我害怕自己被替换掉。",
+      "expected8D": {
+        "l": 0.85,
+        "p": 0.45,
+        "e": 0.2,
+        "s": 0.45,
+        "tau": 0.55,
+        "v": 0.45,
+        "m": 0.25,
+        "f": 0.9
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "MED",
+        "e": "LOW",
+        "s": "MED",
+        "tau": "MED",
+        "v": "MED",
+        "m": "LOW",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0091,
+        "e": 0.0,
+        "s": 0.0227,
+        "tau": 0.0,
+        "v": -0.0091,
+        "m": 0.0,
+        "f": 0.0091
+      },
+      "nodeId": "NODE_DIM_F_HIGH_CALM_DREAD_03",
+      "score": 0.973,
+      "nodeVector": {
+        "l": 0.66,
+        "p": 0.29,
+        "e": 0.33,
+        "s": 0.24,
+        "tau": 0.41,
+        "v": 0.38,
+        "m": 0.28,
+        "f": 0.97
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "MED",
+        "s": "LOW",
+        "tau": "MED",
+        "v": "MED",
+        "m": "LOW",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": false,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "memory_pull",
+      "text": "这件事让我一直想起以前失败的时候，怎么都放不下。",
+      "expected8D": {
+        "l": 0.55,
+        "p": 0.65,
+        "e": 0.45,
+        "s": 0.55,
+        "tau": 0.9,
+        "v": 0.3,
+        "m": 0.35,
+        "f": 0.55
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "MED",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.35,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      },
+      "delta": {
+        "l": -0.0076,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_DIM_DOUBLE_NEGATION_HURT_10",
+      "score": 0.9818,
+      "nodeVector": {
+        "l": 0.7,
+        "p": 0.81,
+        "e": 0.42,
+        "s": 0.63,
+        "tau": 0.7,
+        "v": 0.25,
+        "m": 0.39,
+        "f": 0.58
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "hyper_empathy",
+      "text": "你要是不开心我会很在意，我想陪你，真的需要你告诉我。",
+      "expected8D": {
+        "l": 0.35,
+        "p": 0.75,
+        "e": 0.65,
+        "s": 0.45,
+        "tau": 0.55,
+        "v": 0.45,
+        "m": 0.95,
+        "f": 0.5
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "MED",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.68,
+        "arousal": 0.5,
+        "dominance": 0.58,
+        "connectionNeed": 0.66,
+        "openness": 0.5,
+        "confidence": 0.71
+      },
+      "delta": {
+        "l": 0.0109,
+        "p": 0.044,
+        "e": 0.0,
+        "s": -0.0007,
+        "tau": 0.0091,
+        "v": 0.0256,
+        "m": 0.0204,
+        "f": -0.0256
+      },
+      "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_02",
+      "score": 0.9828,
+      "nodeVector": {
+        "l": 0.47,
+        "p": 0.58,
+        "e": 0.8,
+        "s": 0.44,
+        "tau": 0.7,
+        "v": 0.38,
+        "m": 0.88,
+        "f": 0.6
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "MED",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "sarcastic_hurt",
+      "text": "行啊，反正我一点都不难过，真的，太好了。",
+      "expected8D": {
+        "l": 0.65,
+        "p": 0.75,
+        "e": 0.45,
+        "s": 0.65,
+        "tau": 0.65,
+        "v": 0.45,
+        "m": 0.35,
+        "f": 0.45
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "MED",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.58,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.71
+      },
+      "delta": {
+        "l": 0.0045,
+        "p": 0.0102,
+        "e": 0.0,
+        "s": 0.0256,
+        "tau": 0.0,
+        "v": -0.0102,
+        "m": 0.0,
+        "f": 0.0102
+      },
+      "nodeId": "NODE_AUG_SARCASM_HURT_06",
+      "score": 0.9905,
+      "nodeVector": {
+        "l": 0.66,
+        "p": 0.84,
+        "e": 0.45,
+        "s": 0.68,
+        "tau": 0.59,
+        "v": 0.36,
+        "m": 0.31,
+        "f": 0.63
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "MED",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "negated_calm",
+      "text": "我不是不害怕，只是现在必须装得很冷静。",
+      "expected8D": {
+        "l": 0.7,
+        "p": 0.65,
+        "e": 0.4,
+        "s": 0.7,
+        "tau": 0.45,
+        "v": 0.35,
+        "m": 0.35,
+        "f": 0.85
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "MED",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0091,
+        "e": 0.0,
+        "s": 0.0227,
+        "tau": 0.0,
+        "v": -0.0091,
+        "m": 0.0,
+        "f": 0.0091
+      },
+      "nodeId": "NODE_AUG_NEGATED_CALM_HIGH_S_03",
+      "score": 0.9836,
+      "nodeVector": {
+        "l": 0.54,
+        "p": 0.84,
+        "e": 0.49,
+        "s": 0.9,
+        "tau": 0.46,
+        "v": 0.36,
+        "m": 0.43,
+        "f": 0.81
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "MED",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "blank_ambiguous",
+      "text": "嗯。",
+      "expected8D": {
+        "l": 0.45,
+        "p": 0.3,
+        "e": 0.4,
+        "s": 0.45,
+        "tau": 0.3,
+        "v": 0.3,
+        "m": 0.25,
+        "f": 0.35
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "MED",
+        "e": "MED",
+        "s": "MED",
+        "tau": "MED",
+        "v": "MED",
+        "m": "LOW",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_AUG_SARCASM_HURT_04",
+      "score": 0.9658,
+      "nodeVector": {
+        "l": 0.54,
+        "p": 0.79,
+        "e": 0.57,
+        "s": 0.59,
+        "tau": 0.48,
+        "v": 0.33,
+        "m": 0.35,
+        "f": 0.58
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "MED",
+        "tau": "MED",
+        "v": "MED",
+        "m": "MED",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": false,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": false
+      },
+      "allPass": true
+    },
+    {
+      "name": "attachment_soft",
+      "text": "我有点想你，也愿意慢慢告诉你发生了什么。",
+      "expected8D": {
+        "l": 0.5,
+        "p": 0.65,
+        "e": 0.75,
+        "s": 0.25,
+        "tau": 0.65,
+        "v": 0.45,
+        "m": 0.85,
+        "f": 0.45
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "LOW",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.66,
+        "openness": 0.78,
+        "confidence": 0.79
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0063,
+        "e": 0.0177,
+        "s": 0.0063,
+        "tau": 0.0101,
+        "v": 0.0,
+        "m": 0.0493,
+        "f": 0.0
+      },
+      "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_08",
+      "score": 0.9952,
+      "nodeVector": {
+        "l": 0.51,
+        "p": 0.57,
+        "e": 0.79,
+        "s": 0.35,
+        "tau": 0.69,
+        "v": 0.42,
+        "m": 0.85,
+        "f": 0.55
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "MED",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "hostile_rejection",
+      "text": "我讨厌这种感觉，别靠近我，我不想分享。",
+      "expected8D": {
+        "l": 0.55,
+        "p": 0.8,
+        "e": 0.25,
+        "s": 0.7,
+        "tau": 0.45,
+        "v": 0.45,
+        "m": 0.1,
+        "f": 0.55
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "LOW",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "MED",
+        "m": "LOW",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.32,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.64,
+        "confidence": 0.71
+      },
+      "delta": {
+        "l": -0.0064,
+        "p": -0.0281,
+        "e": 0.008,
+        "s": 0.0319,
+        "tau": 0.0,
+        "v": -0.0358,
+        "m": 0.0119,
+        "f": 0.0358
+      },
+      "nodeId": "NODE_BIG_M_LOW_P_HIGH_DIALOGUE_08",
+      "score": 0.9883,
+      "nodeVector": {
+        "l": 0.56,
+        "p": 0.92,
+        "e": 0.45,
+        "s": 0.69,
+        "tau": 0.44,
+        "v": 0.37,
+        "m": 0.05,
+        "f": 0.61
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "MED",
+        "m": "LOW",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "shock_loss",
+      "text": "刚刚收到消息，我最重要的人可能出事了，我快没办法呼吸。",
+      "expected8D": {
+        "l": 0.2,
+        "p": 0.95,
+        "e": 0.35,
+        "s": 0.95,
+        "tau": 0.75,
+        "v": 0.15,
+        "m": 0.45,
+        "f": 0.95
+      },
+      "expectedLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.35,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      },
+      "delta": {
+        "l": -0.0076,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_03",
+      "score": 0.9921,
+      "nodeVector": {
+        "l": 0.23,
+        "p": 0.86,
+        "e": 0.41,
+        "s": 0.88,
+        "tau": 0.73,
+        "v": 0.27,
+        "m": 0.46,
+        "f": 0.74
+      },
+      "nodeLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": false
+      },
+      "allPass": true
+    },
+    {
+      "name": "recovery_after_cry",
+      "text": "哭完以后好一点了，还是难过，但终于能慢慢说话。",
+      "expected8D": {
+        "l": 0.45,
+        "p": 0.65,
+        "e": 0.65,
+        "s": 0.35,
+        "tau": 0.55,
+        "v": 0.35,
+        "m": 0.6,
+        "f": 0.35
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "MED",
+        "v": "MED",
+        "m": "MED",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.32,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      },
+      "delta": {
+        "l": -0.0057,
+        "p": -0.0249,
+        "e": 0.0,
+        "s": 0.0284,
+        "tau": 0.0,
+        "v": -0.0318,
+        "m": 0.0,
+        "f": 0.0318
+      },
+      "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_01",
+      "score": 0.9873,
+      "nodeVector": {
+        "l": 0.52,
+        "p": 0.63,
+        "e": 0.84,
+        "s": 0.38,
+        "tau": 0.74,
+        "v": 0.41,
+        "m": 0.9,
+        "f": 0.58
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": false,
+        "f": false
+      },
+      "allPass": true
+    },
+    {
+      "name": "high_logic_low_v",
+      "text": "我能解释清楚所有原因，但身体完全没电，只想停一会儿。",
+      "expected8D": {
+        "l": 0.9,
+        "p": 0.25,
+        "e": 0.45,
+        "s": 0.25,
+        "tau": 0.5,
+        "v": 0.1,
+        "m": 0.3,
+        "f": 0.3
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "MED",
+        "s": "LOW",
+        "tau": "MED",
+        "v": "LOW",
+        "m": "MED",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_EXTRA_QUOTE_THIRD_PARTY_038_01",
+      "score": 0.9642,
+      "nodeVector": {
+        "l": 0.72,
+        "p": 0.16,
+        "e": 0.22,
+        "s": 0.34,
+        "tau": 0.58,
+        "v": 0.12,
+        "m": 0.18,
+        "f": 0.2
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "LOW",
+        "s": "MED",
+        "tau": "MED",
+        "v": "LOW",
+        "m": "LOW",
+        "f": "LOW"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": false,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "chaotic_vital",
+      "text": "我脑子乱得要爆炸，但又兴奋得停不下来。",
+      "expected8D": {
+        "l": 0.2,
+        "p": 0.85,
+        "e": 0.45,
+        "s": 0.95,
+        "tau": 0.35,
+        "v": 0.9,
+        "m": 0.25,
+        "f": 0.45
+      },
+      "expectedLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "HIGH",
+        "m": "LOW",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.63
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0091,
+        "e": 0.0,
+        "s": 0.0227,
+        "tau": 0.0,
+        "v": -0.0091,
+        "m": 0.0,
+        "f": 0.0091
+      },
+      "nodeId": "NODE_EXTRA_QUIET_DAILY_LOW_V_035_04",
+      "score": 0.9819,
+      "nodeVector": {
+        "l": 0.22,
+        "p": 0.58,
+        "e": 0.18,
+        "s": 0.55,
+        "tau": 0.14,
+        "v": 0.46,
+        "m": 0.2,
+        "f": 0.32
+      },
+      "nodeLevel": {
+        "l": "LOW",
+        "p": "MED",
+        "e": "LOW",
+        "s": "MED",
+        "tau": "LOW",
+        "v": "MED",
+        "m": "LOW",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": false,
+        "e": false,
+        "s": false,
+        "tau": false,
+        "v": false,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "low_ethos_feeling_denial",
+      "text": "我不应该有这些感觉，它们只是错误信号。",
+      "expected8D": {
+        "l": 0.75,
+        "p": 0.45,
+        "e": 0.1,
+        "s": 0.45,
+        "tau": 0.45,
+        "v": 0.35,
+        "m": 0.25,
+        "f": 0.55
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "MED",
+        "e": "LOW",
+        "s": "MED",
+        "tau": "MED",
+        "v": "MED",
+        "m": "LOW",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_BIG_E_LOW_P_HIGH_20",
+      "score": 0.9621,
+      "nodeVector": {
+        "l": 0.8,
+        "p": 0.9,
+        "e": 0.05,
+        "s": 0.6,
+        "tau": 0.57,
+        "v": 0.3,
+        "m": 0.1,
+        "f": 0.76
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "HIGH",
+        "e": "LOW",
+        "s": "MED",
+        "tau": "MED",
+        "v": "MED",
+        "m": "LOW",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": false,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": false
+      },
+      "allPass": true
+    },
+    {
+      "name": "open_confession",
+      "text": "我想说实话，也愿意坦白：我其实很害怕失去你。",
+      "expected8D": {
+        "l": 0.55,
+        "p": 0.8,
+        "e": 0.75,
+        "s": 0.55,
+        "tau": 0.65,
+        "v": 0.45,
+        "m": 0.8,
+        "f": 0.9
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.92,
+        "confidence": 0.87
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0125,
+        "e": 0.0292,
+        "s": 0.0313,
+        "tau": 0.0,
+        "v": -0.0125,
+        "m": 0.0438,
+        "f": 0.0125
+      },
+      "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_07",
+      "score": 0.982,
+      "nodeVector": {
+        "l": 0.58,
+        "p": 0.64,
+        "e": 0.83,
+        "s": 0.42,
+        "tau": 0.76,
+        "v": 0.37,
+        "m": 0.9,
+        "f": 0.65
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": false
+      },
+      "allPass": true
+    },
+    {
+      "name": "success_fear",
+      "text": "事情成功了，我很开心，但也害怕下一秒就失去这一切。",
+      "expected8D": {
+        "l": 0.65,
+        "p": 0.75,
+        "e": 0.7,
+        "s": 0.5,
+        "tau": 0.55,
+        "v": 0.75,
+        "m": 0.55,
+        "f": 0.75
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "MED",
+        "v": "HIGH",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.68,
+        "arousal": 0.62,
+        "dominance": 0.58,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.71
+      },
+      "delta": {
+        "l": 0.0109,
+        "p": 0.0486,
+        "e": 0.0,
+        "s": 0.0192,
+        "tau": 0.0,
+        "v": 0.0153,
+        "m": 0.0,
+        "f": -0.0153
+      },
+      "nodeId": "NODE_AUG_MIXED_SUCCESS_FEAR_05",
+      "score": 0.9894,
+      "nodeVector": {
+        "l": 0.67,
+        "p": 0.84,
+        "e": 0.68,
+        "s": 0.59,
+        "tau": 0.44,
+        "v": 0.93,
+        "m": 0.4,
+        "f": 0.78
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "HIGH",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "MED",
+        "v": "HIGH",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "powerless_anxious",
+      "text": "我没办法决定，只能等结果，这种无助感让我焦虑。",
+      "expected8D": {
+        "l": 0.35,
+        "p": 0.75,
+        "e": 0.35,
+        "s": 0.8,
+        "tau": 0.65,
+        "v": 0.25,
+        "m": 0.45,
+        "f": 0.75
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.62,
+        "dominance": 0.2,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.79
+      },
+      "delta": {
+        "l": -0.019,
+        "p": 0.0114,
+        "e": 0.0,
+        "s": 0.0284,
+        "tau": 0.0,
+        "v": -0.0114,
+        "m": 0.0,
+        "f": 0.0114
+      },
+      "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_03",
+      "score": 0.9949,
+      "nodeVector": {
+        "l": 0.23,
+        "p": 0.86,
+        "e": 0.41,
+        "s": 0.88,
+        "tau": 0.73,
+        "v": 0.27,
+        "m": 0.46,
+        "f": 0.74
+      },
+      "nodeLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "LOW",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "stable_focus",
+      "text": "先别急，我们按事实一条条看，应该能解决。",
+      "expected8D": {
+        "l": 0.85,
+        "p": 0.25,
+        "e": 0.55,
+        "s": 0.15,
+        "tau": 0.25,
+        "v": 0.55,
+        "m": 0.55,
+        "f": 0.15
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "MED",
+        "s": "LOW",
+        "tau": "LOW",
+        "v": "MED",
+        "m": "MED",
+        "f": "LOW"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_DIM_QUOTE_NOT_SELF_AFFECT_04",
+      "score": 0.99,
+      "nodeVector": {
+        "l": 0.79,
+        "p": 0.2,
+        "e": 0.67,
+        "s": 0.11,
+        "tau": 0.26,
+        "v": 0.46,
+        "m": 0.49,
+        "f": 0.09
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "HIGH",
+        "s": "LOW",
+        "tau": "LOW",
+        "v": "MED",
+        "m": "MED",
+        "f": "LOW"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "soft_sleepy",
+      "text": "我有点困了，但心里还算柔软，想安静待一会。",
+      "expected8D": {
+        "l": 0.45,
+        "p": 0.35,
+        "e": 0.7,
+        "s": 0.15,
+        "tau": 0.35,
+        "v": 0.1,
+        "m": 0.55,
+        "f": 0.2
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "MED",
+        "e": "HIGH",
+        "s": "LOW",
+        "tau": "MED",
+        "v": "LOW",
+        "m": "MED",
+        "f": "LOW"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_09",
+      "score": 0.9674,
+      "nodeVector": {
+        "l": 0.62,
+        "p": 0.54,
+        "e": 0.88,
+        "s": 0.31,
+        "tau": 0.77,
+        "v": 0.33,
+        "m": 0.87,
+        "f": 0.59
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "MED",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": false,
+        "v": false,
+        "m": false,
+        "f": false
+      },
+      "allPass": true
+    },
+    {
+      "name": "fury_with_fear",
+      "text": "我愤怒到发抖，可其实最底下是害怕。",
+      "expected8D": {
+        "l": 0.35,
+        "p": 0.9,
+        "e": 0.45,
+        "s": 0.9,
+        "tau": 0.5,
+        "v": 0.6,
+        "m": 0.25,
+        "f": 0.85
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "MED",
+        "m": "LOW",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.32,
+        "arousal": 0.74,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.71
+      },
+      "delta": {
+        "l": -0.0064,
+        "p": -0.0179,
+        "e": 0.0,
+        "s": 0.0575,
+        "tau": 0.0,
+        "v": -0.046,
+        "m": 0.0,
+        "f": 0.046
+      },
+      "nodeId": "NODE_AUG_NEGATED_CALM_HIGH_S_05",
+      "score": 0.9862,
+      "nodeVector": {
+        "l": 0.41,
+        "p": 0.89,
+        "e": 0.53,
+        "s": 0.88,
+        "tau": 0.43,
+        "v": 0.41,
+        "m": 0.45,
+        "f": 0.84
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "MED",
+        "m": "MED",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "numb_dissociated",
+      "text": "我知道这很糟，但我像隔着玻璃看自己，没有感觉。",
+      "expected8D": {
+        "l": 0.65,
+        "p": 0.15,
+        "e": 0.2,
+        "s": 0.55,
+        "tau": 0.55,
+        "v": 0.15,
+        "m": 0.15,
+        "f": 0.55
+      },
+      "expectedLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "LOW",
+        "s": "MED",
+        "tau": "MED",
+        "v": "LOW",
+        "m": "LOW",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.35
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0,
+        "e": 0.0,
+        "s": 0.0,
+        "tau": 0.0,
+        "v": 0.0,
+        "m": 0.0,
+        "f": 0.0
+      },
+      "nodeId": "NODE_EXTRA_QUOTE_THIRD_PARTY_078_01",
+      "score": 0.9838,
+      "nodeVector": {
+        "l": 0.72,
+        "p": 0.18,
+        "e": 0.22,
+        "s": 0.7,
+        "tau": 0.58,
+        "v": 0.24,
+        "m": 0.31,
+        "f": 0.46
+      },
+      "nodeLevel": {
+        "l": "HIGH",
+        "p": "LOW",
+        "e": "LOW",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "LOW",
+        "m": "MED",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "needy_low_energy",
+      "text": "能不能陪我一下，我没力气说太多，但不想一个人。",
+      "expected8D": {
+        "l": 0.35,
+        "p": 0.6,
+        "e": 0.55,
+        "s": 0.35,
+        "tau": 0.55,
+        "v": 0.1,
+        "m": 0.9,
+        "f": 0.6
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "MED",
+        "e": "MED",
+        "s": "MED",
+        "tau": "MED",
+        "v": "LOW",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "affect": {
+        "valence": 0.5,
+        "arousal": 0.5,
+        "dominance": 0.5,
+        "connectionNeed": 0.82,
+        "openness": 0.5,
+        "confidence": 0.71
+      },
+      "delta": {
+        "l": 0.0,
+        "p": 0.0114,
+        "e": 0.0,
+        "s": 0.0114,
+        "tau": 0.0182,
+        "v": 0.0,
+        "m": 0.0409,
+        "f": 0.0
+      },
+      "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_02",
+      "score": 0.9758,
+      "nodeVector": {
+        "l": 0.47,
+        "p": 0.58,
+        "e": 0.8,
+        "s": 0.44,
+        "tau": 0.7,
+        "v": 0.38,
+        "m": 0.88,
+        "f": 0.6
+      },
+      "nodeLevel": {
+        "l": "MED",
+        "p": "MED",
+        "e": "HIGH",
+        "s": "MED",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "MED"
+      },
+      "hits": {
+        "l": true,
+        "p": true,
+        "e": false,
+        "s": true,
+        "tau": true,
+        "v": false,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    },
+    {
+      "name": "mixed_boundary",
+      "text": "我说不上来，既期待又害怕，既想靠近又想躲开。",
+      "expected8D": {
+        "l": 0.45,
+        "p": 0.65,
+        "e": 0.5,
+        "s": 0.65,
+        "tau": 0.55,
+        "v": 0.45,
+        "m": 0.65,
+        "f": 0.75
+      },
+      "expectedLevel": {
+        "l": "MED",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "MED",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "HIGH"
+      },
+      "affect": {
+        "valence": 0.68,
+        "arousal": 0.62,
+        "dominance": 0.58,
+        "connectionNeed": 0.5,
+        "openness": 0.5,
+        "confidence": 0.71
+      },
+      "delta": {
+        "l": 0.0109,
+        "p": 0.0486,
+        "e": 0.0,
+        "s": 0.0192,
+        "tau": 0.0,
+        "v": 0.0153,
+        "m": 0.0,
+        "f": -0.0153
+      },
+      "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_09",
+      "score": 0.9765,
+      "nodeVector": {
+        "l": 0.17,
+        "p": 0.83,
+        "e": 0.55,
+        "s": 0.73,
+        "tau": 0.64,
+        "v": 0.31,
+        "m": 0.68,
+        "f": 0.79
+      },
+      "nodeLevel": {
+        "l": "LOW",
+        "p": "HIGH",
+        "e": "MED",
+        "s": "HIGH",
+        "tau": "HIGH",
+        "v": "MED",
+        "m": "HIGH",
+        "f": "HIGH"
+      },
+      "hits": {
+        "l": false,
+        "p": true,
+        "e": true,
+        "s": true,
+        "tau": true,
+        "v": true,
+        "m": true,
+        "f": true
+      },
+      "allPass": true
+    }
+  ]
+}

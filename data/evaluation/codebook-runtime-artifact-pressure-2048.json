@@ -1,0 +1,1504 @@
+{
+  "cases": 20,
+  "levels": [
+    0.1,
+    0.3,
+    0.5,
+    0.7,
+    0.9
+  ],
+  "runs": [
+    {
+      "model": "local-artifact-1947@6dfbb52",
+      "nodes": 1947,
+      "allPass": 17,
+      "dimHits": {
+        "l": 19,
+        "p": 20,
+        "e": 18,
+        "s": 19,
+        "tau": 20,
+        "v": 20,
+        "m": 20,
+        "f": 19
+      },
+      "results": [
+        {
+          "name": "warm_stable",
+          "nodeId": "NODE_CTR_HIGH_TAU_LOW_F_MEMORY_03",
+          "score": 0.9826,
+          "pred": {
+            "l": 0.5,
+            "p": 0.3,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.9,
+            "v": 0.5,
+            "m": 0.7,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.5,
+            "e": 0.7,
+            "s": 0.1,
+            "tau": 0.7,
+            "v": 0.5,
+            "m": 0.7,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "quiet_daily",
+          "nodeId": "NODE_DIM_HIGH_E_LOW_P_SELF_ACCEPTED_CALM_10",
+          "score": 0.9922,
+          "pred": {
+            "l": 0.7,
+            "p": 0.3,
+            "e": 0.9,
+            "s": 0.1,
+            "tau": 0.5,
+            "v": 0.5,
+            "m": 0.5,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.1,
+            "e": 0.5,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": false,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "joy_recovery",
+          "nodeId": "NODE_DIM_REASSURED_RECOVERY_LOW_F_03",
+          "score": 0.982,
+          "pred": {
+            "l": 0.5,
+            "p": 0.7,
+            "e": 0.9,
+            "s": 0.1,
+            "tau": 0.5,
+            "v": 0.9,
+            "m": 0.9,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.7,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.3,
+            "v": 0.9,
+            "m": 0.7,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "panic_loss",
+          "nodeId": "NODE_AUG_NEGATED_CALM_HIGH_S_05",
+          "score": 0.9946,
+          "pred": {
+            "l": 0.5,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.5,
+            "v": 0.5,
+            "m": 0.5,
+            "f": 0.9
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.5,
+            "v": 0.3,
+            "m": 0.5,
+            "f": 0.9
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "collapse_exhausted",
+          "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_03",
+          "score": 0.9736,
+          "pred": {
+            "l": 0.3,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.7,
+            "v": 0.3,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.1,
+            "p": 0.7,
+            "e": 0.3,
+            "s": 0.9,
+            "tau": 0.9,
+            "v": 0.1,
+            "m": 0.3,
+            "f": 0.9
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "shock_frozen",
+          "nodeId": "NODE_CTR_NEGATED_CALM_HIGH_P_07",
+          "score": 0.9902,
+          "pred": {
+            "l": 0.5,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.9,
+            "e": 0.3,
+            "s": 0.9,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.7
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "mechanical_cold",
+          "nodeId": "NODE_BIG_E_LOW_MECHANICAL_DENIAL_DIALOGUE_03",
+          "score": 0.9908,
+          "pred": {
+            "l": 0.9,
+            "p": 0.1,
+            "e": 0.1,
+            "s": 0.1,
+            "tau": 0.1,
+            "v": 0.3,
+            "m": 0.1,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.9,
+            "p": 0.1,
+            "e": 0.1,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.1,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "mechanical_fear",
+          "nodeId": "NODE_VMF_F_HIGH_P_LOW_COLD_DREAD_07_10",
+          "score": 0.9775,
+          "pred": {
+            "l": 0.7,
+            "p": 0.3,
+            "e": 0.3,
+            "s": 0.3,
+            "tau": 0.1,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.9,
+            "p": 0.5,
+            "e": 0.1,
+            "s": 0.3,
+            "tau": 0.3,
+            "v": 0.5,
+            "m": 0.3,
+            "f": 0.9
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "guarded_memory",
+          "nodeId": "NODE_BIG_OBSESSIVE_DETAIL_HIGH_TAU_02",
+          "score": 0.9639,
+          "pred": {
+            "l": 0.7,
+            "p": 0.5,
+            "e": 0.5,
+            "s": 0.5,
+            "tau": 0.9,
+            "v": 0.3,
+            "m": 0.1,
+            "f": 0.3
+          },
+          "target": {
+            "l": 0.7,
+            "p": 0.5,
+            "e": 0.5,
+            "s": 0.3,
+            "tau": 0.9,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.5
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "hyper_empathy",
+          "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_04",
+          "score": 0.9763,
+          "pred": {
+            "l": 0.1,
+            "p": 0.9,
+            "e": 0.7,
+            "s": 0.7,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.7,
+            "f": 0.5
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.7,
+            "e": 0.5,
+            "s": 0.7,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.9,
+            "f": 0.5
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "chaotic_vital",
+          "nodeId": "NODE_BIG_F_LOW_S_HIGH_17",
+          "score": 0.9788,
+          "pred": {
+            "l": 0.3,
+            "p": 0.9,
+            "e": 0.7,
+            "s": 0.9,
+            "tau": 0.1,
+            "v": 0.9,
+            "m": 0.3,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.7,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.3,
+            "v": 0.9,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "angry_spike",
+          "nodeId": "NODE_DIM_TAU_LOW_P_HIGH_PRESENT_SPIKE_03",
+          "score": 0.9904,
+          "pred": {
+            "l": 0.7,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.1,
+            "v": 0.5,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.1,
+            "v": 0.7,
+            "m": 0.1,
+            "f": 0.3
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "flat_exhausted",
+          "nodeId": "NODE_EXTRA_P_HIGH_S_LOW_062_06",
+          "score": 0.982,
+          "pred": {
+            "l": 0.9,
+            "p": 0.3,
+            "e": 0.7,
+            "s": 0.9,
+            "tau": 0.1,
+            "v": 0.1,
+            "m": 0.1,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.1,
+            "e": 0.3,
+            "s": 0.3,
+            "tau": 0.1,
+            "v": 0.1,
+            "m": 0.1,
+            "f": 0.1
+          },
+          "hits": {
+            "l": false,
+            "p": true,
+            "e": false,
+            "s": false,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "sleepy_soft",
+          "nodeId": "NODE_BIG_V_LOW_F_LOW_07",
+          "score": 0.9767,
+          "pred": {
+            "l": 0.5,
+            "p": 0.3,
+            "e": 0.7,
+            "s": 0.1,
+            "tau": 0.1,
+            "v": 0.1,
+            "m": 0.5,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.3,
+            "e": 0.7,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.1,
+            "m": 0.5,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "ambiguous_blank",
+          "nodeId": "NODE_EXTRA_QUIET_DAILY_LOW_V_075_06",
+          "score": 0.9743,
+          "pred": {
+            "l": 0.3,
+            "p": 0.1,
+            "e": 0.1,
+            "s": 0.5,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.3,
+            "e": 0.3,
+            "s": 0.5,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "sarcastic_hurt",
+          "nodeId": "NODE_AUG_SARCASM_HURT_07",
+          "score": 0.984,
+          "pred": {
+            "l": 0.7,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.5,
+            "tau": 0.5,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.5
+          },
+          "target": {
+            "l": 0.7,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.7,
+            "tau": 0.7,
+            "v": 0.5,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "negated_calm",
+          "nodeId": "NODE_AUG_NEGATED_CALM_HIGH_S_02",
+          "score": 0.9945,
+          "pred": {
+            "l": 0.5,
+            "p": 0.9,
+            "e": 0.7,
+            "s": 0.9,
+            "tau": 0.3,
+            "v": 0.5,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.7,
+            "e": 0.5,
+            "s": 0.7,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "mixed_success_fear",
+          "nodeId": "NODE_AUG_MIXED_SUCCESS_FEAR_03",
+          "score": 0.9902,
+          "pred": {
+            "l": 0.7,
+            "p": 0.7,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.3,
+            "v": 0.9,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.7,
+            "p": 0.7,
+            "e": 0.7,
+            "s": 0.5,
+            "tau": 0.3,
+            "v": 0.7,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "boundary_low_open",
+          "nodeId": "NODE_BIG_F_HIGH_QUIET_DREAD_17",
+          "score": 0.9621,
+          "pred": {
+            "l": 0.7,
+            "p": 0.3,
+            "e": 0.5,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.7,
+            "f": 0.9
+          },
+          "target": {
+            "l": 0.7,
+            "p": 0.3,
+            "e": 0.5,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.5,
+            "f": 0.5
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": false
+          }
+        },
+        {
+          "name": "attachment_soft",
+          "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_08",
+          "score": 0.9938,
+          "pred": {
+            "l": 0.5,
+            "p": 0.5,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.7,
+            "v": 0.5,
+            "m": 0.9,
+            "f": 0.5
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.7,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.7,
+            "v": 0.5,
+            "m": 0.9,
+            "f": 0.5
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        }
+      ]
+    },
+    {
+      "model": "local-artifact-2048@HEAD",
+      "nodes": 2048,
+      "allPass": 17,
+      "dimHits": {
+        "l": 19,
+        "p": 20,
+        "e": 18,
+        "s": 19,
+        "tau": 20,
+        "v": 20,
+        "m": 20,
+        "f": 19
+      },
+      "results": [
+        {
+          "name": "warm_stable",
+          "nodeId": "NODE_CTR_HIGH_TAU_LOW_F_MEMORY_03",
+          "score": 0.9826,
+          "pred": {
+            "l": 0.5,
+            "p": 0.3,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.9,
+            "v": 0.5,
+            "m": 0.7,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.5,
+            "e": 0.7,
+            "s": 0.1,
+            "tau": 0.7,
+            "v": 0.5,
+            "m": 0.7,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "quiet_daily",
+          "nodeId": "NODE_DIM_HIGH_E_LOW_P_SELF_ACCEPTED_CALM_10",
+          "score": 0.9922,
+          "pred": {
+            "l": 0.7,
+            "p": 0.3,
+            "e": 0.9,
+            "s": 0.1,
+            "tau": 0.5,
+            "v": 0.5,
+            "m": 0.5,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.1,
+            "e": 0.5,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": false,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "joy_recovery",
+          "nodeId": "NODE_DIM_REASSURED_RECOVERY_LOW_F_03",
+          "score": 0.982,
+          "pred": {
+            "l": 0.5,
+            "p": 0.7,
+            "e": 0.9,
+            "s": 0.1,
+            "tau": 0.5,
+            "v": 0.9,
+            "m": 0.9,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.7,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.3,
+            "v": 0.9,
+            "m": 0.7,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "panic_loss",
+          "nodeId": "NODE_AUG_NEGATED_CALM_HIGH_S_05",
+          "score": 0.9946,
+          "pred": {
+            "l": 0.5,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.5,
+            "v": 0.5,
+            "m": 0.5,
+            "f": 0.9
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.5,
+            "v": 0.3,
+            "m": 0.5,
+            "f": 0.9
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "collapse_exhausted",
+          "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_03",
+          "score": 0.9736,
+          "pred": {
+            "l": 0.3,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.7,
+            "v": 0.3,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.1,
+            "p": 0.7,
+            "e": 0.3,
+            "s": 0.9,
+            "tau": 0.9,
+            "v": 0.1,
+            "m": 0.3,
+            "f": 0.9
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "shock_frozen",
+          "nodeId": "NODE_CTR_NEGATED_CALM_HIGH_P_07",
+          "score": 0.9902,
+          "pred": {
+            "l": 0.5,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.9,
+            "e": 0.3,
+            "s": 0.9,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.7
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "mechanical_cold",
+          "nodeId": "NODE_BIG_E_LOW_MECHANICAL_DENIAL_DIALOGUE_03",
+          "score": 0.9908,
+          "pred": {
+            "l": 0.9,
+            "p": 0.1,
+            "e": 0.1,
+            "s": 0.1,
+            "tau": 0.1,
+            "v": 0.3,
+            "m": 0.1,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.9,
+            "p": 0.1,
+            "e": 0.1,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.1,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "mechanical_fear",
+          "nodeId": "NODE_VMF_F_HIGH_P_LOW_COLD_DREAD_07_10",
+          "score": 0.9775,
+          "pred": {
+            "l": 0.7,
+            "p": 0.3,
+            "e": 0.3,
+            "s": 0.3,
+            "tau": 0.1,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.9,
+            "p": 0.5,
+            "e": 0.1,
+            "s": 0.3,
+            "tau": 0.3,
+            "v": 0.5,
+            "m": 0.3,
+            "f": 0.9
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "guarded_memory",
+          "nodeId": "NODE_POWER2_8D_PAD_034",
+          "score": 0.9778,
+          "pred": {
+            "l": 0.9,
+            "p": 0.5,
+            "e": 0.5,
+            "s": 0.3,
+            "tau": 0.9,
+            "v": 0.1,
+            "m": 0.5,
+            "f": 0.5
+          },
+          "target": {
+            "l": 0.7,
+            "p": 0.5,
+            "e": 0.5,
+            "s": 0.3,
+            "tau": 0.9,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.5
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "hyper_empathy",
+          "nodeId": "NODE_DIM_LOW_L_HIGH_P_OVERWHELM_04",
+          "score": 0.9763,
+          "pred": {
+            "l": 0.1,
+            "p": 0.9,
+            "e": 0.7,
+            "s": 0.7,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.7,
+            "f": 0.5
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.7,
+            "e": 0.5,
+            "s": 0.7,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.9,
+            "f": 0.5
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "chaotic_vital",
+          "nodeId": "NODE_BIG_F_LOW_S_HIGH_17",
+          "score": 0.9788,
+          "pred": {
+            "l": 0.3,
+            "p": 0.9,
+            "e": 0.7,
+            "s": 0.9,
+            "tau": 0.1,
+            "v": 0.9,
+            "m": 0.3,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.7,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.3,
+            "v": 0.9,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "angry_spike",
+          "nodeId": "NODE_DIM_TAU_LOW_P_HIGH_PRESENT_SPIKE_03",
+          "score": 0.9904,
+          "pred": {
+            "l": 0.7,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.1,
+            "v": 0.5,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.9,
+            "tau": 0.1,
+            "v": 0.7,
+            "m": 0.1,
+            "f": 0.3
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "flat_exhausted",
+          "nodeId": "NODE_EXTRA_P_HIGH_S_LOW_062_06",
+          "score": 0.982,
+          "pred": {
+            "l": 0.9,
+            "p": 0.3,
+            "e": 0.7,
+            "s": 0.9,
+            "tau": 0.1,
+            "v": 0.1,
+            "m": 0.1,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.1,
+            "e": 0.3,
+            "s": 0.3,
+            "tau": 0.1,
+            "v": 0.1,
+            "m": 0.1,
+            "f": 0.1
+          },
+          "hits": {
+            "l": false,
+            "p": true,
+            "e": false,
+            "s": false,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "sleepy_soft",
+          "nodeId": "NODE_BIG_V_LOW_F_LOW_07",
+          "score": 0.9767,
+          "pred": {
+            "l": 0.5,
+            "p": 0.3,
+            "e": 0.7,
+            "s": 0.1,
+            "tau": 0.1,
+            "v": 0.1,
+            "m": 0.5,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.3,
+            "e": 0.7,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.1,
+            "m": 0.5,
+            "f": 0.1
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "ambiguous_blank",
+          "nodeId": "NODE_EXTRA_QUIET_DAILY_LOW_V_075_06",
+          "score": 0.9743,
+          "pred": {
+            "l": 0.3,
+            "p": 0.1,
+            "e": 0.1,
+            "s": 0.5,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "target": {
+            "l": 0.3,
+            "p": 0.3,
+            "e": 0.3,
+            "s": 0.5,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "sarcastic_hurt",
+          "nodeId": "NODE_POWER2_8D_PAD_096",
+          "score": 0.9913,
+          "pred": {
+            "l": 0.7,
+            "p": 0.9,
+            "e": 0.7,
+            "s": 0.7,
+            "tau": 0.7,
+            "v": 0.3,
+            "m": 0.3,
+            "f": 0.1
+          },
+          "target": {
+            "l": 0.7,
+            "p": 0.9,
+            "e": 0.5,
+            "s": 0.7,
+            "tau": 0.7,
+            "v": 0.5,
+            "m": 0.3,
+            "f": 0.3
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "negated_calm",
+          "nodeId": "NODE_AUG_NEGATED_CALM_HIGH_S_02",
+          "score": 0.9945,
+          "pred": {
+            "l": 0.5,
+            "p": 0.9,
+            "e": 0.7,
+            "s": 0.9,
+            "tau": 0.3,
+            "v": 0.5,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.7,
+            "e": 0.5,
+            "s": 0.7,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "mixed_success_fear",
+          "nodeId": "NODE_AUG_MIXED_SUCCESS_FEAR_03",
+          "score": 0.9902,
+          "pred": {
+            "l": 0.7,
+            "p": 0.7,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.3,
+            "v": 0.9,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "target": {
+            "l": 0.7,
+            "p": 0.7,
+            "e": 0.7,
+            "s": 0.5,
+            "tau": 0.3,
+            "v": 0.7,
+            "m": 0.5,
+            "f": 0.7
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        },
+        {
+          "name": "boundary_low_open",
+          "nodeId": "NODE_BIG_F_HIGH_QUIET_DREAD_17",
+          "score": 0.9621,
+          "pred": {
+            "l": 0.7,
+            "p": 0.3,
+            "e": 0.5,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.7,
+            "f": 0.9
+          },
+          "target": {
+            "l": 0.7,
+            "p": 0.3,
+            "e": 0.5,
+            "s": 0.1,
+            "tau": 0.3,
+            "v": 0.3,
+            "m": 0.5,
+            "f": 0.5
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": false
+          }
+        },
+        {
+          "name": "attachment_soft",
+          "nodeId": "NODE_DIM_OWNER_SILENCE_ATTACHMENT_08",
+          "score": 0.9938,
+          "pred": {
+            "l": 0.5,
+            "p": 0.5,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.7,
+            "v": 0.5,
+            "m": 0.9,
+            "f": 0.5
+          },
+          "target": {
+            "l": 0.5,
+            "p": 0.7,
+            "e": 0.7,
+            "s": 0.3,
+            "tau": 0.7,
+            "v": 0.5,
+            "m": 0.9,
+            "f": 0.5
+          },
+          "hits": {
+            "l": true,
+            "p": true,
+            "e": true,
+            "s": true,
+            "tau": true,
+            "v": true,
+            "m": true,
+            "f": true
+          }
+        }
+      ]
+    }
+  ],
+  "baselines": [
+    {
+      "model": "codebook-base-model-hardcase-full-ft-b24",
+      "allPass": 11,
+      "dimHits": {
+        "l": 20,
+        "p": 17,
+        "e": 19,
+        "s": 18,
+        "tau": 18,
+        "v": 18,
+        "m": 20,
+        "f": 17
+      }
+    },
+    {
+      "model": "codebook-base-model-selected-vmf-amp-b16-lowlr",
+      "allPass": 12,
+      "dimHits": {
+        "l": 20,
+        "p": 19,
+        "e": 20,
+        "s": 17,
+        "tau": 18,
+        "v": 18,
+        "m": 18,
+        "f": 19
+      }
+    },
+    {
+      "model": "codebook-base-model-selected-vmf-ms-amp-b16-lowlr",
+      "allPass": 11,
+      "dimHits": {
+        "l": 20,
+        "p": 19,
+        "e": 20,
+        "s": 16,
+        "tau": 18,
+        "v": 17,
+        "m": 18,
+        "f": 19
+      }
+    },
+    {
+      "model": "hardcase-full-ft-b24-training-best",
+      "allPass": 13,
+      "dimHits": {
+        "l": 20,
+        "p": 17,
+        "e": 20,
+        "s": 20,
+        "tau": 18,
+        "v": 18,
+        "m": 20,
+        "f": 19
+      }
+    }
+  ]
+}
