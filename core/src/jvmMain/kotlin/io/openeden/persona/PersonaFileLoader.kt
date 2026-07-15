@@ -15,8 +15,7 @@ object PersonaFileLoader {
             val line = lines[index]
             when {
                 line.startsWith("mode:") -> values["mode"] = line.valueAfterColon()
-                line.trimStart().startsWith("threshold_1:") -> values["evolution.threshold_1"] = line.valueAfterColon()
-                line.trimStart().startsWith("threshold_2:") -> values["evolution.threshold_2"] = line.valueAfterColon()
+                line.startsWith("start_sub_state:") -> values["start_sub_state"] = line.valueAfterColon()
                 line.startsWith("  ") && line.contains(":") -> {
                     val key = line.substringBefore(":").trim()
                     val rawValue = line.substringAfter(":").trim()

@@ -4,7 +4,15 @@ import io.openeden.bio.BioVector
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.affect.ShockState
+import io.openeden.persona.PersonaConfig
+import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
+import io.openeden.prompt.PromptSectionKeys
+import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
+import io.openeden.runtime.pipeline.DevelopmentMessageRequest
 import io.openeden.server.persistence.sqldelight.SqlDelightSessionStateStore
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -12,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 import kotlin.time.Instant
 
 class SqlDelightSessionStateStoreTest {
@@ -76,6 +85,108 @@ class SqlDelightSessionStateStoreTest {
             assertEquals(99, reopened.read("QQ:42").evolutionIndex)
         }
     }
+
+    @Test
+    fun `persona starting point survives restart and ignores later config changes`() = runTest {
+        SqlDelightSessionStateStore.open(dbPath).use { store ->
+            DevelopmentMessagePipeline.create(persona(PersonaSubState.TRUE_SELF), store = store)
+                .handle(request())
+        }
+
+        SqlDelightSessionStateStore.open(dbPath).use { reopened ->
+            val result = DevelopmentMessagePipeline.create(
+                persona(PersonaSubState.AWAKENED, PersonaMode.LEGACY),
+                store = reopened,
+            )
+                .handle(request())
+
+            assertTrue("TRUE_SELF" in result.promptPreview)
+            assertTrue("\"persona_mode\": \"GROWTH\"" in result.promptPreview)
+            assertTrue("AWAKENED\"" !in result.promptPreview)
+        }
+    }
+
+    @Test
+    fun `write rejects changing an existing persona selection`() = runTest {
+        SqlDelightSessionStateStore.open(dbPath).use { store ->
+            store.write(sample)
+
+            assertFailsWith<IllegalArgumentException> {
+                store.write(sample.copy(personaStartSubState = PersonaSubState.AWAKENED))
+            }
+        }
+    }
+
+    @Test
+    fun `version four sessions migrate without persona downgrade`() = runTest {
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}")
+        driver.execute(
+            null,
+            """
+            CREATE TABLE session_state (
+                session_id TEXT NOT NULL PRIMARY KEY,
+                vector_json TEXT NOT NULL,
+                origin_json TEXT NOT NULL,
+                omega REAL NOT NULL,
+                evolution_index INTEGER NOT NULL,
+                last_user_activity_ms INTEGER,
+                shock_active INTEGER,
+                shock_intensity REAL,
+                shock_description TEXT,
+                shock_triggered_at_ms INTEGER,
+                shock_decay_lambda REAL,
+                shock_heartbeat_fired INTEGER
+            )
+            """.trimIndent(),
+            0,
+        )
+        val vectorJson = Json.encodeToString(BioVector.serializer(), BioVector.Neutral)
+        driver.execute(
+            null,
+            "INSERT INTO session_state(session_id, vector_json, origin_json, omega, evolution_index) VALUES (?, ?, ?, ?, ?)",
+            5,
+        ) {
+            bindString(0, "QQ:migrated")
+            bindString(1, vectorJson)
+            bindString(2, vectorJson)
+            bindDouble(3, 0.0)
+            bindLong(4, 99L)
+        }
+        driver.execute(null, "PRAGMA user_version = 4", 0)
+        driver.close()
+
+        SqlDelightSessionStateStore.open(dbPath).use { store ->
+            val migrated = store.read("QQ:migrated")
+            assertEquals(PersonaMode.GROWTH, migrated.personaMode)
+            assertEquals(PersonaSubState.AWAKENED, migrated.personaStartSubState)
+        }
+    }
+
+    private fun persona(
+        startSubState: PersonaSubState,
+        mode: PersonaMode = PersonaMode.GROWTH,
+    ) = PersonaConfig(
+        mode = mode,
+        startSubState = startSubState,
+        promptSections = mapOf(
+            PromptSectionKeys.PersonaBase to "base",
+            PromptSectionKeys.OutputLayerRules to "rules",
+            PromptSectionKeys.PreCommandPatch to "pre",
+            PromptSectionKeys.TrueSelfPatch to "true",
+            PromptSectionKeys.AwakenedPatch to "awake",
+            PromptSectionKeys.Heartbeat to "hb",
+            PromptSectionKeys.ShockHeartbeat to "shock",
+            PromptSectionKeys.DiaryNarrative to "diary",
+        ),
+    )
+
+    private fun request() = DevelopmentMessageRequest(
+        platform = "QQ",
+        scopeId = "42",
+        userId = "u1",
+        text = "hello",
+        emotionConfidence = 0.49f,
+    )
 
     private inline fun SqlDelightSessionStateStore.use(block: (SqlDelightSessionStateStore) -> Unit) {
         try {

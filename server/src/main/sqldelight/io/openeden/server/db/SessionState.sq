@@ -1,5 +1,6 @@
 -- Durable session state (AGENTS.md §1.1): evolution_index and the 8D vector MUST survive restart,
--- otherwise growth resets and sub-state transitions are no longer irreversible.
+-- otherwise growth resets. persona_mode and persona_start_sub_state are immutable session identity
+-- data; nullable values exist only for databases migrated from before explicit selection persisted.
 -- ShockState is decomposed into columns so we never serialize kotlin.time.Instant; the two
 -- BioVector fields are stored as JSON (BioVector is @Serializable).
 CREATE TABLE session_state (
@@ -8,6 +9,8 @@ CREATE TABLE session_state (
     origin_json TEXT NOT NULL,
     omega REAL NOT NULL,
     evolution_index INTEGER NOT NULL,
+    persona_mode TEXT,
+    persona_start_sub_state TEXT,
     last_user_activity_ms INTEGER,
     shock_active INTEGER,
     shock_intensity REAL,
@@ -18,7 +21,7 @@ CREATE TABLE session_state (
 );
 
 selectById:
-SELECT session_id, vector_json, origin_json, omega, evolution_index, last_user_activity_ms,
+SELECT session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state, last_user_activity_ms,
        shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
        shock_heartbeat_fired
 FROM session_state
@@ -27,9 +30,24 @@ WHERE session_id = ?;
 selectAllIds:
 SELECT session_id FROM session_state;
 
+selectPersonaSelectionById:
+SELECT persona_mode, persona_start_sub_state
+FROM session_state
+WHERE session_id = ?;
+
+initializePersonaSelection:
+UPDATE session_state
+SET persona_mode = ?, persona_start_sub_state = ?
+WHERE session_id = ? AND persona_mode IS NULL AND persona_start_sub_state IS NULL;
+
+insertNeutralIfAbsent:
+INSERT OR IGNORE INTO session_state(
+    session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
 upsert:
 INSERT OR REPLACE INTO session_state(
-    session_id, vector_json, origin_json, omega, evolution_index, last_user_activity_ms,
+    session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state, last_user_activity_ms,
     shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
     shock_heartbeat_fired
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

@@ -1,0 +1,7 @@
+ALTER TABLE session_state ADD COLUMN persona_mode TEXT;
+ALTER TABLE session_state ADD COLUMN persona_start_sub_state TEXT;
+
+-- Pre-v5 sessions used automatic threshold promotion but did not persist the selected patch.
+-- Awakened is the only migration target that cannot silently downgrade an existing session.
+UPDATE session_state
+SET persona_mode = 'growth', persona_start_sub_state = 'awakened';

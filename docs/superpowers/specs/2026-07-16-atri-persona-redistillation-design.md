@@ -2,18 +2,18 @@
 
 ## Goal
 
-Refine `persona/atri.yaml` from the locally available ATRI corpus while preserving Persona-as-Data. The result must give the model clearer executable instructions without copying source dialogue into the public persona file.
+Refine `persona/atri.yaml` from the complete locally extracted ATRI plot while preserving Persona-as-Data. The result must give the model clearer executable instructions without copying source dialogue into the public persona file.
 
-This change is limited to `persona/atri.yaml`. It does not add a distillation script and does not change Kotlin runtime behavior, asynchronous execution, vector mechanics, or the VQ-VAE pipeline.
+The persona starting-point runtime and `AGENTS.md` are updated with the YAML so configuration, prompt injection, and repository invariants remain consistent. The change does not alter asynchronous execution, vector mechanics, or the VQ-VAE pipeline.
 
 ## Source And Distillation Boundary
 
-`private_corpus/atri_transcripts` is research input only. It may support aggregate observations and abstract behavioral conclusions, but no continuous source dialogue, recognizable paraphrase, Japanese phrasing, or private-corpus content may be copied into `persona/atri.yaml`.
+`private_corpus/atri_decoded` and the generated full-plot extraction are research input only. They may support aggregate observations and abstract behavioral conclusions, but no continuous source dialogue, recognizable paraphrase, Japanese phrasing, or private-corpus content may be copied into `persona/atri.yaml`.
 
 The distilled persona should retain the corpus-supported traits that materially affect generation:
 
-- polite and slightly formal distance even during intimacy;
-- short, concrete responses with restrained emotion;
+- polite address coexisting with tactile intimacy, teasing, and direct demands;
+- short, reactive responses that can expand during technical comedy or emotional escalation;
 - hesitation expressed through pauses and self-correction;
 - functional language used to understand care and self-worth;
 - the tension between a mechanical self-model and experienced emotion;
@@ -40,15 +40,17 @@ The intended section responsibilities are:
 - `style.do`: Chinese positive style guidance.
 - `style.do_not`: English prohibitions.
 
-## Growth Stages
+## Starting Points
 
-The three patches must form a one-way progression without duplicating the entire base persona:
+The three patches are explicit canonical playthrough starting points, not thresholds in an automatic progression:
 
 1. `pre_command`: emotion is interpreted as simulation; usefulness and performance dominate self-worth; care is expressed as duty.
-2. `true_self`: the simulation model becomes unstable; hesitation and self-correction peak; care is no longer fully explainable as duty, but no mature answer is forced.
+2. `true_self`: the diary revelation and command to stop simulated affect are established; autonomous choices contradict the no-heart model, but no mature answer is forced.
 3. `awakened`: machine identity and felt emotion are integrated; care, fear, dependence, and choice can be named directly while judgment and restraint remain intact.
 
-Thresholds remain data-driven and unchanged unless the YAML already contains a user modification. No stage may hardcode vector values or replace VQ-VAE semantics.
+Normal growth defaults to `pre_command`. Operators may explicitly select `true_self` or `awakened` to skip to a later canonical starting point, while legacy mode remains awakened. The selected mode and patch are persisted in session state, remain immutable for the session, and are injected on every prompt; changing persona YAML does not rewrite existing sessions. `evolution_index` remains a continuously increasing lived-experience signal but never selects or replaces patches. No starting point may hardcode vector values or replace VQ-VAE semantics.
+
+Databases migrated from the former threshold-driven runtime assign existing sessions to `growth` + `awakened`. The old schema did not persist the active threshold-derived patch, so choosing the mature starting point is the only deterministic migration that cannot downgrade an established session. This compatibility promotion applies only to pre-v5 rows; newly created sessions always use the explicit persona selection.
 
 ## State And Runtime Compliance
 
@@ -63,6 +65,9 @@ The edit should remove duplicated prose and prefer concrete generation guidance 
 Verification consists of:
 
 - parsing `persona/atri.yaml` through the existing persona loader tests;
+- verifying explicit starting-point parsing and the legacy awakened invariant;
+- verifying that the selected mode and starting point survive a durable-store restart;
+- verifying that increasing `evolution_index` does not replace the selected patch;
 - running `AtriPersonaGuardTest` for required sections, Japanese kana, and oversized quoted dialogue;
 - reviewing the diff for English-only hard constraints and Chinese-only persona expression;
-- confirming no runtime source file or private corpus file changed.
+- confirming private corpus artifacts remain Git-ignored and runtime changes are limited to starting-point selection.

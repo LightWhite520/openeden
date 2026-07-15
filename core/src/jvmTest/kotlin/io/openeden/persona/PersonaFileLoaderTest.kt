@@ -12,9 +12,7 @@ class PersonaFileLoaderTest {
         file.writeText(
             """
             mode: growth
-            evolution:
-              threshold_1: 10
-              threshold_2: 30
+            start_sub_state: true_self
             prompt_sections:
               persona.base: "base"
               output.layer.rules: "rules"
@@ -34,7 +32,7 @@ class PersonaFileLoaderTest {
         val config = PersonaFileLoader.load(file)
 
         assertEquals(PersonaMode.GROWTH, config.mode)
-        assertEquals(EvolutionThresholds(10, 30), config.evolutionThresholds)
+        assertEquals(PersonaSubState.TRUE_SELF, config.startSubState)
         assertEquals("hb line 1\nhb line 2", config.promptSections["heartbeat.base"])
         assertEquals("shock line", config.promptSections["heartbeat.shock"])
         assertEquals("diary line", config.promptSections["diary.narrative"])
@@ -46,9 +44,7 @@ class PersonaFileLoaderTest {
         file.writeText(
             """
             mode: growth
-            evolution:
-              threshold_1: 10
-              threshold_2: 30
+            start_sub_state: pre_command
             prompt_sections:
               persona.base: "base"
               output.layer.rules: "rules"

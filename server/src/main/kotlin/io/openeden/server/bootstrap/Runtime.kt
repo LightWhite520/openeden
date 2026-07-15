@@ -66,7 +66,12 @@ val SessionStateStoreKey = AttributeKey<SessionStateStore>("openeden.session-sta
  */
 fun Application.configureRuntime() {
     val serverConfig = loadServerRuntimeConfig(environment.config)
-    val store = SqlDelightSessionStateStore.open(serverConfig.runtimeDbPath)
+    val persona = PersonaFileLoader.load(serverConfig.personaPath)
+    val store = SqlDelightSessionStateStore.open(
+        serverConfig.runtimeDbPath,
+        persona.mode,
+        persona.startSubState,
+    )
     val relationshipStore = SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
     val diaryTaskStore = SqlDelightDiaryTaskStore.open(serverConfig.runtimeDbPath)
     val traceStore = SqlDelightTraceStore.open(serverConfig.runtimeDbPath)
@@ -77,7 +82,6 @@ fun Application.configureRuntime() {
     val inferenceExecutor = JvmInferenceExecutor()
     val models = loadRuntimeModels(serverConfig)
     val memoryStore = SqlDelightMemoryRepository.open(serverConfig.runtimeDbPath, models.embeddingModel)
-    val persona = PersonaFileLoader.load(serverConfig.personaPath)
     val llmClient = OpenAiResponsesLlmClient(
         apiKey = serverConfig.apiKey, model = serverConfig.model,
         reasoningEffort = serverConfig.reasoningEffort, baseUrl = serverConfig.baseUrl,

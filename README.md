@@ -33,7 +33,7 @@ The runtime keeps personality externalized as data:
 | `server`  | Ktor API, runtime bootstrap, SQLite persistence, background workers, WebSocket installation, and public HTTP endpoints. |
 | `client`  | Shared HTTP client helpers for the CLI and future platform frontends. |
 | `trainer` | Training and model-related project entry points.             |
-| `persona` | Data-only persona, growth thresholds, heartbeat text, and prompt sections. |
+| `persona` | Data-only persona, explicit playthrough starting points, heartbeat text, and prompt sections. |
 | `data`    | Default location for local models, generated artifacts, and runtime SQLite state. |
 | `docs`    | Design notes, boundary documents, and engineering records.   |
 
