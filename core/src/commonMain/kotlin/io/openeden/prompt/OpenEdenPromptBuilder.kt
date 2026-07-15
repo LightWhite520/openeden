@@ -3,9 +3,7 @@ package io.openeden.prompt
 import io.openeden.memory.MemorySnippet
 import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
-import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
-import io.openeden.persona.PersonaSubStateSelector
 import io.openeden.relationship.RelationshipState
 import io.openeden.relationship.SemanticLevel
 import io.openeden.relationship.UserAffectState
@@ -25,7 +23,7 @@ class DefaultPromptBuilder(
 
 object OpenEdenPromptDocumentFactory {
     fun create(input: PromptInput): PromptDocument {
-        val subState = input.personaConfig.subStateFor(input.evolutionIndex)
+        val subState = input.personaConfig.startSubState
         return promptDocument {
             "system" {
                 "logical_core" {
@@ -48,7 +46,7 @@ object OpenEdenPromptDocumentFactory {
                 }
                 "runtime_state" {
                     "persona_mode" to input.personaConfig.mode.name
-                    "persona_sub_state" to subState.name
+                    "persona_start_sub_state" to subState.name
                     "evolution_index" to input.evolutionIndex
                     "omega" to input.omegaState.value.promptFloat()
                     "shock_state" to shockStateObject(input)
@@ -193,11 +191,6 @@ object OpenEdenPromptDocumentFactory {
             ),
         )
 
-    private fun PersonaConfig.subStateFor(evolutionIndex: Long): PersonaSubState =
-        when (mode) {
-            PersonaMode.GROWTH -> PersonaSubStateSelector.select(evolutionIndex, evolutionThresholds)
-            PersonaMode.LEGACY -> PersonaSubState.AWAKENED
-        }
 }
 
 private fun PersonaSubState.sectionKey(): String = when (this) {

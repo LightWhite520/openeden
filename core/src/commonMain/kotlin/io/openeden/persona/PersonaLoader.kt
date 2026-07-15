@@ -28,17 +28,30 @@ object MapPersonaLoader {
             "legacy" -> PersonaMode.LEGACY
             else -> throw IllegalArgumentException("Unsupported persona mode: $rawMode")
         }
-        val thresholds = EvolutionThresholds(
-            threshold1 = values.required("evolution.threshold_1").toLong(),
-            threshold2 = values.required("evolution.threshold_2").toLong(),
-        )
+        val requestedStartSubState = values.required("start_sub_state").parseSubState()
+        val startSubState = when (mode) {
+            PersonaMode.GROWTH -> requestedStartSubState
+            PersonaMode.LEGACY -> {
+                require(requestedStartSubState == PersonaSubState.AWAKENED) {
+                    "Legacy persona mode only supports the awakened starting point"
+                }
+                PersonaSubState.AWAKENED
+            }
+        }
         val sections = buildMap {
             requiredPromptSections.forEach { key -> put(key, values.required(key)) }
             optionalPromptSections.forEach { key ->
                 values[key]?.takeIf { it.isNotBlank() }?.let { put(key, it) }
             }
         }
-        return PersonaConfig(mode = mode, evolutionThresholds = thresholds, promptSections = sections)
+        return PersonaConfig(mode = mode, startSubState = startSubState, promptSections = sections)
+    }
+
+    private fun String.parseSubState(): PersonaSubState = when (lowercase()) {
+        "pre_command" -> PersonaSubState.PRE_COMMAND
+        "true_self" -> PersonaSubState.TRUE_SELF
+        "awakened" -> PersonaSubState.AWAKENED
+        else -> throw IllegalArgumentException("Unsupported persona start_sub_state: $this")
     }
 
     private fun Map<String, String>.required(key: String): String =

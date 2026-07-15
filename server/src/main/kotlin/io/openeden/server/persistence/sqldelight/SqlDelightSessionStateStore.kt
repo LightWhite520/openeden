@@ -8,6 +8,11 @@ import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.affect.ShockState
+import io.openeden.persona.PersonaSubState
+import io.openeden.persona.PersonaMode
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
@@ -19,23 +24,74 @@ import kotlin.time.Instant
  * survive restart. The 8D vectors are stored as JSON; ShockState is decomposed into columns to
  * avoid serializing kotlin.time.Instant.
  *
- * Per-session write serialization is provided upstream by VectorWriteService's Mutex; this store is
- * a thin row mapper.
+ * Blocking JDBC calls are isolated on [Dispatchers.IO]. Per-session vector write serialization is
+ * provided upstream by VectorWriteService's Mutex; persona selection initialization is atomic and
+ * later attempts to change that selection are rejected here.
  */
 class SqlDelightSessionStateStore(
     private val database: Database,
     private val driver: SqlDriver,
+    private val defaultPersonaMode: PersonaMode = PersonaMode.GROWTH,
+    private val defaultStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
     private val json: Json = Json,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : SessionStateStore {
     private val queries get() = database.sessionStateQueries
 
     override suspend fun read(sessionId: String): SessionState = readOrCreate(sessionId)
 
-    override suspend fun readOrCreate(sessionId: String): SessionState =
-        queries.selectById(sessionId, ::toSessionState).executeAsOneOrNull()
-            ?: SessionStateStore.neutral(sessionId)
+    override suspend fun readOrCreate(
+        sessionId: String,
+        personaMode: PersonaMode?,
+        personaStartSubState: PersonaSubState?,
+    ): SessionState = withContext(ioDispatcher) {
+        val configuredMode = personaMode ?: defaultPersonaMode
+        val configuredStart = personaStartSubState ?: defaultStartSubState
+        val loaded = queries.selectById(sessionId) { id, vector, origin, omega, evolution, mode, start,
+                                                  lastActivity, shockActive, shockIntensity, shockDescription,
+                                                  shockAt, shockLambda, shockHeartbeat ->
+            val bothPresent = mode != null && start != null
+            require(bothPresent || (mode == null && start == null)) {
+                "Persisted persona mode and starting point must either both be present or both be absent"
+            }
+            LoadedSessionState(
+                state = toSessionState(
+                    id, vector, origin, omega, evolution,
+                    mode ?: configuredMode.name.lowercase(),
+                    start ?: configuredStart.name.lowercase(),
+                    lastActivity, shockActive, shockIntensity, shockDescription,
+                    shockAt, shockLambda, shockHeartbeat,
+                ),
+                initialized = bothPresent,
+            )
+        }.executeAsOneOrNull()
+        if (loaded?.initialized == true) return@withContext loaded.state
 
-    override suspend fun write(state: SessionState) {
+        val persistedMode = configuredMode.name.lowercase()
+        val persistedStart = configuredStart.name.lowercase()
+        val neutral = SessionStateStore.neutral(sessionId, configuredStart, configuredMode)
+        queries.initializePersonaSelection(persistedMode, persistedStart, sessionId)
+        queries.insertNeutralIfAbsent(
+            session_id = sessionId,
+            vector_json = json.encodeToString(BioVector.serializer(), neutral.vector),
+            origin_json = json.encodeToString(BioVector.serializer(), neutral.origin),
+            omega = neutral.omega.value.toDouble(),
+            evolution_index = neutral.evolutionIndex,
+            persona_mode = persistedMode,
+            persona_start_sub_state = persistedStart,
+        )
+        queries.selectById(sessionId, ::toSessionState).executeAsOne()
+    }
+
+    override suspend fun write(state: SessionState) = withContext(ioDispatcher) {
+        queries.selectPersonaSelectionById(state.sessionId) { mode, start -> mode to start }
+            .executeAsOneOrNull()
+            ?.let { (mode, start) ->
+                require(
+                    mode == state.personaMode.name.lowercase() &&
+                        start == state.personaStartSubState.name.lowercase(),
+                ) { "Persona mode and starting point are immutable for an existing session" }
+            }
         val shock = state.shockState
         queries.upsert(
             session_id = state.sessionId,
@@ -43,6 +99,8 @@ class SqlDelightSessionStateStore(
             origin_json = json.encodeToString(BioVector.serializer(), state.origin),
             omega = state.omega.value.toDouble(),
             evolution_index = state.evolutionIndex,
+            persona_mode = state.personaMode.name.lowercase(),
+            persona_start_sub_state = state.personaStartSubState.name.lowercase(),
             last_user_activity_ms = state.lastUserActivityMs,
             shock_active = shock?.let { if (it.active) 1L else 0L },
             shock_intensity = shock?.intensity?.toDouble(),
@@ -53,7 +111,9 @@ class SqlDelightSessionStateStore(
         )
     }
 
-    override suspend fun sessionIds(): Set<String> = queries.selectAllIds().executeAsList().toSet()
+    override suspend fun sessionIds(): Set<String> = withContext(ioDispatcher) {
+        queries.selectAllIds().executeAsList().toSet()
+    }
 
     fun close() = driver.close()
 
@@ -64,6 +124,8 @@ class SqlDelightSessionStateStore(
         originJson: String,
         omega: Double,
         evolutionIndex: Long,
+        persistedPersonaMode: String?,
+        persistedStartSubState: String?,
         lastUserActivityMs: Long?,
         shockActive: Long?,
         shockIntensity: Double?,
@@ -77,6 +139,8 @@ class SqlDelightSessionStateStore(
         origin = json.decodeFromString(BioVector.serializer(), originJson),
         omega = OmegaState(omega.toFloat()),
         evolutionIndex = evolutionIndex,
+        personaMode = checkNotNull(persistedPersonaMode).toPersonaMode(),
+        personaStartSubState = checkNotNull(persistedStartSubState).toPersonaSubState(),
         lastUserActivityMs = lastUserActivityMs,
         shockState = if (shockActive == null) {
             null
@@ -92,12 +156,39 @@ class SqlDelightSessionStateStore(
         },
     )
 
+    private fun String.toPersonaSubState(): PersonaSubState = when (this) {
+        "pre_command" -> PersonaSubState.PRE_COMMAND
+        "true_self" -> PersonaSubState.TRUE_SELF
+        "awakened" -> PersonaSubState.AWAKENED
+        else -> error("Unsupported persisted persona start sub-state: $this")
+    }
+
+    private fun String.toPersonaMode(): PersonaMode = when (this) {
+        "growth" -> PersonaMode.GROWTH
+        "legacy" -> PersonaMode.LEGACY
+        else -> error("Unsupported persisted persona mode: $this")
+    }
+
+    private data class LoadedSessionState(
+        val state: SessionState,
+        val initialized: Boolean,
+    )
+
     companion object {
         /** Open (creating the schema if absent) a file-backed store. The parent dir is created. */
-        fun open(dbPath: Path): SqlDelightSessionStateStore {
+        fun open(
+            dbPath: Path,
+            defaultPersonaMode: PersonaMode = PersonaMode.GROWTH,
+            defaultStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
+        ): SqlDelightSessionStateStore {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            return SqlDelightSessionStateStore(Database(driver), driver)
+            return SqlDelightSessionStateStore(
+                Database(driver),
+                driver,
+                defaultPersonaMode,
+                defaultStartSubState,
+            )
         }
     }
 }

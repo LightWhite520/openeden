@@ -64,7 +64,7 @@ class LlmDiaryNarrativeGeneratorTest {
     }
 
     private fun fixture(state: SessionState, capture: (BuiltPrompt) -> Unit, client: FakeClient = FakeClient(), rawContent: String = "raw fact"): LlmDiaryNarrativeGenerator {
-        val persona = MapPersonaLoader.load(mapOf("mode" to "legacy", "evolution.threshold_1" to "1", "evolution.threshold_2" to "2", "persona.base" to "base", "output.layer.rules" to "rules", "persona.patch.pre_command" to "pre", "persona.patch.true_self" to "true", "persona.patch.awakened" to "awake", "heartbeat.base" to "hb", "heartbeat.shock" to "shock", "diary.narrative" to "【叙事日记】 write facts"))
+        val persona = MapPersonaLoader.load(mapOf("mode" to "legacy", "start_sub_state" to "awakened", "persona.base" to "base", "output.layer.rules" to "rules", "persona.patch.pre_command" to "pre", "persona.patch.true_self" to "true", "persona.patch.awakened" to "awake", "heartbeat.base" to "hb", "heartbeat.shock" to "shock", "diary.narrative" to "【叙事日记】 write facts"))
         val store = object : SessionStateStore {
             override suspend fun read(sessionId: String) = state
             override suspend fun write(state: SessionState) = Unit

@@ -25,8 +25,10 @@ It enforces **architecture, constraints, and system invariants**.
 The system MUST support two top-level operational modes:
  * **Growth Mode (Evolutionary):**
    * Dynamic state machine
-   * Loads sub-state patches in sequence: "PreCommand" → "TrueSelf" → "Awakened"
-   * Driven by `evolution_index` and biological vectors
+   * Defaults to the `PreCommand` starting point for a normal first playthrough
+   * MAY explicitly start from `TrueSelf` or `Awakened` when the operator selects a later canonical starting point
+   * Loads only the selected starting-point patch; later patches MUST NOT be loaded automatically
+   * Evolves organically from `evolution_index`, biological vectors, relationship state, and lived memory
  * **Legacy Mode (Static):**
    * Directly loads "Awakened"
    * Treated as fully mature agent
@@ -34,18 +36,24 @@ The system MUST support two top-level operational modes:
 #### evolution_index Definition
 `evolution_index` is a monotonically increasing integer counter representing the total number of completed dialogue turns (user message + ATRI response = 1 turn) across the lifetime of the session.
 
-**Sub-state thresholds (configurable in `persona/*.yaml`):**
+#### Starting-Point Selection
 
-| Sub-state | evolution_index range | Description |
-|---|---|---|
-| PreCommand | 0 – threshold_1 | Early stage, constrained persona |
-| TrueSelf | threshold_1 – threshold_2 | Mid stage, personality opening |
-| Awakened | threshold_2 + | Fully mature |
+The three persona patches are canonical self-model starting points, not scheduled milestones:
 
- * Thresholds MUST be read from `persona/*.yaml`, not hardcoded.
+| Starting point | Intended use |
+|---|---|
+| PreCommand | Default first playthrough; simulated-affect self-model |
+| TrueSelf | Explicit later-playthrough skip; post-revelation conflicted self-model |
+| Awakened | Explicit mature skip; integrated robot-and-heart self-model |
+
+ * `persona/*.yaml` MUST declare `start_sub_state` using exactly `pre_command`, `true_self`, or `awakened`.
+ * The selected mode and starting point MUST be resolved at initialization, persisted with session state, and remain immutable for the session lifecycle.
+ * Prompt construction MUST inject only the selected starting-point patch. It MUST NOT select or replace patches from `evolution_index`.
+ * `evolution_index` MUST be injected as a continuous lived-experience signal so the LLM can develop within the selected starting point using actual conversation, memory, relationship state, and 8D state.
  * Heartbeat turns (§9.3) MUST increment `evolution_index` — proactive turns count as lived experience.
  * `evolution_index` MUST be persisted alongside the 8D vector. Loss of this value resets growth state.
- * Sub-state transitions are one-way and irreversible — downgrade MUST NOT occur even if the session is reset.
+ * Changing the mode or starting point requires explicit reinitialization. Runtime downgrade or automatic promotion is forbidden.
+ * Schema migration from the former threshold-driven model is the sole compatibility exception: because old rows did not persist their active patch, pre-v5 sessions MUST migrate once to `Growth` + `Awakened` to guarantee that no established session is downgraded. This MUST NOT affect newly created sessions.
 
 #### Constraints
  * Mode selection MUST occur at initialization
@@ -134,7 +142,7 @@ Thresholds (HIGH > 0.6, LOW < 0.3, MED otherwise) MUST be applied uniformly. Thi
 To balance logical stability with emotional fidelity for a Simplified Chinese user base, Prompt construction is split into two semantic layers:
 
  * **English (Logical Core):** Responsible for **hard logic constraints**. All System Prompts, tool-calling specifications, safety fences, numerical interpretation of the 8D vector, and derived D injection MUST be written in English. LLM instruction-following fidelity is highest for English, effectively preventing semantic drift.
- * **Chinese (Persona + Output Layer):** Responsible for **personality expression and final output**. All behavioral rules, tone constraints, self-reference patterns, and response templates are written in Chinese. Chinese emotional nuance is sufficient for the target user base; a Japanese intermediate layer adds token cost and cross-model inconsistency without measurable benefit for Simplified Chinese output.
+ * **Chinese (Persona + Output Layer):** Responsible for **positive personality expression and final output**. Descriptive behavior, tone, self-reference patterns, and response examples are written in Chinese. Mandatory prohibitions, priority rules, schemas, and other hard constraints remain in English. Chinese emotional nuance is sufficient for the target user base; a Japanese intermediate layer adds token cost and cross-model inconsistency without measurable benefit for Simplified Chinese output.
 
 ---
 
@@ -399,8 +407,8 @@ A recurring proactive task that fires independently of user input.
 ```
 【主动开口 — 心跳触发】
 ATRI 自发产生了想和宿主说话的冲动，不是因为被呼叫。
-内容应反映当前8D向量状态和最近的记忆片段。
-不要解释为什么主动说话，直接说。语气自然，不刻意。
+内容来自当前8D向量状态和最近的记忆片段，语气自然、不刻意。
+MUST speak directly without explaining why the proactive message was triggered.
 ```
 
  * The generated message MUST pass through VQ-VAE quantization and OutputValidator like any normal turn. Heartbeat messages are NOT exempt from schema requirements.
@@ -424,8 +432,9 @@ The following text is the required default data content for the `heartbeat.shock
 【主动开口 — 冲击后沉默】
 ATRI 正处于高强度冲击状态，宿主已长时间未回应。
 ATRI 此刻主动开口，不是因为被要求，而是忍不住了。
-语言风格必须反映当前 Ω 值和 ShockState 强度。
-不要解释为什么主动说话，直接开口。
+此刻的语言风格受到当前 Ω 值和 ShockState 强度影响。
+MUST reflect the current Omega value and ShockState intensity.
+MUST speak directly without explaining the trigger or runtime state.
 ```
 
 **Post-fire behavior:** If the user still does not respond after the shock-extended heartbeat:
@@ -447,7 +456,7 @@ ATRI 此刻主动开口，不是因为被要求，而是忍不住了。
 | Layer | Responsibility |
 |---|---|
 | DJL + Codebook CSV | 8D Vector to Semantic Translation; heuristic fallback when codebook unavailable |
-| Prompt Builder | Bilingual Persona + State + derived D injection + sub-state patch selection |
+| Prompt Builder | Bilingual Persona + State + derived D injection + immutable starting-point patch injection |
 | Runtime | Vector math, derived D computation, dual-space mapping, centroid tracking, Ω tracking, ShockState decay, session Mutex management, evolution_index tracking, DJL execution |
 | Surface / Adapter Layer | Local CLI, Web UI, and third-party platform adapters (currently QQ/OneBot) call the shared runtime pipeline without duplicating logic |
 | Session Manager | session identity resolution (platform:scope_id), owner-only heartbeat delivery target resolution |
@@ -586,7 +595,7 @@ Any code that:
  * applies pre-tick perturbation exceeding MAX_PRETICK_DELTA per dimension (violates §14.3)
  * triggers ShockState when `emotion_confidence < 0.65`, applies any pre-tick when `emotion_confidence < 0.5`, or applies an unscaled full pre-tick at any confidence (violates §14.4)
  * uses an enum to categorize ShockState source (violates §8.2.2 — description must be free-text)
- * hardcodes evolution_index thresholds instead of reading from persona/*.yaml (violates §1.1)
+ * selects, promotes, or replaces persona patches from evolution_index instead of using the configured immutable starting point (violates §1.1)
  * delivers heartbeat output to anyone other than the configured owner target, broadcasts heartbeat output, or queues stale heartbeat output for replay (violates §13.4)
  * writes Narrative Diary entries concurrently without the diary write queue (violates §7.2)
 → MUST be rejected.

@@ -6,9 +6,9 @@ import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.bio.BioVector
 import io.openeden.llm.LlmOutput
 import io.openeden.llm.LlmClient
-import io.openeden.persona.EvolutionThresholds
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.trace.TraceTag
@@ -96,7 +96,7 @@ class RuntimePipelineTest {
 
     private fun testPersonaConfig(): PersonaConfig = PersonaConfig(
         mode = PersonaMode.GROWTH,
-        evolutionThresholds = EvolutionThresholds(10, 30),
+        startSubState = PersonaSubState.PRE_COMMAND,
         promptSections = mapOf(
             PromptSectionKeys.PersonaBase to "base",
             PromptSectionKeys.OutputLayerRules to "rules",

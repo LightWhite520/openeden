@@ -99,7 +99,11 @@ class DevelopmentMessagePipeline(
             turnId = "$sessionId:${nowMs()}:turn",
             sessionId = sessionId,
         )
-        val initial = store.readOrCreate(sessionId)
+        val initial = store.readOrCreate(
+            sessionId = sessionId,
+            personaMode = personaConfig.mode,
+            personaStartSubState = personaConfig.startSubState,
+        )
         trace(traceContext, "state_load")
         val centroid = inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
         if (centroid != initial.origin) {
@@ -185,7 +189,10 @@ class DevelopmentMessagePipeline(
         trace(traceContext, "retrieval", tags = retrievalResult.traceTags, attributes = mapOf("mode" to retrievalResult.mode.name))
         val prompt = promptBuilder.build(
             PromptInput(
-                personaConfig = personaConfig,
+                personaConfig = personaConfig.copy(
+                    mode = current.personaMode,
+                    startSubState = current.personaStartSubState,
+                ),
                 evolutionIndex = current.evolutionIndex,
                 vectorSnapshot = preTick.preTicked,
                 derivedDissonance = inference.dissonance,

@@ -10,9 +10,10 @@ import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemorySnippet
 import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalResult
-import io.openeden.persona.EvolutionThresholds
+import io.openeden.persona.MapPersonaLoader
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
 import io.openeden.runtime.affect.OmegaState
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -42,12 +43,40 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
-    fun `growth mode selects sub state patch from persona data`() = runTest {
+    fun `growth mode keeps configured starting patch as evolution index increases`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput(evolutionIndex = 15))
 
-        assertContains(built.systemText, "\"persona_sub_state\": \"TRUE_SELF\"")
+        assertContains(built.systemText, "\"persona_start_sub_state\": \"PRE_COMMAND\"")
+        assertContains(built.systemText, "\"evolution_index\": 15")
         assertContains(built.personaText, "behavior rules from data")
+        assertContains(built.personaText, "pre command patch from data")
+        assertTrue("true self patch from data" !in built.personaText)
+    }
+
+    @Test
+    fun `growth mode supports explicit true self starting point`() = runTest {
+        val persona = MapPersonaLoader.load(
+            mapOf(
+                "mode" to "growth",
+                "start_sub_state" to "true_self",
+                "persona.base" to "base persona from data",
+                "persona.behavior" to "behavior rules from data",
+                "output.layer.rules" to "output rules from data",
+                "persona.patch.pre_command" to "pre command patch from data",
+                "persona.patch.true_self" to "true self patch from data",
+                "persona.patch.awakened" to "awakened patch from data",
+                "heartbeat.base" to "heartbeat text from data",
+                "heartbeat.shock" to "shock heartbeat text from data",
+                "diary.narrative" to "diary text from data",
+            ),
+        )
+        val built = DefaultPromptBuilder().build(
+            promptInput(evolutionIndex = 0, personaConfigOverride = persona),
+        )
+
+        assertContains(built.systemText, "\"persona_start_sub_state\": \"TRUE_SELF\"")
         assertContains(built.personaText, "true self patch from data")
+        assertTrue("pre command patch from data" !in built.personaText)
     }
 
     @Test
@@ -56,10 +85,11 @@ class DefaultPromptBuilderTest {
             promptInput(
                 evolutionIndex = 0,
                 personaMode = PersonaMode.LEGACY,
+                personaStartSubState = PersonaSubState.AWAKENED,
             ),
         )
 
-        assertContains(built.systemText, "\"persona_sub_state\": \"AWAKENED\"")
+        assertContains(built.systemText, "\"persona_start_sub_state\": \"AWAKENED\"")
         assertContains(built.personaText, "awakened patch from data")
     }
 
@@ -127,11 +157,13 @@ class DefaultPromptBuilderTest {
     private fun promptInput(
         evolutionIndex: Long = 0,
         personaMode: PersonaMode = PersonaMode.GROWTH,
+        personaStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
         userInput: String = "hello",
+        personaConfigOverride: PersonaConfig? = null,
     ): PromptInput = PromptInput(
-        personaConfig = PersonaConfig(
+        personaConfig = personaConfigOverride ?: PersonaConfig(
             mode = personaMode,
-            evolutionThresholds = EvolutionThresholds(threshold1 = 10, threshold2 = 20),
+            startSubState = personaStartSubState,
             promptSections = mapOf(
                 PromptSectionKeys.Identity to "identity from data",
                 PromptSectionKeys.PersonaBase to "base persona from data",

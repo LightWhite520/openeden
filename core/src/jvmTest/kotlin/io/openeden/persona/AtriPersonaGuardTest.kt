@@ -42,6 +42,7 @@ class AtriPersonaGuardTest {
         val config = PersonaFileLoader.load(atriYaml)
 
         assertEquals(PersonaMode.GROWTH, config.mode)
+        assertEquals(PersonaSubState.PRE_COMMAND, config.startSubState)
         requiredSections.forEach { key ->
             val value = config.promptSections[key]
             assertNotNull(value, "Missing persona section: $key")
@@ -82,6 +83,18 @@ class AtriPersonaGuardTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun `atri persona writes hard constraints in english`() {
+        val text = Files.readString(atriYaml)
+        listOf("必须", "不得", "禁止").forEach { marker ->
+            assertTrue(marker !in text, "Chinese hard-constraint marker found in atri.yaml: $marker")
+        }
+        assertTrue(
+            text.lineSequence().none { it.trimStart().startsWith("不要") },
+            "Chinese hard-constraint line found in atri.yaml: 不要",
+        )
     }
 
     private fun locatePersonaFile(relative: String): Path {

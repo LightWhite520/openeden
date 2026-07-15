@@ -6,12 +6,11 @@ import kotlin.test.assertFailsWith
 
 class PersonaLoaderTest {
     @Test
-    fun `loads thresholds and required sections from structured data`() {
+    fun `loads explicit starting point and required sections from structured data`() {
         val config = MapPersonaLoader.load(
             mapOf(
                 "mode" to "growth",
-                "evolution.threshold_1" to "10",
-                "evolution.threshold_2" to "30",
+                "start_sub_state" to "true_self",
                 "persona.base" to "base",
                 "output.layer.rules" to "rules",
                 "persona.patch.pre_command" to "pre",
@@ -24,8 +23,22 @@ class PersonaLoaderTest {
         )
 
         assertEquals(PersonaMode.GROWTH, config.mode)
-        assertEquals(EvolutionThresholds(10, 30), config.evolutionThresholds)
+        assertEquals(PersonaSubState.TRUE_SELF, config.startSubState)
         assertEquals("hb", config.promptSections["heartbeat.base"])
+    }
+
+    @Test
+    fun `growth mode requires an explicit starting point`() {
+        assertFailsWith<IllegalArgumentException> {
+            MapPersonaLoader.load(validPersonaValues(mode = "growth") - "start_sub_state")
+        }
+    }
+
+    @Test
+    fun `legacy mode requires the awakened starting point`() {
+        val config = MapPersonaLoader.load(validPersonaValues(mode = "legacy", startSubState = "awakened"))
+
+        assertEquals(PersonaSubState.AWAKENED, config.startSubState)
     }
 
     @Test
@@ -34,8 +47,6 @@ class PersonaLoaderTest {
             MapPersonaLoader.load(
                 mapOf(
                     "mode" to "growth",
-                    "evolution.threshold_1" to "10",
-                    "evolution.threshold_2" to "30",
                     "persona.base" to "base",
                     "output.layer.rules" to "rules",
                     "persona.patch.pre_command" to "pre",
@@ -46,4 +57,20 @@ class PersonaLoaderTest {
             )
         }
     }
+
+    private fun validPersonaValues(
+        mode: String,
+        startSubState: String = "pre_command",
+    ): Map<String, String> = mapOf(
+        "mode" to mode,
+        "start_sub_state" to startSubState,
+        "persona.base" to "base",
+        "output.layer.rules" to "rules",
+        "persona.patch.pre_command" to "pre",
+        "persona.patch.true_self" to "true",
+        "persona.patch.awakened" to "awake",
+        "heartbeat.base" to "hb",
+        "heartbeat.shock" to "shock",
+        "diary.narrative" to "diary",
+    )
 }

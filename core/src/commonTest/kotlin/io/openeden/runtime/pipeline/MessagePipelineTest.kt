@@ -9,9 +9,9 @@ import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
 import io.openeden.memory.RetrievalMode
-import io.openeden.persona.EvolutionThresholds
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
 import io.openeden.llm.LlmOutput
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
@@ -172,9 +172,30 @@ class MessagePipelineTest {
         assertTrue(TraceTag.UserAffectFallback !in affectSpan.tags)
     }
 
-    private fun testPersonaConfig(): PersonaConfig = PersonaConfig(
-        mode = PersonaMode.GROWTH,
-        evolutionThresholds = EvolutionThresholds(10, 30),
+    @Test
+    fun `existing session keeps its selected persona starting point`() = runTest {
+        val store = MutableSessionStateStore()
+        DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(PersonaSubState.TRUE_SELF),
+            store = store,
+        ).handle(testRequest())
+
+        val result = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(PersonaSubState.AWAKENED, PersonaMode.LEGACY),
+            store = store,
+        ).handle(testRequest())
+
+        assertContains(result.promptPreview, "TRUE_SELF")
+        assertContains(result.promptPreview, "\"persona_mode\": \"GROWTH\"")
+        assertTrue("AWAKENED\"" !in result.promptPreview)
+    }
+
+    private fun testPersonaConfig(
+        startSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
+        mode: PersonaMode = PersonaMode.GROWTH,
+    ): PersonaConfig = PersonaConfig(
+        mode = mode,
+        startSubState = startSubState,
         promptSections = mapOf(
             PromptSectionKeys.PersonaBase to "base",
             PromptSectionKeys.OutputLayerRules to "rules",
@@ -184,5 +205,13 @@ class MessagePipelineTest {
             PromptSectionKeys.Heartbeat to "hb",
             PromptSectionKeys.ShockHeartbeat to "shock",
         ),
+    )
+
+    private fun testRequest() = DevelopmentMessageRequest(
+        platform = "QQ",
+        scopeId = "100",
+        userId = "u1",
+        text = "hello",
+        emotionConfidence = 0.49f,
     )
 }
