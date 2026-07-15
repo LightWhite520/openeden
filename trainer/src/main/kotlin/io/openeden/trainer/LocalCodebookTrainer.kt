@@ -72,12 +72,12 @@ class LocalCodebookTrainer(
 
     private fun encoderSpec(): LocalMlpSpec =
         LocalMlpSpec(
-            inputSize = 9,
+            inputSize = 8,
             layers = listOf(
                 LocalDenseLayerSpec(
                     outputSize = config.latentDimensions,
                     weights = List(config.latentDimensions) { output ->
-                        List(9) { input -> if (input == output) 1.0f else 0.0f }
+                        List(8) { input -> if (input == output) 1.0f else 0.0f }
                     },
                     biases = List(config.latentDimensions) { 0.0f },
                     activation = LocalActivation.LINEAR,

@@ -35,7 +35,7 @@ class LocalModelArtifactLoaderTest {
         LocalModelArtifact(
             codebookCsv = "node_id,definition,tags\nNODE_000,\"neutral\",\"test\"\n",
             vqVae = LocalVqVaeSpec(
-                encoder = mlp(input = 9, output = 8),
+                encoder = mlp(input = 8, output = 8),
                 codebook = listOf(CodebookVector("NODE_000", BioVector.Neutral.toList())),
                 topK = 1,
             ),

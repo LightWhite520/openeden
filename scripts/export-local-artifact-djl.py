@@ -3,7 +3,7 @@
 
 The exported models contain only numerical state. Persona text and the derived
 D value remain outside the model artifact; the VQ input is the eight stored
-coordinates followed by runtime-computed D.
+coordinates only.
 """
 
 from __future__ import annotations

@@ -16,7 +16,7 @@ class DjlVqVaeCodebookModelRunner(
     private val codebook = codebook.toList()
 
     init {
-        require(inputDimension == 9) { "VQ-VAE input must contain 8D vector plus derived D" }
+        require(inputDimension == 8) { "VQ-VAE input must contain the stored 8D vector only" }
         require(this.codebook.isNotEmpty()) { "VQ-VAE codebook must not be empty" }
         val dimension = this.codebook.first().embedding.size
         require(dimension > 0) { "VQ-VAE codebook embedding dimension must be positive" }
@@ -27,7 +27,7 @@ class DjlVqVaeCodebookModelRunner(
 
     override suspend fun predict(vector: BioVector, dissonance: Float): CodebookModelResult =
         predictorMutex.withLock {
-            val input = (vector.toList() + dissonance).toFloatArray()
+            val input = vector.toList().toFloatArray()
             require(input.size == inputDimension && input.all(Float::isFinite)) {
                 "VQ-VAE input must be finite and have dimension $inputDimension"
             }

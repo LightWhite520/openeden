@@ -16,13 +16,13 @@ class LocalVqVaeCodebookRunnerTest {
         val runner = LocalVqVaeCodebookModelRunner(
             LocalVqVaeSpec(
                 encoder = LocalMlpSpec(
-                    inputSize = 9,
+                    inputSize = 8,
                     layers = listOf(
                         LocalDenseLayerSpec(
                             outputSize = 2,
                             weights = listOf(
-                                listOf(1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f),
-                                listOf(0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+                                listOf(1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f),
+                                listOf(0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f),
                             ),
                             biases = listOf(0.0f, 0.0f),
                             activation = LocalActivation.LINEAR,

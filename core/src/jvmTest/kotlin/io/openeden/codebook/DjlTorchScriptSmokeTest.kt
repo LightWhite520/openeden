@@ -18,7 +18,7 @@ class DjlTorchScriptSmokeTest {
             modelPath = root.resolve("vqvae"),
             modelName = "model",
             engineName = "PyTorch",
-            inputDimension = 9,
+            inputDimension = 8,
             codebook = listOf(CodebookVector("NODE_A", listOf(1.0f) + List(7) { 0.0f })),
             topK = 1,
         )

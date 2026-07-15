@@ -189,7 +189,7 @@ private fun loadRuntimeModels(config: ServerRuntimeConfig): RuntimeModels {
                 modelPath = config.djlVqVaeModelPath,
                 modelName = config.djlModelName,
                 engineName = config.djlEngine,
-                inputDimension = 9,
+                inputDimension = 8,
                 codebook = artifact.vqVae.codebook,
                 topK = artifact.vqVae.topK,
             )

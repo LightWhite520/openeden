@@ -22,7 +22,7 @@ class LocalVqVaeCodebookModelRunner(
 
     override suspend fun predict(vector: BioVector, dissonance: Float): CodebookModelResult {
         if (codebook.isEmpty()) return CodebookModelResult(emptyList(), 0.0f)
-        val encoded = encoder.forward(vector.toList() + dissonance.coerceIn(0.0f, 1.0f))
+        val encoded = encoder.forward(vector.toList())
         val ranked = codebook
             .map { node -> node.nodeId to normalizedCosine(encoded, node.embedding) }
             .sortedByDescending { it.second }

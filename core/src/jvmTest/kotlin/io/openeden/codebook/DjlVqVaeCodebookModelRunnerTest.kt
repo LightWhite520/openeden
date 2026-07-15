@@ -14,7 +14,7 @@ class DjlVqVaeCodebookModelRunnerTest {
                 override fun predict(input: FloatArray): FloatArray = floatArrayOf(1.0f, 0.0f)
                 override fun close() = Unit
             },
-            inputDimension = 9,
+            inputDimension = 8,
             codebook = listOf(
                 CodebookVector("NODE_A", listOf(1.0f, 0.0f)),
                 CodebookVector("NODE_B", listOf(0.0f, 1.0f)),
@@ -36,7 +36,7 @@ class DjlVqVaeCodebookModelRunnerTest {
                 override fun predict(input: FloatArray): FloatArray = floatArrayOf(Float.NaN)
                 override fun close() = Unit
             },
-            inputDimension = 9,
+            inputDimension = 8,
             codebook = listOf(CodebookVector("NODE_A", listOf(1.0f))),
         )
 
