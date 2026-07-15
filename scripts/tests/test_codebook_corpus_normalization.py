@@ -28,6 +28,7 @@ merge_vmf = load_script("merge_8d_vmf_gap_corpus", "merge-8d-vmf-gap-corpus.py")
 merge_ms = load_script("merge_8d_ms_gap_corpus", "merge-8d-ms-gap-corpus.py")
 train_base = load_script("train_codebook_base_model", "train-codebook-base-model.py")
 replace_boundary = load_script("replace_8d_boundary_nodes", "replace-8d-boundary-nodes.py")
+rewrite_runtime = load_script("rewrite_8d_runtime_definitions", "rewrite-8d-runtime-definitions.py")
 
 
 class PaddingNodeNormalizationTest(unittest.TestCase):
@@ -123,6 +124,45 @@ class CorpusTextNormalizationTest(unittest.TestCase):
             normalize.normalize_runtime_definition("我会先顺着你的感受回应你，不催、不逼。"),
             "说话者会先顺着用户的感受回应用户，不催、不逼。",
         )
+
+    def test_runtime_definition_audit_rejects_dialogue_and_scenery(self) -> None:
+        dirty = {
+            "nodeId": "NODE_DIRTY",
+            "definitionEn": "He waits in the classroom and says he is fine.",
+            "definitionZh": "他站在教室门口说：“我没事。”",
+        }
+        clean = {
+            "nodeId": "NODE_CLEAN",
+            "definitionEn": "A high-fear state with stable surface control and low memory pull.",
+            "definitionZh": "该状态表现为表层稳定但恐惧持续偏高，记忆牵引较弱，核心张力来自对即将中断的前向担忧。",
+        }
+
+        self.assertFalse(rewrite_runtime.is_clean_definition(dirty))
+        self.assertTrue(rewrite_runtime.is_clean_definition(clean))
+
+    def test_template_rewrite_produces_formal_state_definition(self) -> None:
+        sample = {
+            "nodeId": "NODE_TEMPLATE",
+            "definitionEn": "He says he is fine while panic leaks through.",
+            "definitionZh": "“我没事。”他一边说一边后退。",
+            "tags": ["fear", "panic"],
+            "vector": {
+                "l": 0.3,
+                "p": 0.8,
+                "e": 0.4,
+                "s": 0.7,
+                "tau": 0.2,
+                "v": 0.3,
+                "m": 0.5,
+                "f": 0.9,
+            },
+        }
+
+        rewritten = rewrite_runtime.template_rewrite(sample)
+
+        self.assertTrue(rewrite_runtime.is_clean_definition(rewritten))
+        self.assertTrue(rewritten["definitionZh"].startswith("该状态"))
+        self.assertNotIn("他", rewritten["definitionZh"])
 
 
 class LargeCorpusPreparationTest(unittest.TestCase):

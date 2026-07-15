@@ -2,6 +2,8 @@ package io.openeden.trainer
 
 import io.openeden.model.LocalModelArtifact
 import io.openeden.model.LocalModelArtifactLoader
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
@@ -16,7 +18,9 @@ suspend fun main(args: Array<String>) {
     }
     val corpus = json.decodeFromString(
         CodebookTrainingCorpus.serializer(),
-        Files.readString(cli.samplesPath),
+        withContext(Dispatchers.IO) {
+            Files.readString(cli.samplesPath)
+        },
     )
     val trainer = LocalCodebookTrainer()
     val artifact = trainer.train(corpus)
@@ -30,7 +34,9 @@ suspend fun main(args: Array<String>) {
         codebookCsvPath = cli.codebookCsvPath.toString(),
     )
     cli.reportPath.parent?.let(Files::createDirectories)
-    Files.writeString(cli.reportPath, report.render())
+    withContext(Dispatchers.IO) {
+        Files.writeString(cli.reportPath, report.render())
+    }
     println(report.render())
 }
 
