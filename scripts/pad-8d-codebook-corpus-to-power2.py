@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
 DIMS = ("l", "p", "e", "s", "tau", "v", "m", "f")
+SEMANTIC_LEVEL_ZH = {
+    "very low": "极低",
+    "low": "低",
+    "moderate": "中等",
+    "high": "高",
+    "very high": "极高",
+}
+LEGACY_PADDING_ID = re.compile(r"^NODE_POWER2_8D_PAD_(\d+)$")
+CANONICAL_PADDING_ID = re.compile(r"^NODE_VMF_BOUNDARY_[A-Z0-9_]+_(\d+)$")
 BASE_COUNTS = {
     "codebook.selected-hardcases-8d-vmf-balanced.json": {"extraSamples": 4032},
 }
@@ -19,25 +29,78 @@ def level(value: float) -> str:
     return "mid"
 
 
-def definition(vector: dict[str, float], index: int) -> tuple[str, str]:
-    labels = {dim: level(vector[dim]) for dim in DIMS}
+def semantic_level(value: float) -> str:
+    if value < 0.15:
+        return "very low"
+    if value < 0.3:
+        return "low"
+    if value <= 0.6:
+        return "moderate"
+    if value <= 0.85:
+        return "high"
+    return "very high"
+
+
+def definition(vector: dict[str, float]) -> tuple[str, str]:
+    labels = {dim: semantic_level(vector[dim]) for dim in DIMS}
     en = (
-        f"Power-of-two supplemental 8D state {index:03d}: "
-        f"logical clarity is {labels['l']}, emotional resonance is {labels['p']}, "
-        f"self-acceptance is {labels['e']}, entropy is {labels['s']}, "
-        f"memory persistence is {labels['tau']}, vitality is {labels['v']}, "
-        f"empathy mirroring is {labels['m']}, and fear is {labels['f']}. "
-        "This node is used to make sparse mixed P/tau/V/F boundary regions explicit."
+        f"Logical clarity is {labels['l']}, emotional resonance is {labels['p']}, "
+        f"self-acceptance is {labels['e']}, and system entropy is {labels['s']}. "
+        f"Memory persistence is {labels['tau']}, vitality is {labels['v']}, "
+        f"empathy mirroring is {labels['m']}, and fear is {labels['f']}."
     )
     zh = (
-        f"2 的整数次幂补充 8D 状态 {index:03d}："
-        f"逻辑清晰度为{labels['l']}，情绪共鸣为{labels['p']}，"
-        f"自我接纳为{labels['e']}，系统熵为{labels['s']}，"
-        f"记忆牵引为{labels['tau']}，生命力为{labels['v']}，"
-        f"共情映射为{labels['m']}，恐惧水平为{labels['f']}。"
-        "该节点用于显式覆盖稀疏的 P/tau/V/F 混合边界区域。"
+        f"逻辑清晰度为{SEMANTIC_LEVEL_ZH[labels['l']]}，情绪共鸣为{SEMANTIC_LEVEL_ZH[labels['p']]}，"
+        f"自我接纳为{SEMANTIC_LEVEL_ZH[labels['e']]}，系统熵为{SEMANTIC_LEVEL_ZH[labels['s']]}。"
+        f"记忆牵引为{SEMANTIC_LEVEL_ZH[labels['tau']]}，生命力为{SEMANTIC_LEVEL_ZH[labels['v']]}，"
+        f"共情映射为{SEMANTIC_LEVEL_ZH[labels['m']]}，恐惧水平为{SEMANTIC_LEVEL_ZH[labels['f']]}。"
     )
     return en, zh
+
+
+def padding_node_id(vector: dict[str, float], index: int) -> str:
+    labels = {dim: level(vector[dim]).upper() for dim in ("p", "tau", "v", "f")}
+    return (
+        f"NODE_VMF_BOUNDARY_P_{labels['p']}_TAU_{labels['tau']}_"
+        f"V_{labels['v']}_F_{labels['f']}_{index:03d}"
+    )
+
+
+def padding_sample(vector: dict[str, float], index: int) -> dict:
+    en, zh = definition(vector)
+    return {
+        "nodeId": padding_node_id(vector, index),
+        "definition": en,
+        "definitionEn": en,
+        "definitionZh": zh,
+        "tags": ["vmf_boundary", "vmf_gap", "hardcase_8d", "definition"],
+        "vector": dict(vector),
+    }
+
+
+def canonicalize_padding_nodes(data: dict) -> int:
+    migrated = 0
+    generated_index = 0
+    for sample in data["samples"]:
+        node_id = str(sample["nodeId"])
+        legacy_match = LEGACY_PADDING_ID.fullmatch(node_id)
+        canonical_match = CANONICAL_PADDING_ID.fullmatch(node_id)
+        tags = sample.get("tags", [])
+        is_padding = (
+            legacy_match is not None
+            or canonical_match is not None
+            or "power2_padding" in tags
+            or "vmf_boundary" in tags
+        )
+        if not is_padding:
+            continue
+        generated_index += 1
+        indexed_match = legacy_match or canonical_match
+        index = int(indexed_match.group(1)) if indexed_match is not None else generated_index
+        vector = sample["vector"]
+        sample.update(padding_sample(vector, index))
+        migrated += 1
+    return migrated
 
 
 def generated_vector(index: int) -> dict[str, float]:
@@ -67,7 +130,11 @@ def report_for(data: dict, input_name: str) -> dict:
     report: dict[str, object] = {
         "samples": len(samples),
         "extraSamples": BASE_COUNTS.get(input_name, {}).get("extraSamples", 0)
-        + sum(1 for sample in samples if "power2_padding" in sample.get("tags", [])),
+        + sum(
+            1
+            for sample in samples
+            if {"power2_padding", "vmf_boundary"}.intersection(sample.get("tags", []))
+        ),
         "nodes": len({sample["nodeId"] for sample in samples}),
     }
     for dim in DIMS:
@@ -91,27 +158,20 @@ def main() -> None:
 
     input_path = Path(args.input)
     data = json.loads(input_path.read_text(encoding="utf-8"))
+    migrated = canonicalize_padding_nodes(data)
     nodes = {str(sample["nodeId"]) for sample in data["samples"]}
     if len(nodes) > args.target:
         raise ValueError(f"Corpus already has {len(nodes)} nodes, above target {args.target}")
 
     needed = args.target - len(nodes)
     for offset in range(needed):
-        node_id = f"NODE_POWER2_8D_PAD_{offset + 1:03d}"
+        index = migrated + offset + 1
+        vector = generated_vector(index - 1)
+        sample = padding_sample(vector, index)
+        node_id = sample["nodeId"]
         if node_id in nodes:
             raise ValueError(f"Generated node already exists: {node_id}")
-        vector = generated_vector(offset)
-        en, zh = definition(vector, offset + 1)
-        data["samples"].append(
-            {
-                "nodeId": node_id,
-                "definition": en,
-                "definitionEn": en,
-                "definitionZh": zh,
-                "tags": ["power2_padding", "vmf_gap", "hardcase_8d", "definition"],
-                "vector": vector,
-            },
-        )
+        data["samples"].append(sample)
         nodes.add(node_id)
 
     Path(args.output).write_text(
@@ -122,7 +182,7 @@ def main() -> None:
         json.dumps(report_for(data, input_path.name), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(json.dumps({"added": needed, "nodes": len(nodes), "samples": len(data["samples"])}, ensure_ascii=False))
+    print(json.dumps({"added": needed, "migrated": migrated, "nodes": len(nodes), "samples": len(data["samples"])}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -41,6 +41,37 @@ class CodebookDictionaryTest {
     }
 
     @Test
+    fun `parses quoted fields containing escaped quotes and commas`() {
+        val dictionary = CodebookDictionary.parseCsv(
+            """
+            node_id,definition_en,definition_zh,tags
+            NODE_000,"Minimal overlap state","“对。先对，再别的。”","overlap;exactness;patched;cold;dialogue;minimal"
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "EN: Minimal overlap state\nZH: “对。先对，再别的。”",
+            dictionary.definitionFor("NODE_000"),
+        )
+    }
+
+    @Test
+    fun `parses quoted fields containing newlines`() {
+        val dictionary = CodebookDictionary.parseCsv(
+            """
+            node_id,definition_en,definition_zh,tags
+            NODE_000,"Thin affect dialogue","“所以你只在乎对不对？”
+            “对。先对，再别的。”","overlap;exactness;patched"
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "EN: Thin affect dialogue\nZH: “所以你只在乎对不对？”\n“对。先对，再别的。”",
+            dictionary.definitionFor("NODE_000"),
+        )
+    }
+
+    @Test
     fun `returns null for missing node`() {
         val dictionary = CodebookDictionary.parseCsv("node_id,definition,tags")
 

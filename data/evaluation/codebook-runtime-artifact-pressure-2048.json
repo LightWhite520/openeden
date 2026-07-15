@@ -1022,7 +1022,7 @@
         },
         {
           "name": "guarded_memory",
-          "nodeId": "NODE_POWER2_8D_PAD_034",
+          "nodeId": "NODE_VMF_BOUNDARY_P_MID_TAU_HIGH_V_LOW_F_MID_034",
           "score": 0.9778,
           "pred": {
             "l": 0.9,
@@ -1267,7 +1267,7 @@
         },
         {
           "name": "sarcastic_hurt",
-          "nodeId": "NODE_POWER2_8D_PAD_096",
+          "nodeId": "NODE_VMF_BOUNDARY_P_HIGH_TAU_HIGH_V_MID_F_LOW_096",
           "score": 0.9913,
           "pred": {
             "l": 0.7,

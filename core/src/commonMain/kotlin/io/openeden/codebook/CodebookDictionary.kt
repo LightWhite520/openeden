@@ -18,7 +18,7 @@ class CodebookDictionary private constructor(
 
     companion object {
         fun parseCsv(csv: String): CodebookDictionary {
-            val lines = csv.lineSequence()
+            val lines = splitCsvRecords(csv)
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
                 .toList()
@@ -67,9 +67,16 @@ class CodebookDictionary private constructor(
             val fields = mutableListOf<String>()
             val current = StringBuilder()
             var inQuotes = false
-            for (char in row) {
+            var index = 0
+            while (index < row.length) {
+                val char = row[index]
                 when (char) {
-                    '"' -> inQuotes = !inQuotes
+                    '"' -> if (inQuotes && row.getOrNull(index + 1) == '"') {
+                        current.append(char)
+                        index += 1
+                    } else {
+                        inQuotes = !inQuotes
+                    }
                     ',' -> if (inQuotes) {
                         current.append(char)
                     } else {
@@ -78,9 +85,44 @@ class CodebookDictionary private constructor(
                     }
                     else -> current.append(char)
                 }
+                index += 1
             }
             fields += current.toString()
             return fields.map { it.trim() }
+        }
+
+        private fun splitCsvRecords(csv: String): List<String> {
+            val records = mutableListOf<String>()
+            val current = StringBuilder()
+            var inQuotes = false
+            var index = 0
+            while (index < csv.length) {
+                val char = csv[index]
+                when (char) {
+                    '"' -> {
+                        current.append(char)
+                        if (inQuotes && csv.getOrNull(index + 1) == '"') {
+                            current.append('"')
+                            index += 1
+                        } else {
+                            inQuotes = !inQuotes
+                        }
+                    }
+                    '\r' -> if (inQuotes) {
+                        current.append(char)
+                    }
+                    '\n' -> if (inQuotes) {
+                        current.append(char)
+                    } else {
+                        records += current.toString()
+                        current.clear()
+                    }
+                    else -> current.append(char)
+                }
+                index += 1
+            }
+            if (current.isNotEmpty()) records += current.toString()
+            return records
         }
     }
 }

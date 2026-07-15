@@ -32,7 +32,7 @@ class LocalCodebookTrainerTest {
         val descriptor = CodebookTrainingSample.serializer().descriptor
         val fields = List(descriptor.elementsCount) { index -> descriptor.getElementName(index) }
 
-        assertEquals(listOf("nodeId", "definition", "definitionEn", "definitionZh", "tags", "vector"), fields)
+        assertEquals(listOf("nodeId", "definition", "definitionEn", "definitionZh", "trainingTextZh", "tags", "vector"), fields)
     }
 
     @Test
@@ -55,6 +55,30 @@ class LocalCodebookTrainerTest {
         assertTrue("definition_en" in artifact.codebookCsv)
         assertTrue("definition_zh" in artifact.codebookCsv)
         assertTrue("逻辑状态" in artifact.codebookCsv)
+    }
+
+    @Test
+    fun `training text variants do not replace runtime codebook definitions`() {
+        val canonicalZh = "说话者反复说一切都好，但动作越来越失常，像面具正在当场松脱。"
+        val variantZh = "“放心，我还稳得住。”她一边说一边后退半步。"
+        val corpus = CodebookTrainingCorpus(
+            samples = listOf(
+                CodebookTrainingSample(
+                    nodeId = "NODE_BIG_NEGATION_CALM_BUT_PANIC_03",
+                    definition = "calm mask slips into panic",
+                    definitionEn = "The speaker says everything is fine while panic leaks through action.",
+                    definitionZh = canonicalZh,
+                    trainingTextZh = variantZh,
+                    tags = listOf("hardcase"),
+                    vector = BioVector.Neutral.copy(p = 0.76f, s = 0.83f, f = 0.79f),
+                ),
+            ),
+        )
+
+        val artifact = LocalCodebookTrainer().train(corpus)
+
+        assertTrue(canonicalZh in artifact.codebookCsv)
+        assertTrue(variantZh !in artifact.codebookCsv)
     }
 
     private fun sample(nodeId: String, definition: String, vector: BioVector): CodebookTrainingSample =

@@ -9,6 +9,7 @@ data class CodebookTrainingSample(
     val definition: String,
     val definitionEn: String? = null,
     val definitionZh: String? = null,
+    val trainingTextZh: String? = null,
     val tags: List<String> = emptyList(),
     val vector: BioVector,
 )

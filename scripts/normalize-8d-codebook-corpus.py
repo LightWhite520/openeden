@@ -8,6 +8,10 @@ from pathlib import Path
 DIMS = ("l", "p", "e", "s", "tau", "v", "m", "f")
 
 
+def normalize_text(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
@@ -24,10 +28,12 @@ def main() -> None:
         canonical.setdefault(
             node_id,
             {
-                "definition": sample.get("definitionEn") or sample.get("definition") or sample.get("definitionZh") or "",
-                "definitionEn": sample.get("definitionEn") or sample.get("definition") or "",
-                "definitionZh": sample.get("definitionZh") or "",
-                "tags": sample.get("tags", []),
+                "definition": normalize_text(
+                    sample.get("definitionEn") or sample.get("definition") or sample.get("definitionZh")
+                ),
+                "definitionEn": normalize_text(sample.get("definitionEn") or sample.get("definition")),
+                "definitionZh": normalize_text(sample.get("definitionZh")),
+                "tags": list(dict.fromkeys(normalize_text(tag) for tag in sample.get("tags", []) if normalize_text(tag))),
             },
         )
 

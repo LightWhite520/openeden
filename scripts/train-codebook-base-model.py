@@ -77,7 +77,7 @@ def load_samples(path: Path) -> list[CodebookPair]:
         if set(vector.keys()) != set(DIMENSIONS):
             raise ValueError(f"Invalid vector keys for {item.get('nodeId')}: {vector.keys()}")
         definition_en = item.get("definitionEn") or item["definition"]
-        definition_zh = item.get("definitionZh") or ""
+        definition_zh = item.get("trainingTextZh") or item.get("definitionZh") or ""
         text = f"EN: {definition_en}\nZH: {definition_zh}" if definition_zh else definition_en
         if "dissonance" in json.dumps(item, ensure_ascii=False).lower():
             raise ValueError(f"Sample contains derived dissonance text: {item.get('nodeId')}")
