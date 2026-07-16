@@ -4,18 +4,22 @@ import io.openeden.bio.BioVector
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.InMemoryMemoryPalace
+import io.openeden.memory.MemoryStore
+import io.openeden.memory.RetrievalRequest
+import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
-import io.openeden.runtime.session.MutableSessionStateStore
+import io.openeden.relationship.InMemoryRelationshipStateStore
 import io.openeden.runtime.diary.SessionDiaryQueue
 import io.openeden.runtime.inference.DirectInferenceExecutor
-import io.openeden.runtime.state.HomeostasisCentroidProvider
-import io.openeden.relationship.InMemoryRelationshipStateStore
+import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
+import io.openeden.runtime.state.HomeostasisCentroidProvider
+import io.openeden.trace.TraceTag
 import io.openeden.transcript.AtomicTurnCommitStore
 import io.openeden.transcript.ActiveIncarnation
 import io.openeden.transcript.ConversationHistoryPage
@@ -31,8 +35,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MessagePipelineTranscriptTest {
@@ -74,15 +80,39 @@ class MessagePipelineTranscriptTest {
     @Test
     fun `inference failure does not partially commit state or transcript`() = runTest {
         val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
-        val pipeline = pipeline(store, ThrowingLlmClient(IllegalStateException("inference failed")))
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = store,
+            llmClient = ThrowingLlmClient(IllegalStateException("inference failed")),
+            transcriptStore = store,
+            centroidProvider = HomeostasisCentroidProvider { BioVector.Neutral.copy(l = 0.2f) },
+        )
 
         assertFailsWith<IllegalStateException> {
             pipeline.handle(request(turnId = "failed-turn"))
         }
 
         assertEquals(BioVector.Neutral, store.read("CLI:local").vector)
+        assertEquals(BioVector.Neutral, store.read("CLI:local").origin)
         assertEquals(0L, store.read("CLI:local").evolutionIndex)
         assertTrue(store.page(50).turns.isEmpty())
+    }
+
+    @Test
+    fun `invalid output does not persist the inference centroid`() = runTest {
+        val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = store,
+            llmClient = InvalidLlmClient,
+            transcriptStore = store,
+            centroidProvider = HomeostasisCentroidProvider { BioVector.Neutral.copy(p = 0.2f) },
+        )
+
+        pipeline.handle(request(turnId = "invalid-centroid"))
+
+        assertEquals(BioVector.Neutral, store.read("CLI:local").origin)
+        assertEquals(0L, store.read("CLI:local").evolutionIndex)
     }
 
     @Test
@@ -105,12 +135,23 @@ class MessagePipelineTranscriptTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
         val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
         val relationships = InMemoryRelationshipStateStore()
-        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val memoryPalace = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val retrievalOrigins = mutableListOf<BioVector>()
+        val memories = object : MemoryStore by memoryPalace {
+            override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
+                retrievalOrigins += request.origin
+                return memoryPalace.retrieve(request)
+            }
+        }
         val diaryQueue = SessionDiaryQueue()
         val diaryEvents = mutableListOf<io.openeden.runtime.diary.DiaryEvent>()
         backgroundScope.launch { diaryQueue.events().collect { diaryEvents += it } }
         runCurrent()
         var centroidCalls = 0
+        val firstPreOrigin = BioVector.Neutral.copy(l = 0.4f)
+        val firstPostOrigin = BioVector.Neutral.copy(l = 0.6f)
+        val retryPreOrigin = BioVector.Neutral.copy(l = 0.2f)
+        val centroids = listOf(firstPreOrigin, firstPostOrigin, retryPreOrigin)
         var clock = 1_000L
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = persona(),
@@ -121,8 +162,7 @@ class MessagePipelineTranscriptTest {
             memoryStore = memories,
             diaryQueue = diaryQueue,
             centroidProvider = HomeostasisCentroidProvider {
-                centroidCalls++
-                BioVector.Neutral
+                centroids[centroidCalls++]
             },
             nowMs = { clock },
         )
@@ -132,7 +172,7 @@ class MessagePipelineTranscriptTest {
         runCurrent()
         val firstTurn = transcripts.page(50).turns.single()
         val firstRelationship = relationships.readOrCreate("CLI:local", "user-1", clock)
-        val firstMemories = memories.recent("CLI:local", 50)
+        val firstMemories = memoryPalace.recent("CLI:local", 50)
         val firstDiaryCount = diaryEvents.size
         val firstCentroidCalls = centroidCalls
         val firstState = stateStore.read("CLI:local")
@@ -140,6 +180,8 @@ class MessagePipelineTranscriptTest {
         assertTrue(firstMemories.isNotEmpty())
         assertEquals(1, firstDiaryCount)
         assertEquals(2, firstCentroidCalls)
+        assertEquals(firstPostOrigin, firstState.origin)
+        assertEquals(firstPreOrigin, retrievalOrigins.single())
         clock = 2_000L
         val retryResult = pipeline.handle(request)
         runCurrent()
@@ -153,9 +195,13 @@ class MessagePipelineTranscriptTest {
         assertEquals(stateStore.read("CLI:local").vector, retryResult.updatedVector)
         assertEquals(1L, retryResult.evolutionIndex)
         assertEquals(firstRelationship, relationships.readOrCreate("CLI:local", "user-1", clock))
-        assertEquals(firstMemories, memories.recent("CLI:local", 50))
+        assertEquals(firstMemories, memoryPalace.recent("CLI:local", 50))
         assertEquals(firstDiaryCount, diaryEvents.size)
         assertEquals(firstCentroidCalls + 1, centroidCalls)
+        assertEquals(retryPreOrigin, retrievalOrigins.last())
+        assertContains(retryResult.traceTags, TraceTag.TranscriptRetry)
+        assertFalse(TraceTag.VectorWriteSerialized in retryResult.traceTags)
+        assertFalse(TraceTag.ShockStateTransition in retryResult.traceTags)
     }
 
     @Test

@@ -5,12 +5,16 @@ import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.PreTickEngine
 import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.affect.ShockStateEngine
+import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
 import io.openeden.trace.TraceTag
+import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.InMemoryTranscriptStore
+import io.openeden.transcript.TurnCommitOutcome
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -117,6 +121,57 @@ class RuntimeInvariantTest {
         assertEquals(0.7f, result.state.vector.f, absoluteTolerance = 0.0001f)
         assertEquals(1, result.state.evolutionIndex)
         assertContains(result.traceTags, TraceTag.VectorWriteSerialized)
+    }
+
+    @Test
+    fun `already committed turn preserves origin and reports only retry trace`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val store = MutableSessionStateStore(transcriptStore = transcripts)
+        val service = VectorWriteService(store)
+        val sessionId = "CLI:local"
+        val firstOrigin = BioVector.Neutral.copy(e = 0.6f)
+        val turn = ConversationTurn(
+            turnId = "stable-turn",
+            incarnationId = "incarnation-a",
+            sessionId = sessionId,
+            platform = "CLI",
+            scopeId = "local",
+            userId = "user-1",
+            userText = "hello",
+            assistantText = "response",
+            completedAtMs = 100L,
+        )
+        service.commitTurnLocked(
+            sessionId = sessionId,
+            preTickedSnapshot = BioVector.Neutral,
+            originSnapshot = firstOrigin,
+            delta = VectorDelta.Zero,
+            shock = null,
+            lastUserActivityMs = 100L,
+            turn = turn,
+        )
+        val retryShock = ShockState(
+            active = true,
+            intensity = 0.9f,
+            description = "retry shock",
+            triggeredAt = Instant.fromEpochMilliseconds(200L),
+            decayLambda = 0.01f,
+        )
+
+        val retry = service.commitTurnLocked(
+            sessionId = sessionId,
+            preTickedSnapshot = BioVector.Neutral,
+            originSnapshot = BioVector.Neutral.copy(e = 0.1f),
+            delta = VectorDelta.Zero,
+            shock = retryShock,
+            lastUserActivityMs = 200L,
+            turn = turn.copy(completedAtMs = 200L),
+        )
+
+        assertEquals(TurnCommitOutcome.ALREADY_COMMITTED, retry.turnCommitOutcome)
+        assertEquals(firstOrigin, retry.state.origin)
+        assertNull(retry.state.shockState)
+        assertEquals(setOf(TraceTag.TranscriptRetry), retry.traceTags)
     }
 }
 

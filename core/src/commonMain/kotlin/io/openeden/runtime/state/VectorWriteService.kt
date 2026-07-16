@@ -7,6 +7,7 @@ import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.transcript.AtomicTurnCommitStore
 import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.TurnCommitOutcome
 
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
@@ -50,6 +51,7 @@ class VectorWriteService(
     suspend fun commitTurnLocked(
         sessionId: String,
         preTickedSnapshot: BioVector,
+        originSnapshot: BioVector,
         delta: VectorDelta,
         shock: ShockState?,
         lastUserActivityMs: Long?,
@@ -60,6 +62,7 @@ class VectorWriteService(
         val updatedVector = latest.vector.apply(relativePreTickDelta).apply(delta)
         val updated = latest.copy(
             vector = updatedVector,
+            origin = originSnapshot,
             evolutionIndex = latest.evolutionIndex + 1,
             shockState = shock ?: latest.shockState,
             omega = shock?.let { ShockStateEngine.omegaJump(latest.omega, it) } ?: latest.omega,
@@ -76,9 +79,13 @@ class VectorWriteService(
         val committedState = if (turnCommitOutcome != null) store.read(sessionId) else updated
         return VectorWriteResult(
             state = committedState,
-            traceTags = buildSet {
-                add(TraceTag.VectorWriteSerialized)
-                if (shock != null) add(TraceTag.ShockStateTransition)
+            traceTags = if (turnCommitOutcome == TurnCommitOutcome.ALREADY_COMMITTED) {
+                setOf(TraceTag.TranscriptRetry)
+            } else {
+                buildSet {
+                    add(TraceTag.VectorWriteSerialized)
+                    if (shock != null) add(TraceTag.ShockStateTransition)
+                }
             },
             turnCommitOutcome = turnCommitOutcome,
         )

@@ -6,6 +6,7 @@ object TraceTag {
     const val DiaryQueueOverflow = "diary=QUEUE_OVERFLOW"
     const val DiaryWritten = "diary=WRITTEN"
     const val VectorWriteSerialized = "vector=WRITE_SERIALIZED"
+    const val TranscriptRetry = "transcript=ALREADY_COMMITTED"
     const val HeartbeatSource = "source=HEARTBEAT"
     const val ShockStateTransition = "shock=STATE_TRANSITION"
     const val BackgroundDrift = "source=BACKGROUND_DRIFT"

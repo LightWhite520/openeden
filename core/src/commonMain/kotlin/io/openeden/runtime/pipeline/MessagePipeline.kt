@@ -103,11 +103,8 @@ class DevelopmentMessagePipeline(
         )
         trace(traceContext, "state_load")
         val centroid = inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
-        if (centroid != initial.origin) {
-            vectorWriteService.updateLocked(sessionId) { it.copy(origin = centroid) }
-        }
-        trace(traceContext, "centroid", attributes = mapOf("updated" to (centroid != initial.origin).toString()))
-        val current = store.read(sessionId)
+        trace(traceContext, "centroid", attributes = mapOf("changed" to (centroid != initial.origin).toString()))
+        val current = initial.copy(origin = centroid)
         var relationshipDegraded = false
         val relationship = if (request.source == TurnSource.USER) {
             try {
@@ -252,6 +249,7 @@ class DevelopmentMessagePipeline(
             vectorWriteService.commitTurnLocked(
                 sessionId = sessionId,
                 preTickedSnapshot = preTick.preTicked,
+                originSnapshot = current.origin,
                 delta = validation.delta,
                 shock = detectedShock,
                 // Heartbeat turns evolve state but must not silence future proactive turns.

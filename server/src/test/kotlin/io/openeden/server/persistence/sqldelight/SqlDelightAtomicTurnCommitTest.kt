@@ -107,6 +107,7 @@ class SqlDelightAtomicTurnCommitTest {
                 writer.commitTurnLocked(
                     sessionId = initial.sessionId,
                     preTickedSnapshot = BioVector.Neutral,
+                    originSnapshot = initial.origin,
                     delta = VectorDelta(l = 0.25f, s = 0.2f),
                     shock = ShockState(
                         active = true,
