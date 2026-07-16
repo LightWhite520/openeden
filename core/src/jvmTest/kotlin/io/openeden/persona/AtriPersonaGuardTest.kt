@@ -31,6 +31,11 @@ class AtriPersonaGuardTest {
         "heartbeat.shock",
         "style.observed_summary",
         "style.source_language_notes",
+        "style.generation_mechanics",
+        "style.signature_examples",
+        "style.stage_examples.pre_command",
+        "style.stage_examples.true_self",
+        "style.stage_examples.awakened",
         "style.do",
         "style.do_not",
     )
@@ -48,6 +53,26 @@ class AtriPersonaGuardTest {
             assertNotNull(value, "Missing persona section: $key")
             assertTrue(value.isNotBlank(), "Blank persona section: $key")
         }
+    }
+
+    @Test
+    fun `atri persona has the required original example distribution`() {
+        val config = PersonaFileLoader.load(atriYaml)
+        val exampleHeading = Regex("^### Example ", RegexOption.MULTILINE)
+
+        assertEquals(
+            16,
+            exampleHeading.findAll(config.promptSections.getValue("style.signature_examples")).count(),
+            "style.signature_examples must contain exactly 16 example headings",
+        )
+        listOf("pre_command", "true_self", "awakened").forEach { stage ->
+            assertEquals(
+                8,
+                exampleHeading.findAll(config.promptSections.getValue("style.stage_examples.$stage")).count(),
+                "style.stage_examples.$stage must contain exactly 8 example headings",
+            )
+        }
+        assertTrue("夏生" !in Files.readString(atriYaml), "atri.yaml must not contain a source character name")
     }
 
     @Test
