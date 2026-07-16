@@ -88,6 +88,50 @@ class InlineCliRendererTest {
         kotlin.test.assertFalse(history.single().contains("finalizing"))
     }
 
+    @Test
+    fun `inline terminal owned user message is claimed without duplicate output`() {
+        val history = mutableListOf<String>()
+        val renderer = InlineCliRenderer(history = InlineHistorySink { history += it })
+        val state = CliUiState(
+            sessionId = "s",
+            messages = listOf(
+                CliMessage(
+                    id = "turn:user",
+                    role = CliRole.USER,
+                    markdown = "你好",
+                    status = CliMessageStatus.COMPLETE,
+                    inlineTerminalCommitted = true,
+                ),
+            ),
+        )
+
+        renderer.render(null, state, Size(80, 24))
+        renderer.render(state, state, Size(80, 24))
+
+        assertEquals(emptyList(), history)
+    }
+
+    @Test
+    fun `renderer owned user message is committed to inline history`() {
+        val history = mutableListOf<String>()
+        val renderer = InlineCliRenderer(history = InlineHistorySink { history += it })
+        val state = CliUiState(
+            sessionId = "s",
+            messages = listOf(
+                CliMessage(
+                    id = "restored:user",
+                    role = CliRole.USER,
+                    markdown = "你好",
+                    status = CliMessageStatus.COMPLETE,
+                ),
+            ),
+        )
+
+        renderer.render(null, state, Size(80, 24))
+
+        assertEquals(listOf("> 你好"), history)
+    }
+
     @Test fun `active region excludes committed messages and clears after completion`() {
         val history = mutableListOf<String>()
         val active = RecordingActiveSink()

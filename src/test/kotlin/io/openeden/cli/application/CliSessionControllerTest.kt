@@ -266,6 +266,27 @@ class CliSessionControllerTest {
     }
 
     @Test
+    fun `submission preserves inline terminal ownership on the user message`() = runTest {
+        val controller = CliSessionController(
+            "local",
+            FakeStreamingApi(flowOf()),
+            CapturingRenderer(),
+            scope = this,
+        )
+
+        controller.accept(
+            CliTerminalEvent.Submit(
+                text = "你好",
+                inlineTerminalCommitted = true,
+            ),
+        )
+
+        assertTrue(controller.state.messages.first().inlineTerminalCommitted)
+        assertFalse(controller.state.messages.last().inlineTerminalCommitted)
+        controller.drain()
+    }
+
+    @Test
     fun `older history returns before suspended api and drain tracks it`() = runTest {
         val gate = CompletableDeferred<Unit>()
         val api = RecordingHistoryApi(

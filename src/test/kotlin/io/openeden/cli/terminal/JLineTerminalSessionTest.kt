@@ -61,10 +61,39 @@ class JLineTerminalSessionTest {
         producer.write("hello\r".toByteArray(StandardCharsets.UTF_8))
         producer.flush()
 
-        assertEquals(CliTerminalEvent.Submit("hello"), received.receive())
+        assertEquals(
+            CliTerminalEvent.Submit("hello", inlineTerminalCommitted = true),
+            received.receive(),
+        )
         producer.close()
         assertEquals(CliTerminalEvent.EndOfFile, received.receive())
         collector.join()
+    }
+
+    @Test
+    fun `full screen submission remains renderer owned`() = runTest {
+        val terminal = testTerminal()
+        val operations = RecordingLifecycleOperations(capabilities = true)
+        var calls = 0
+        val session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = true,
+            readLine = {
+                if (calls++ == 0) "full" else null
+            },
+            lifecycleOperations = operations,
+        )
+
+        assertTrue(session.enterFullScreen())
+        assertEquals(
+            listOf(
+                CliTerminalEvent.Submit("full", inlineTerminalCommitted = false),
+                CliTerminalEvent.EndOfFile,
+            ),
+            session.events().toList(),
+        )
     }
 
     @Test
@@ -294,9 +323,9 @@ class JLineTerminalSessionTest {
 
         assertEquals(
             listOf(
-                CliTerminalEvent.Submit("hello"),
+                CliTerminalEvent.Submit("hello", inlineTerminalCommitted = true),
                 CliTerminalEvent.Cancel,
-                CliTerminalEvent.Submit("again"),
+                CliTerminalEvent.Submit("again", inlineTerminalCommitted = true),
                 CliTerminalEvent.EndOfFile,
             ),
             session.events().toList(),
@@ -329,7 +358,7 @@ class JLineTerminalSessionTest {
         assertEquals(
             listOf(
                 CliTerminalEvent.Cancel,
-                CliTerminalEvent.Submit("hello"),
+                CliTerminalEvent.Submit("hello", inlineTerminalCommitted = true),
                 CliTerminalEvent.EndOfFile,
             ),
             session.events().toList(),
