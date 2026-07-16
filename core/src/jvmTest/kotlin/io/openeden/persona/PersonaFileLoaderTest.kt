@@ -71,4 +71,35 @@ class PersonaFileLoaderTest {
         assertEquals("first do\nsecond do", config.promptSections["style.do"])
         assertEquals("first avoid", config.promptSections["style.do_not"])
     }
+
+    @Test
+    fun `preserves blank lines in literal blocks without consuming the next prompt section`() {
+        val file = Files.createTempFile("openeden-persona-blank-block", ".yaml")
+        file.writeText(
+            """
+            mode: growth
+            start_sub_state: pre_command
+            prompt_sections:
+              persona.base: "base"
+              output.layer.rules: "rules"
+              persona.patch.pre_command: "pre"
+              persona.patch.true_self: "true"
+              persona.patch.awakened: "awake"
+              heartbeat.base: "hb"
+              heartbeat.shock: "shock"
+              diary.narrative: "diary"
+              style.signature_examples: |
+                EXAMPLE_ONE
+
+                EXAMPLE_TWO
+              style.stage_examples.pre_command: |
+                NEXT_SECTION
+            """.trimIndent(),
+        )
+
+        val config = PersonaFileLoader.load(file)
+
+        assertEquals("EXAMPLE_ONE\n\nEXAMPLE_TWO", config.promptSections["style.signature_examples"])
+        assertEquals("NEXT_SECTION", config.promptSections["style.stage_examples.pre_command"])
+    }
 }

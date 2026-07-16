@@ -24,8 +24,8 @@ object PersonaFileLoader {
                             rawValue == "|" -> {
                                 val block = mutableListOf<String>()
                                 index += 1
-                                while (index < lines.size && lines[index].startsWith("    ")) {
-                                    block += lines[index].removePrefix("    ")
+                                while (index < lines.size && (lines[index].isBlank() || lines[index].startsWith("    "))) {
+                                    block += if (lines[index].isBlank()) "" else lines[index].removePrefix("    ")
                                     index += 1
                                 }
                                 index -= 1
