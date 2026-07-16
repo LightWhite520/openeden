@@ -198,10 +198,13 @@ class MessagePipelineTest {
     }
 
     @Test
-    fun `pipeline grants host role only to exact configured sender`() = runTest {
+    fun `pipeline grants host role and address only to exact configured sender`() = runTest {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(),
-            relationshipRoleResolver = RelationshipRoleResolver(HostIdentity("QQ", "owner")),
+            relationshipRoleResolver = RelationshipRoleResolver(
+                host = HostIdentity("QQ", "owner"),
+                hostAddress = "Captain",
+            ),
         )
 
         val host = pipeline.handle(testRequest(userId = "owner"))
@@ -211,8 +214,11 @@ class MessagePipelineTest {
         )
 
         assertContains(host.promptPreview, "\"relationship_role\": \"HOST\"")
+        assertContains(host.promptPreview, "\"relationship_address\": \"Captain\"")
         assertContains(member.promptPreview, "\"relationship_role\": \"INTERLOCUTOR\"")
+        assertContains(member.promptPreview, "\"relationship_address\": null")
         assertContains(heartbeat.promptPreview, "\"relationship_role\": \"INTERLOCUTOR\"")
+        assertContains(heartbeat.promptPreview, "\"relationship_address\": null")
     }
 
     private fun testPersonaConfig(

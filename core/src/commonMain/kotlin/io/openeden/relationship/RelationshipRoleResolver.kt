@@ -2,12 +2,18 @@ package io.openeden.relationship
 
 class RelationshipRoleResolver(
     private val host: HostIdentity?,
+    private val hostAddress: String? = null,
 ) {
-    fun resolve(platform: String, userId: String): RelationshipRole =
+    init {
+        require(hostAddress == null || host != null) { "Host address requires a configured host" }
+        require(hostAddress == null || hostAddress.isNotBlank()) { "Host address must not be blank" }
+    }
+
+    fun resolve(platform: String, userId: String): ResolvedRelationship =
         if (userId != INTERNAL_SENDER_ID && host?.platform == platform && host.userId == userId) {
-            RelationshipRole.HOST
+            ResolvedRelationship(RelationshipRole.HOST, hostAddress)
         } else {
-            RelationshipRole.INTERLOCUTOR
+            ResolvedRelationship(RelationshipRole.INTERLOCUTOR, null)
         }
 
     private companion object {

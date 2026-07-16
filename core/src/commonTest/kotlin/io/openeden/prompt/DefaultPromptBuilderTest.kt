@@ -44,11 +44,26 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
-    fun `build injects authoritative relationship role and host gate`() = runTest {
-        val built = DefaultPromptBuilder().build(promptInput(relationshipRole = RelationshipRole.HOST))
+    fun `build injects host role and address with host gate`() = runTest {
+        val built = DefaultPromptBuilder().build(
+            promptInput(
+                relationshipRole = RelationshipRole.HOST,
+                relationshipAddress = "Captain",
+            ),
+        )
 
         assertContains(built.systemText, "\"relationship_role\": \"HOST\"")
+        assertContains(built.systemText, "\"relationship_address\": \"Captain\"")
         assertContains(built.systemText, "Do not assume the current user is the host")
+        assertContains(built.systemText, "Use relationship_address only when relationship_role is HOST")
+    }
+
+    @Test
+    fun `build injects null address for interlocutor`() = runTest {
+        val built = DefaultPromptBuilder().build(promptInput())
+
+        assertContains(built.systemText, "\"relationship_role\": \"INTERLOCUTOR\"")
+        assertContains(built.systemText, "\"relationship_address\": null")
     }
 
     @Test
@@ -192,6 +207,7 @@ class DefaultPromptBuilderTest {
                 "runtime_state",
                 "observed_user_state",
                 "relationship_role",
+                "relationship_address",
                 "relationship_context",
                 "memory_retrieval",
                 "required_output_schema",
@@ -207,6 +223,7 @@ class DefaultPromptBuilderTest {
         userInput: String = "hello",
         personaConfigOverride: PersonaConfig? = null,
         relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
+        relationshipAddress: String? = null,
     ): PromptInput = PromptInput(
         personaConfig = personaConfigOverride ?: PersonaConfig(
             mode = personaMode,
@@ -260,5 +277,6 @@ class DefaultPromptBuilderTest {
         shockState = null,
         userInput = userInput,
         relationshipRole = relationshipRole,
+        relationshipAddress = relationshipAddress,
     )
 }

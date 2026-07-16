@@ -184,6 +184,7 @@ class DevelopmentMessagePipeline(
             result.copy(recentMemories = recent)
         }
         trace(traceContext, "retrieval", tags = retrievalResult.traceTags, attributes = mapOf("mode" to retrievalResult.mode.name))
+        val resolvedRelationship = relationshipRoleResolver.resolve(request.platform, request.userId)
         val prompt = promptBuilder.build(
             PromptInput(
                 personaConfig = personaConfig.copy(
@@ -199,7 +200,8 @@ class DevelopmentMessagePipeline(
                 shockState = current.shockState,
                 userInput = request.text,
                 userAffect = observedAffect,
-                relationshipRole = relationshipRoleResolver.resolve(request.platform, request.userId),
+                relationshipRole = resolvedRelationship.role,
+                relationshipAddress = resolvedRelationship.address,
                 relationshipState = relationship,
             ),
         )

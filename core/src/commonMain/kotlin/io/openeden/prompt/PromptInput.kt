@@ -22,5 +22,6 @@ data class PromptInput(
     val userInput: String,
     val userAffect: UserAffectState = UserAffectState.Uncertain,
     val relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
+    val relationshipAddress: String? = null,
     val relationshipState: RelationshipState? = null,
 )
