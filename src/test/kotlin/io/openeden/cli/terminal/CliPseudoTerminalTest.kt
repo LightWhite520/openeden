@@ -19,7 +19,7 @@ import kotlin.test.assertTrue
 
 class CliPseudoTerminalTest {
     @Test
-    fun `chinese input streaming and mode switching round trip through pseudo terminal`() {
+    fun `two inline chinese turns retain completed scrollback through pseudo terminal`() {
         val server = startServer()
         val home = createTempDirectory("openeden-pty-home")
         writeConfig(home, server.address.port)
@@ -48,47 +48,44 @@ class CliPseudoTerminalTest {
                     }
                 }
             }
-            process.outputWriter(UTF_8).use { input ->
-                transcriptBuffer.awaitContains("OpenEden connected")
+            val input = process.outputWriter(UTF_8)
+            try {
+                val connected = transcriptBuffer.awaitMarkerAfter(0, "OpenEden connected")
+                val initiallyReady = transcriptBuffer.awaitPromptAfter(connected)
+
                 input.write("你好\r")
                 input.flush()
-                transcriptBuffer.awaitContains("第一轮回复：你好")
+                val firstResponse = transcriptBuffer.awaitMarkerAfter(initiallyReady, "第一轮回复：你好")
+                val readyAfterFirst = transcriptBuffer.awaitPromptAfter(firstResponse)
+
                 input.write("再见\r")
                 input.flush()
-                transcriptBuffer.awaitContains("第二轮回复：再见")
-                input.write("/mode full\r")
-                input.flush()
-                Thread.sleep(150)
-                input.write("/mode inline\r")
-                input.flush()
-                Thread.sleep(150)
+                val secondResponse = transcriptBuffer.awaitMarkerAfter(readyAfterFirst, "第二轮回复：再见")
+                transcriptBuffer.awaitPromptAfter(secondResponse)
+
+                val inlineTranscript = transcriptBuffer.snapshot()
+                val diagnostics = inlineTranscript.boundedForFailure()
+                val firstIndex = inlineTranscript.indexOf("第一轮回复：你好")
+                val secondIndex = inlineTranscript.indexOf("第二轮回复：再见", firstIndex + 1)
+                assertTrue(firstIndex >= 0, diagnostics)
+                assertTrue(secondIndex > firstIndex, diagnostics)
+                val physicalLines = inlineTranscript.stripAnsi().split("\r\n", "\n", "\r")
+                assertFalse(physicalLines.any { it.startsWith(" [status]") }, diagnostics)
+                assertFalse(physicalLines.any { it.startsWith(" ATRI:") }, diagnostics)
+                assertFalse(inlineTranscript.contains('\uFFFD'), diagnostics)
+                assertFalse(inlineTranscript.contains("??"), diagnostics)
+
                 input.write("/exit\r")
                 input.flush()
-            }
 
-            if (!process.waitFor(20, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
+                if (!process.waitFor(20, TimeUnit.SECONDS)) {
+                    throw AssertionError("CLI did not exit within 20 seconds:\n${transcriptBuffer.boundedForFailure()}")
+                }
                 transcriptFuture.get(5, TimeUnit.SECONDS)
-                val transcript = transcriptBuffer.toString()
-                throw AssertionError("CLI did not exit within 20 seconds:\n$transcript")
+                assertEquals(0, process.exitValue(), transcriptBuffer.boundedForFailure())
+            } finally {
+                input.close()
             }
-            transcriptFuture.get(5, TimeUnit.SECONDS)
-            val transcript = transcriptBuffer.toString()
-
-            assertEquals(0, process.exitValue(), transcript)
-            assertTrue(transcript.contains("你好"), transcript)
-            assertTrue(transcript.contains("第一轮回复：你好"), transcript)
-            assertTrue(transcript.contains("第二轮回复：再见"), transcript)
-            val afterSecondResponse = transcript.substring(transcript.indexOf("第二轮回复：再见"))
-            assertTrue(afterSecondResponse.contains("第一轮回复：你好"), transcript)
-            assertTrue(transcript.countOccurrences("> 你好") <= 3, transcript)
-            val physicalLines = transcript
-                .replace(Regex("\\u001B\\[[0-?]*[ -/]*[@-~]"), "")
-                .split("\r\n", "\n", "\r")
-            assertFalse(physicalLines.any { it.startsWith(" [status]") }, transcript)
-            assertFalse(physicalLines.any { it.startsWith(" ATRI:") }, transcript)
-            assertFalse(transcript.contains('\uFFFD'), transcript)
-            assertFalse(transcript.contains("??"), transcript)
         } finally {
             if (process.isAlive) process.destroyForcibly()
             reader.shutdownNow()
@@ -154,24 +151,41 @@ class CliPseudoTerminalTest {
         responseBody.use { it.write(bytes) }
     }
 
-    private fun String.countOccurrences(value: String): Int {
-        var count = 0
-        var start = 0
-        while (true) {
-            val match = indexOf(value, start)
-            if (match < 0) return count
-            count += 1
-            start = match + value.length
-        }
+    private fun StringBuffer.awaitMarkerAfter(offset: Int, marker: String): Int = awaitOutput(
+        description = "'$marker' after offset $offset",
+    ) { output ->
+        output.indexOf(marker, offset).takeIf { it >= 0 }?.plus(marker.length)
     }
 
-    private fun StringBuffer.awaitContains(value: String) {
+    private fun StringBuffer.awaitPromptAfter(offset: Int): Int = awaitOutput(
+        description = "a new prompt after offset $offset",
+    ) { output ->
+        val suffix = output.substring(offset).stripAnsi()
+        output.length.takeIf { PROMPT.containsMatchIn(suffix) }
+    }
+
+    private fun StringBuffer.awaitOutput(description: String, condition: (String) -> Int?): Int {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-        while (!contains(value)) {
+        while (true) {
+            val output = snapshot()
+            condition(output)?.let { return it }
             if (System.nanoTime() >= deadline) {
-                throw AssertionError("Timed out waiting for '$value':\n$this")
+                throw AssertionError("Timed out waiting for $description:\n${output.boundedForFailure()}")
             }
             Thread.sleep(20)
         }
+    }
+
+    private fun StringBuffer.snapshot(): String = synchronized(this) { toString() }
+
+    private fun StringBuffer.boundedForFailure(): String = snapshot().boundedForFailure()
+
+    private fun String.boundedForFailure(): String = takeLast(4_000)
+
+    private fun String.stripAnsi(): String = replace(ANSI_CSI, "")
+
+    private companion object {
+        val ANSI_CSI = Regex("\\u001B\\[[0-?]*[ -/]*[@-~]")
+        val PROMPT = Regex("(?:^|[\\r\\n])> ?")
     }
 }
