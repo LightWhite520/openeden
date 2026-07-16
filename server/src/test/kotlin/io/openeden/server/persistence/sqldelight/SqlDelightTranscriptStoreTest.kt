@@ -1,9 +1,14 @@
 package io.openeden.server.persistence.sqldelight
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import app.cash.sqldelight.db.QueryResult
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InvalidHistoryCursorException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -22,6 +27,44 @@ class SqlDelightTranscriptStoreTest {
     fun cleanup() {
         Files.walk(tempDir).use { paths ->
             paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists)
+        }
+    }
+
+    @Test
+    fun `concurrent first opens share one active incarnation`() = runTest {
+        val stores = concurrentOpen()
+        try {
+            val incarnations = stores.map { it.activeIncarnation() }
+            assertEquals(1, incarnations.distinct().size)
+        } finally {
+            stores.forEach { it.close() }
+        }
+    }
+
+    @Test
+    fun `concurrent version four opens preserve and migrate existing data`() = runTest {
+        createVersionFourDatabase()
+
+        val stores = concurrentOpen()
+        try {
+            assertEquals(1, stores.map { it.activeIncarnation() }.distinct().size)
+        } finally {
+            stores.forEach { it.close() }
+        }
+
+        JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            val migrated = driver.executeQuery(
+                null,
+                "SELECT evolution_index, persona_mode, persona_start_sub_state FROM session_state WHERE session_id = ?",
+                { cursor ->
+                    check(cursor.next().value)
+                    QueryResult.Value(Triple(cursor.getLong(0), cursor.getString(1), cursor.getString(2)))
+                },
+                1,
+            ) {
+                bindString(0, "QQ:migrated")
+            }.value
+            assertEquals(Triple(99L, "growth", "awakened"), migrated)
         }
     }
 
@@ -136,6 +179,25 @@ class SqlDelightTranscriptStoreTest {
 
     @Test
     fun `version four database migrates to transcript schema`() = runTest {
+        createVersionFourDatabase()
+
+        val store = SqlDelightTranscriptStore.open(dbPath)
+        try {
+            val incarnation = store.activeIncarnation()
+            store.append(turn(1, incarnation.id))
+            assertEquals(listOf("turn-1"), store.page(limit = 50).turns.map { it.turnId })
+        } finally {
+            store.close()
+        }
+    }
+
+    private suspend fun concurrentOpen(): List<SqlDelightTranscriptStore> = coroutineScope {
+        List(2) {
+            async(Dispatchers.IO) { SqlDelightTranscriptStore.open(dbPath) }
+        }.awaitAll()
+    }
+
+    private fun createVersionFourDatabase() {
         Files.createDirectories(dbPath.parent)
         JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
             driver.execute(
@@ -158,16 +220,21 @@ class SqlDelightTranscriptStoreTest {
                 """.trimIndent(),
                 0,
             )
+            driver.execute(
+                null,
+                """
+                INSERT INTO session_state(session_id, vector_json, origin_json, omega, evolution_index)
+                VALUES (?, ?, ?, ?, ?)
+                """.trimIndent(),
+                5,
+            ) {
+                bindString(0, "QQ:migrated")
+                bindString(1, "vector")
+                bindString(2, "origin")
+                bindDouble(3, 0.0)
+                bindLong(4, 99L)
+            }
             driver.execute(null, "PRAGMA user_version = 4", 0)
-        }
-
-        val store = SqlDelightTranscriptStore.open(dbPath)
-        try {
-            val incarnation = store.activeIncarnation()
-            store.append(turn(1, incarnation.id))
-            assertEquals(listOf("turn-1"), store.page(limit = 50).turns.map { it.turnId })
-        } finally {
-            store.close()
         }
     }
 

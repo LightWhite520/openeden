@@ -11,11 +11,16 @@ import io.openeden.transcript.InvalidHistoryCursorException
 import io.openeden.transcript.TranscriptStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
+import java.nio.channels.FileChannel
 import java.util.Properties
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class SqlDelightTranscriptStore private constructor(
     private val database: Database,
@@ -98,18 +103,37 @@ class SqlDelightTranscriptStore private constructor(
             dbPath: Path,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         ): SqlDelightTranscriptStore = withContext(ioDispatcher) {
-            dbPath.parent?.let(Files::createDirectories)
-            val driver = JdbcSqliteDriver(
-                "jdbc:sqlite:${dbPath.toAbsolutePath()}",
-                Properties(),
-                Database.Schema,
-            )
-            val database = Database(driver)
-            database.transcriptQueries.insertIncarnationIfAbsent(
-                active_incarnation_id = UUID.randomUUID().toString(),
-                created_at_ms = System.currentTimeMillis(),
-            )
-            SqlDelightTranscriptStore(database, driver, ioDispatcher)
+            val resolvedPath = dbPath.resolveForInitialization()
+            initializationLocks.computeIfAbsent(resolvedPath) { Mutex() }.withLock {
+                FileChannel.open(
+                    resolvedPath.resolveSibling("${resolvedPath.fileName}.init.lock"),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                ).use { channel ->
+                    channel.lock().use {
+                        val driver = JdbcSqliteDriver(
+                            "jdbc:sqlite:$resolvedPath",
+                            Properties(),
+                            Database.Schema,
+                        )
+                        val database = Database(driver)
+                        database.transcriptQueries.insertIncarnationIfAbsent(
+                            active_incarnation_id = UUID.randomUUID().toString(),
+                            created_at_ms = System.currentTimeMillis(),
+                        )
+                        SqlDelightTranscriptStore(database, driver, ioDispatcher)
+                    }
+                }
+            }
+        }
+
+        private val initializationLocks = ConcurrentHashMap<Path, Mutex>()
+
+        private fun Path.resolveForInitialization(): Path {
+            val absolute = toAbsolutePath().normalize()
+            val parent = absolute.parent ?: return absolute
+            Files.createDirectories(parent)
+            return parent.toRealPath().resolve(absolute.fileName)
         }
 
         private fun mapTurn(
