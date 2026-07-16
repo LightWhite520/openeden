@@ -152,12 +152,20 @@ class CliReducerTest {
     @Test
     fun `submission and delta append vertically ordered user and provisional assistant messages`() {
         val state = CliUiState.initial("local")
-            .reduce(CliEvent.Submitted(text = "\u4F60\u597D", id = "turn-1"))
+            .reduce(
+                CliEvent.Submitted(
+                    text = "\u4F60\u597D",
+                    id = "turn-1",
+                    inlineTerminalCommitted = true,
+                ),
+            )
             .reduce(CliEvent.ResponseDelta("\u56DE\u7B54"))
 
         assertEquals("CLI:local", state.sessionId)
         assertEquals(listOf("turn-1:user", "turn-1:assistant"), state.messages.map { it.id })
         assertEquals(listOf(CliRole.USER, CliRole.ASSISTANT), state.messages.map { it.role })
+        assertTrue(state.messages.first().inlineTerminalCommitted)
+        assertFalse(state.messages.last().inlineTerminalCommitted)
         assertEquals("\u56DE\u7B54", state.messages.last().markdown)
         assertTrue(state.messages.last().provisional)
         assertTrue(state.requestActive)

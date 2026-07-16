@@ -75,6 +75,8 @@ class CliPseudoTerminalTest {
                 val secondIndex = renderedLines.indexOf("ATRI: 第二轮回复：再见")
                 assertTrue(firstIndex >= 0, diagnostics)
                 assertTrue(secondIndex > firstIndex, diagnostics)
+                assertEquals(1, renderedLines.count { it == "> 你好" }, diagnostics)
+                assertEquals(1, renderedLines.count { it == "> 再见" }, diagnostics)
                 assertFalse(renderedLines.any { it.startsWith(" [status]") }, diagnostics)
                 assertFalse(renderedLines.any { it.startsWith(" ATRI:") }, diagnostics)
                 assertFalse(inlineTranscript.contains('\uFFFD'), diagnostics)

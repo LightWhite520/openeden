@@ -67,7 +67,12 @@ class JLineTerminalSession private constructor(
                             enqueue(CliTerminalEvent.EndOfFile)
                             break
                         }
-                        enqueue(CliTerminalEvent.Submit(line))
+                        enqueue(
+                            CliTerminalEvent.Submit(
+                                text = line,
+                                inlineTerminalCommitted = isInlineDisplay(),
+                            ),
+                        )
                     } catch (_: UserInterruptException) {
                         enqueue(CliTerminalEvent.Cancel)
                     } catch (_: EndOfFileException) {
@@ -162,6 +167,10 @@ class JLineTerminalSession private constructor(
         if (result.isFailure && !shutdownStarted) {
             throw result.exceptionOrNull() ?: IllegalStateException("Terminal event queue rejected an event")
         }
+    }
+
+    private fun isInlineDisplay(): Boolean = synchronized(lifecycleLock) {
+        displayState == DisplayState.INLINE
     }
 
     private fun exitDisplayBestEffortLocked(): Throwable? {

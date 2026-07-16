@@ -18,6 +18,7 @@ data class CliMessage(
     val role: CliRole,
     val markdown: String,
     val status: CliMessageStatus,
+    val inlineTerminalCommitted: Boolean = false,
 ) {
     val provisional: Boolean
         get() = status == CliMessageStatus.STREAMING

@@ -54,7 +54,10 @@ class CliSessionController(
     fun accept(event: CliTerminalEvent) {
         if (stopped) return
         when (event) {
-            is CliTerminalEvent.Submit -> acceptText(event.text)
+            is CliTerminalEvent.Submit -> acceptText(
+                text = event.text,
+                inlineTerminalCommitted = event.inlineTerminalCommitted,
+            )
             CliTerminalEvent.Cancel -> cancelActiveRequest()
             CliTerminalEvent.ToggleMode -> dispatch(
                 CliEvent.ModeSelected(
@@ -115,7 +118,10 @@ class CliSessionController(
         }
     }
 
-    private fun acceptText(text: String) {
+    private fun acceptText(
+        text: String,
+        inlineTerminalCommitted: Boolean,
+    ) {
         if (text.isBlank()) return
         if (text.startsWith('/')) {
             handleCommand(text)
@@ -126,7 +132,13 @@ class CliSessionController(
             return
         }
         val requestId = "cli_${UUID.randomUUID().toString().replace("-", "")}"
-        dispatch(CliEvent.Submitted(text, requestId))
+        dispatch(
+            CliEvent.Submitted(
+                text = text,
+                id = requestId,
+                inlineTerminalCommitted = inlineTerminalCommitted,
+            ),
+        )
         activeRequest = scope.launch {
             val pending = StringBuilder()
             var lastDeltaFlushNanos = System.nanoTime()

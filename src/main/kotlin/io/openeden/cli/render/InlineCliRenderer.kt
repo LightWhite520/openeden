@@ -51,6 +51,7 @@ class InlineCliRenderer(
             if (message.status == CliMessageStatus.COMPLETE) completedMessages.putIfAbsent(message.id, message)
         }
         committed.newIds(completedMessages.keys.toList()).mapNotNull(completedMessages::get).forEach { msg ->
+            if (msg.role == CliRole.USER && msg.inlineTerminalCommitted) return@forEach
             val committedState = current.copy(
                 messages = listOf(msg),
                 requestActive = false,
