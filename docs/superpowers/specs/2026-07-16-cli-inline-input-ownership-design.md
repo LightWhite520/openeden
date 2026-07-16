@@ -46,10 +46,10 @@ History loaded from the server has no terminal ownership marker, so both restore
 - Switching between inline and full-screen does not lose or duplicate user messages.
 - Unicode editing, terminal encoding, and redirected UTF-8 behavior remain unchanged.
 
-## Active Status Refresh
+## LineReader-Owned Activity
 
-JLine `Status` retains old rendered lines and performs incremental row diffs. The line reader can move the reserved status region between updates while that cache remains populated. When the next active frame shares a leading character with the stale row, JLine skips repainting that character at the row's new location. This appears as `TRI:` instead of `ATRI:` or as ` status]` instead of `[status]` only in the temporary active region.
+JLine `Status` maintains an independent terminal scroll region and cursor cache. Recreating that region for every response delta made Windows Terminal move transcript rows and occasionally lose the first character of `[status]` or `ATRI:`.
 
-The CLI keeps JLine as the unified terminal engine. Before each active frame, it updates `Status` with an empty line list and `flush = false`, invalidating the stale diff state without displaying an empty intermediate frame. It then resizes and writes the complete active rows with the normal flush. This does not change message content, completed scrollback, editor ownership, or full-screen rendering.
+The CLI keeps JLine as the unified terminal engine but no longer uses `Status`. `OpenEdenLineReader` renders activity through `LineReaderImpl.post`, under the same display lock and cursor model as the prompt and editable input buffer. Built-in JLine posts such as completion menus take priority and activity resumes after they close. Completed activity clears before its assistant message is committed to scrollback.
 
-The pseudo-terminal regression must hold the request in the generating state and verify that the emulated active rows contain `[status] generating` followed by a complete `ATRI:` prefix. Windows ConPTY coverage must continue to pass without code-page changes.
+The pseudo-terminal regression holds two same-height response deltas independently and verifies that a fixed transcript row does not move, labels remain complete, and both completed turns remain in scrollback. Windows ConPTY coverage continues without code-page changes.

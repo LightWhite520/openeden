@@ -2,7 +2,6 @@ package io.openeden.cli.render
 
 import io.openeden.cli.terminal.TerminalSession
 import org.jline.utils.InfoCmp.Capability
-import org.jline.utils.Status
 
 class JLineFullscreenSink(
     private val session: TerminalSession,
@@ -12,10 +11,7 @@ class JLineFullscreenSink(
     override fun capabilitiesAvailable(): Boolean = true
 
     override fun enter(): Boolean {
-        Status.getExistingStatus(session.terminal).ifPresent { status ->
-            status.hide()
-            status.close()
-        }
+        session.replaceInlineActivity(emptyList())
         entered = session.enterFullScreen()
         return entered
     }

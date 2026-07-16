@@ -74,6 +74,7 @@ class MainTest {
         override fun enterFullScreen() = false
         override fun exitFullScreen() = Unit
         override fun redisplay() = Unit
+        override fun replaceInlineActivity(lines: List<String>) = Unit
         override fun close() {
             closeCalls += 1
             onClose()

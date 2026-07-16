@@ -22,8 +22,8 @@ import kotlin.test.assertTrue
 class CliPseudoTerminalTest {
     @Test
     fun `two inline chinese turns retain completed scrollback through pseudo terminal`() {
-        val responseGate = CountDownLatch(1)
-        val server = startServer(responseGate)
+        val gates = StreamingGates()
+        val server = startServer(gates)
         val home = createTempDirectory("openeden-pty-home")
         writeConfig(home, server.address.port)
         val process = PtyProcessBuilder(command())
@@ -62,7 +62,17 @@ class CliPseudoTerminalTest {
                     lines.contains("[status] generating") && lines.contains("ATRI:")
                 }
                 assertTrue(active.lines.contains("ATRI:"), active.raw.boundedForFailure())
-                responseGate.countDown()
+                val submittedRow = active.visibleLines.indexOf("> 你好")
+                assertTrue(submittedRow >= 0, active.raw.boundedForFailure())
+
+                gates.releaseFirstDelta.countDown()
+                assertTrue(gates.firstDeltaSent.await(10, TimeUnit.SECONDS), "Server did not send first delta")
+                val firstDelta = transcriptBuffer.awaitScreenState("first same-height delta") { lines ->
+                    lines.contains("ATRI: 第一轮回复：你好")
+                }
+                assertEquals(submittedRow, firstDelta.visibleLines.indexOf("> 你好"), firstDelta.raw.boundedForFailure())
+
+                gates.releaseCompletion.countDown()
                 transcriptBuffer.awaitScreenState("first committed response") { lines ->
                     lines.contains("ATRI: 第一轮回复：你好") && lines.none(::isTransientStatus)
                 }
@@ -126,7 +136,7 @@ class CliPseudoTerminalTest {
         )
     }
 
-    private fun startServer(responseGate: CountDownLatch): HttpServer {
+    private fun startServer(gates: StreamingGates): HttpServer {
         val requests = AtomicInteger()
         return HttpServer.create(
             InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
@@ -152,23 +162,24 @@ class CliPseudoTerminalTest {
                     body.write(activeEvents.encodeToByteArray())
                     body.flush()
                     if (requestNumber == 1) {
-                        responseGate.await(10, TimeUnit.SECONDS)
+                        gates.releaseFirstDelta.await(10, TimeUnit.SECONDS)
+                        body.writeEvent("response.delta", """{"text":"第一轮回复：你好"}""")
+                        gates.firstDeltaSent.countDown()
+                        gates.releaseCompletion.await(10, TimeUnit.SECONDS)
+                    } else {
+                        body.writeEvent("response.delta", """{"text":"$response"}""")
                     }
-                    body.write(
-                        """
-                        event: response.delta
-                        data: {"text":"$response"}
-
-                        event: completed
-                        data: {"requestId":"req_1","status":"completed"}
-
-                        """.trimIndent().encodeToByteArray(),
-                    )
+                    body.writeEvent("completed", """{"requestId":"req_1","status":"completed"}""")
                 }
             }
             executor = Executors.newCachedThreadPool()
             start()
         }
+    }
+
+    private fun java.io.OutputStream.writeEvent(event: String, data: String) {
+        write("event: $event\ndata: $data\n\n".encodeToByteArray())
+        flush()
     }
 
     private fun HttpExchange.respond(contentType: String, body: String) {
@@ -198,10 +209,12 @@ class CliPseudoTerminalTest {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (true) {
             val raw = snapshot()
-            val lines = ScreenTerminal(100, 30, true)
-                .apply { write(raw) }
-                .screenAndScrollbackLines()
-            if (condition(lines)) return EmulatedSnapshot(raw, lines)
+            val screen = ScreenTerminal(100, 30, true).apply { write(raw) }
+            val lines = screen.screenAndScrollbackLines()
+            if (condition(lines)) {
+                val visibleLines = screen.toString().lineSequence().take(screen.rows).map(String::trimEnd).toList()
+                return EmulatedSnapshot(raw, lines, visibleLines)
+            }
             if (System.nanoTime() >= deadline) {
                 throw AssertionError(
                     "Timed out waiting for $description:\n" +
@@ -238,6 +251,13 @@ class CliPseudoTerminalTest {
     private data class EmulatedSnapshot(
         val raw: String,
         val lines: List<String>,
+        val visibleLines: List<String>,
+    )
+
+    private data class StreamingGates(
+        val releaseFirstDelta: CountDownLatch = CountDownLatch(1),
+        val firstDeltaSent: CountDownLatch = CountDownLatch(1),
+        val releaseCompletion: CountDownLatch = CountDownLatch(1),
     )
 
     private companion object {

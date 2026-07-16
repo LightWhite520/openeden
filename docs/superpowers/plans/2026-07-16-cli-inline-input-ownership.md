@@ -366,26 +366,21 @@ $env:JAVA_HOME='F:\SDK\JDK21'
 
 Expected: FAIL while waiting for the complete active assistant label because JLine `Status` loses the first character after a full-width row.
 
-- [ ] **Step 4: Invalidate stale Status rows before rendering the active frame**
+- [ ] **Step 4: Delegate activity to the LineReader display**
 
-Clear the cached Status rows without flushing an empty intermediate frame, then perform the normal resize and update:
+The final implementation supersedes the provisional `Status` workaround. The sink delegates complete frames to `TerminalSession`, whose `OpenEdenLineReader` owns activity through `LineReaderImpl.post`:
 
 ```kotlin
 class JLineInlineActiveSink(
-    session: TerminalSession,
+    private val replace: (List<String>) -> Unit,
 ) : InlineActiveSink {
-    private val status: Status? = Status.getStatus(session.terminal)
+    constructor(session: TerminalSession) : this(session::replaceInlineActivity)
 
-    override fun render(lines: List<String>) {
-        val current = status ?: return
-        current.update(emptyList(), false)
-        current.resize()
-        current.update(lines.map(::AttributedString))
-    }
+    override fun render(lines: List<String>) = replace(lines)
 }
 ```
 
-Keep `clear()` and `close()` unchanged.
+The default `clear()` and `close()` send an empty frame through the same owner.
 
 - [ ] **Step 5: Run the PTY test and verify GREEN**
 

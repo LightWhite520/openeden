@@ -17,7 +17,6 @@ import org.jline.keymap.KeyMap
 import org.jline.reader.Binding
 import org.jline.reader.EndOfFileException
 import org.jline.reader.LineReader
-import org.jline.reader.LineReaderBuilder
 import org.jline.reader.Reference
 import org.jline.reader.UserInterruptException
 import org.jline.reader.Widget
@@ -38,7 +37,7 @@ private val terminalLogger = LoggerFactory.getLogger(JLineTerminalSession::class
 
 class JLineTerminalSession private constructor(
     override val terminal: Terminal,
-    override val lineReader: LineReader,
+    private val openEdenLineReader: OpenEdenLineReader,
     private val richSupported: Boolean,
     private val readLine: () -> String?,
     private val lifecycleOperations: TerminalLifecycleOperations,
@@ -47,6 +46,7 @@ class JLineTerminalSession private constructor(
     private val historySave: () -> Unit,
     private val previousWinchHandler: Terminal.SignalHandler,
 ) : TerminalSession {
+    override val lineReader: LineReader = openEdenLineReader
     private val collectionStarted = AtomicBoolean(false)
     private val lifecycleLock = Any()
     @Volatile
@@ -131,6 +131,10 @@ class JLineTerminalSession private constructor(
 
     override fun redisplay() {
         lineReader.callWidget(LineReader.REDISPLAY)
+    }
+
+    override fun replaceInlineActivity(lines: List<String>) {
+        openEdenLineReader.replaceInlineActivity(lines)
     }
 
     override fun close() = synchronized(lifecycleLock) {
@@ -302,21 +306,19 @@ class JLineTerminalSession private constructor(
                     val size = terminal.size
                     eventQueue.trySend(CliTerminalEvent.Resized(size.columns, size.rows))
                 }
-                val lineReader = LineReaderBuilder.builder()
-                    .appName("openeden")
-                    .terminal(terminal)
-                    .completer(CliCommandCompleter(CliCommandParser()))
-                    .variable(LineReader.HISTORY_FILE, historyPath)
-                    .option(LineReader.Option.BRACKETED_PASTE, true)
-                    .option(LineReader.Option.HISTORY_INCREMENTAL, true)
-                    .build()
+                val lineReader = OpenEdenLineReader(terminal).apply {
+                    setCompleter(CliCommandCompleter(CliCommandParser()))
+                    setVariable(LineReader.HISTORY_FILE, historyPath)
+                    option(LineReader.Option.BRACKETED_PASTE, true)
+                    option(LineReader.Option.HISTORY_INCREMENTAL, true)
+                }
                 lineReader.history.attach(lineReader)
                 installWidgets(lineReader, eventQueue)
                 installDedicatedKeyMap(lineReader)
 
                 return JLineTerminalSession(
                     terminal = terminal,
-                    lineReader = lineReader,
+                    openEdenLineReader = lineReader,
                     richSupported = richSupported,
                     readLine = readLine ?: { lineReader.readLine("> ") },
                     lifecycleOperations = lifecycleOperations
