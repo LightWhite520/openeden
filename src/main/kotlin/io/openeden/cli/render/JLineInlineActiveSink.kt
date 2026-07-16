@@ -1,34 +1,11 @@
 package io.openeden.cli.render
 
 import io.openeden.cli.terminal.TerminalSession
-import org.jline.terminal.Size
-import org.jline.utils.AttributedString
-import org.jline.utils.Status
 
 class JLineInlineActiveSink(
-    session: TerminalSession,
+    private val replace: (List<String>) -> Unit,
 ) : InlineActiveSink {
-    private val terminal = session.terminal
-    private val status: Status? = Status.getStatus(terminal)
+    constructor(session: TerminalSession) : this(session::replaceInlineActivity)
 
-    override fun render(lines: List<String>) {
-        val current = status ?: return
-        current.update(emptyList(), false)
-        current.resize(activeStatusSize(terminal.size))
-        current.update(lines.map(::AttributedString))
-    }
-
-    override fun clear() {
-        status?.hide()
-    }
-
-    override fun close() {
-        status?.hide()
-        status?.close()
-    }
+    override fun render(lines: List<String>) = replace(lines)
 }
-
-internal fun activeStatusSize(physical: Size): Size = Size.of(
-    (physical.columns - 1).coerceAtLeast(1),
-    physical.rows,
-)
