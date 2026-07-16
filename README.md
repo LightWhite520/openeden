@@ -127,6 +127,7 @@ Common variables:
 | `OPENEDEN_OWNER_USER_ID`        | Optional heartbeat owner user ID.                   |
 | `OPENEDEN_HOST_PLATFORM`        | Optional authoritative host identity platform.      |
 | `OPENEDEN_HOST_USER_ID`         | Optional authoritative host identity user ID.       |
+| `OPENEDEN_HOST_ADDRESS`         | Optional preferred address used only for the exact configured host. |
 | `OPENEDEN_ENABLE_CLI_DIAGNOSTICS` | Enable the token-gated diagnostic endpoint; default `false`. |
 | `OPENEDEN_CLI_DIAGNOSTICS_TOKEN` | Separate credential used only by the optional CLI diagnostic panel. |
 

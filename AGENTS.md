@@ -72,6 +72,13 @@ Personality is **fully externalized**.
  * NEVER implement emotional behavior in business code
  * NEVER mix persona with system logic
 
+#### Persona Few-Shot Examples
+ * Persona few-shot examples MUST live only in `persona/*.yaml`.
+ * Prompt construction MUST inject common voice examples plus only the examples for the immutable selected starting point. `evolution_index` MUST NOT select, replace, or promote stage examples.
+ * Examples MUST be original. Source character names and recognizable source dialogue are forbidden.
+ * Hard constraints in persona data MUST be written in English.
+ * Kotlin MUST NOT classify scenes into personality behaviors, schedule catchphrases, or store example-derived personality state.
+
 ### 1.3 The 8D Physiological Vector Engine (CRITICAL Core)
 The system abandons simple Logos/Pathos. It MUST use an 8-Dimensional continuous state space to simulate physiological and cognitive status:
  * **L (Logos):** Logical rigor. High L suppresses divergence.
@@ -532,6 +539,7 @@ Host identity is explicit relationship metadata and MUST remain independent from
  * If host identity is not configured, every sender MUST resolve to `INTERLOCUTOR`.
  * A sender MUST resolve to `HOST` only when both platform and sender `user_id` exactly match the configured host identity.
  * The synthetic `INTERNAL` heartbeat sender MUST resolve to `INTERLOCUTOR`; its configured delivery owner MUST NOT imply host identity.
+ * Host preferred address is optional presentation metadata. It MUST be injected only for an exact `HOST` match, MUST be absent for `INTERLOCUTOR` and `INTERNAL` senders, and MUST remain independent from session identity and heartbeat delivery ownership.
  * Prompt construction MUST inject `relationship_role` as `HOST` or `INTERLOCUTOR` before persona data.
  * Persona data MAY define host-specific expression, but MUST apply host-specific address, ownership, and intimacy assumptions only when `relationship_role` is `HOST`.
  * Kotlin MUST carry only authoritative identity and resolved-role metadata. Host personality and relationship expression MUST remain in `persona/*.yaml`.

@@ -98,6 +98,7 @@ Copy-Item .env.example .env
 | `OPENEDEN_OWNER_USER_ID`        | 可选，心跳 owner 用户 ID。                             |
 | `OPENEDEN_HOST_PLATFORM`        | 可选，权威宿主身份平台。                               |
 | `OPENEDEN_HOST_USER_ID`         | 可选，权威宿主身份用户 ID。                            |
+| `OPENEDEN_HOST_ADDRESS`         | 可选，仅用于精确匹配宿主的偏好称呼。                   |
 | `OPENEDEN_ENABLE_CLI_DIAGNOSTICS` | 是否启用需要 token 的 CLI 诊断接口，默认 `false`。   |
 | `OPENEDEN_CLI_DIAGNOSTICS_TOKEN` | CLI 诊断面板专用凭据，不写入本地配置。                |
 
