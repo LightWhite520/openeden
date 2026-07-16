@@ -69,14 +69,19 @@ fun CliUiState.reduce(event: CliEvent): CliUiState = when (event) {
     )
     is CliEvent.HistoryLoaded -> {
         val historyMessages = event.page.turns.flatMap(ConversationTurn::toCliMessages)
-        val retainedMessages = messages.retainedForHistory(event.initial, requestActive)
-        val existingIds = retainedMessages.asSequence().map(CliMessage::id).toHashSet()
+        val existingById = messages.associateBy(CliMessage::id)
+        val mergedMessages = buildList {
+            val includedIds = mutableSetOf<String>()
+            historyMessages.forEach { historyMessage ->
+                val message = existingById[historyMessage.id] ?: historyMessage
+                if (includedIds.add(message.id)) add(message)
+            }
+            messages.forEach { message ->
+                if (includedIds.add(message.id)) add(message)
+            }
+        }
         copy(
-            messages = historyMessages
-                .asSequence()
-                .filterNot { it.id in existingIds }
-                .distinctBy(CliMessage::id)
-                .toList() + retainedMessages.distinctBy(CliMessage::id),
+            messages = mergedMessages,
             historyBefore = event.page.before,
             historyLoading = false,
             historyExhausted = !event.page.hasMore || event.page.before == null,
@@ -107,20 +112,6 @@ private fun ConversationTurn.toCliMessages(): List<CliMessage> = listOf(
         status = CliMessageStatus.COMPLETE,
     ),
 )
-
-private fun List<CliMessage>.retainedForHistory(
-    initial: Boolean,
-    requestActive: Boolean,
-): List<CliMessage> {
-    if (!initial) return this
-    if (!requestActive) return emptyList()
-    val assistantIndex = indexOfLast { message ->
-        message.role == CliRole.ASSISTANT && message.status == CliMessageStatus.STREAMING
-    }
-    if (assistantIndex < 0) return emptyList()
-    val userIndex = (assistantIndex - 1 downTo 0).firstOrNull { index -> this[index].role == CliRole.USER }
-    return subList(userIndex ?: assistantIndex, size)
-}
 
 private inline fun List<CliMessage>.updateStreamingAssistant(
     transform: (CliMessage) -> CliMessage,

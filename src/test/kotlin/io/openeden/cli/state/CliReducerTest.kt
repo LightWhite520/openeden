@@ -79,7 +79,7 @@ class CliReducerTest {
     }
 
     @Test
-    fun `initial history replaces stale complete messages while preserving active pair`() {
+    fun `initial history retains explicit existing messages after hydrated history`() {
         val state = CliUiState(
             sessionId = "CLI:local",
             messages = listOf(
@@ -97,10 +97,42 @@ class CliReducerTest {
         )
 
         assertEquals(
-            listOf("t1:user", "t1:assistant", "local", "local:assistant"),
+            listOf(
+                "t1:user", "t1:assistant", "stale:user", "stale:assistant",
+                "local", "local:assistant",
+            ),
             state.messages.map { it.id },
         )
         assertEquals(CliMessageStatus.STREAMING, state.messages.last().status)
+    }
+
+    @Test
+    fun `initial history preserves a locally completed turn created while loading`() {
+        val completed = CliUiState.initial("local")
+            .reduce(CliEvent.HistoryLoading)
+            .reduce(CliEvent.Submitted(text = "local question", id = "local-turn"))
+            .reduce(CliEvent.RequestAccepted("local-turn"))
+            .reduce(CliEvent.ResponseDelta("local partial"))
+            .reduce(CliEvent.RequestCompleted("local response"))
+        val localUser = completed.messages[0]
+        val localAssistant = completed.messages[1]
+
+        val hydrated = completed.reduce(
+            CliEvent.HistoryLoaded(
+                historyPage(turn("local-turn"), before = null, hasMore = false),
+                initial = true,
+            ),
+        )
+
+        assertEquals(
+            listOf("local-turn:user", "local-turn:assistant", "local-turn"),
+            hydrated.messages.map { it.id },
+        )
+        assertEquals(hydrated.messages.size, hydrated.messages.map { it.id }.distinct().size)
+        assertSame(localAssistant, hydrated.messages[1])
+        assertSame(localUser, hydrated.messages[2])
+        assertEquals("local response", hydrated.messages[1].markdown)
+        assertFalse(hydrated.requestActive)
     }
 
     @Test
@@ -204,17 +236,25 @@ class CliReducerTest {
 
     @Test
     fun `clear visible history preserves session mode and diagnostics visibility`() {
-        val state = CliUiState.initial("local")
+        val beforeClear = CliUiState.initial("local")
             .reduce(CliEvent.Submitted(text = "hello", id = "turn-1"))
             .reduce(CliEvent.ModeSelected(CliMode.FULL_SCREEN))
             .reduce(CliEvent.DiagnosticsVisibilityChanged(true))
-            .reduce(CliEvent.ClearVisibleHistory)
+            .copy(
+                historyBefore = "older-cursor",
+                historyLoading = true,
+                historyExhausted = true,
+            )
+        val state = beforeClear.reduce(CliEvent.ClearVisibleHistory)
 
         assertTrue(state.messages.isEmpty())
         assertEquals("Visible conversation cleared", state.notice)
         assertEquals("CLI:local", state.sessionId)
         assertEquals(CliMode.FULL_SCREEN, state.mode)
         assertTrue(state.diagnosticsVisible)
+        assertEquals(beforeClear.historyBefore, state.historyBefore)
+        assertEquals(beforeClear.historyLoading, state.historyLoading)
+        assertEquals(beforeClear.historyExhausted, state.historyExhausted)
     }
 
     @Test
