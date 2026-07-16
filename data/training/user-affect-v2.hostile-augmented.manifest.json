@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "base": "data\\training\\user-affect-v2.final.unique.jsonl",
+  "augmentation": "data\\training\\user-affect-v2.hostile-augmentation.jsonl",
+  "output": "data\\training\\user-affect-v2.hostile-augmented.jsonl",
+  "sampleCount": 9216,
+  "skippedDuplicateTexts": 0
+}
