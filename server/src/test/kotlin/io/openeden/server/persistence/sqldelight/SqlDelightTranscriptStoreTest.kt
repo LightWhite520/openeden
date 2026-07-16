@@ -10,7 +10,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
+import org.junit.Assume
+import java.nio.file.FileSystemException
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -52,6 +55,26 @@ class SqlDelightTranscriptStoreTest {
             stores.forEach { it.close() }
         }
 
+        assertVersionFourDataMigrated()
+    }
+
+    @Test
+    fun `concurrent version four opens through file symlink share initialization`() = runTest {
+        createVersionFourDatabase()
+        val aliasPath = tempDir.resolve("openeden-alias.db")
+        createSymbolicLinkOrSkip(aliasPath, dbPath)
+
+        val stores = concurrentOpen(listOf(dbPath, aliasPath))
+        try {
+            assertEquals(1, stores.map { it.activeIncarnation() }.distinct().size)
+        } finally {
+            stores.forEach { it.close() }
+        }
+
+        assertVersionFourDataMigrated()
+    }
+
+    private fun assertVersionFourDataMigrated() {
         JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
             val migrated = driver.executeQuery(
                 null,
@@ -191,10 +214,22 @@ class SqlDelightTranscriptStoreTest {
         }
     }
 
-    private suspend fun concurrentOpen(): List<SqlDelightTranscriptStore> = coroutineScope {
-        List(2) {
-            async(Dispatchers.IO) { SqlDelightTranscriptStore.open(dbPath) }
+    private suspend fun concurrentOpen(
+        paths: List<Path> = listOf(dbPath, dbPath),
+    ): List<SqlDelightTranscriptStore> = coroutineScope {
+        paths.map { path ->
+            async(Dispatchers.IO) { SqlDelightTranscriptStore.open(path) }
         }.awaitAll()
+    }
+
+    private fun createSymbolicLinkOrSkip(aliasPath: Path, targetPath: Path) {
+        try {
+            Files.createSymbolicLink(aliasPath, targetPath.toAbsolutePath())
+        } catch (error: UnsupportedOperationException) {
+            Assume.assumeNoException("Symbolic links are not supported", error)
+        } catch (error: FileSystemException) {
+            Assume.assumeNoException("Symbolic links are not permitted", error)
+        }
     }
 
     private fun createVersionFourDatabase() {

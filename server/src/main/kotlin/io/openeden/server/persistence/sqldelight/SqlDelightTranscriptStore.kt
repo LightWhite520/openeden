@@ -133,7 +133,11 @@ class SqlDelightTranscriptStore private constructor(
             val absolute = toAbsolutePath().normalize()
             val parent = absolute.parent ?: return absolute
             Files.createDirectories(parent)
-            return parent.toRealPath().resolve(absolute.fileName)
+            return if (Files.exists(absolute)) {
+                absolute.toRealPath()
+            } else {
+                parent.toRealPath().resolve(absolute.fileName)
+            }
         }
 
         private fun mapTurn(
