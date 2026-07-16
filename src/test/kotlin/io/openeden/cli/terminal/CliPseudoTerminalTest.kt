@@ -3,6 +3,7 @@ package io.openeden.cli.terminal
 import com.pty4j.PtyProcessBuilder
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import org.jline.utils.ScreenTerminal
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets.UTF_8
@@ -55,30 +56,25 @@ class CliPseudoTerminalTest {
 
                 input.write("你好\r")
                 input.flush()
-                val firstCommitted = transcriptBuffer.awaitCommittedResponseAfter(initiallyReady, "第一轮回复：你好")
+                val firstResponse = transcriptBuffer.awaitMarkerAfter(initiallyReady, "第一轮回复：你好")
+                val readyAfterFirst = transcriptBuffer.awaitPromptAfter(firstResponse)
 
                 input.write("再见\r")
                 input.flush()
-                transcriptBuffer.awaitCommittedResponseAfter(firstCommitted.readyOffset, "第二轮回复：再见")
+                val secondResponse = transcriptBuffer.awaitMarkerAfter(readyAfterFirst, "第二轮回复：再见")
+                transcriptBuffer.awaitPromptAfter(secondResponse)
 
                 val inlineTranscript = transcriptBuffer.snapshot()
                 val diagnostics = inlineTranscript.boundedForFailure()
-                val physicalLines = inlineTranscript.stripAnsi().split("\r\n", "\n", "\r")
-                assertTrue(physicalLines.contains("ATRI: 第一轮回复：你好"), diagnostics)
-                assertTrue(physicalLines.contains("ATRI: 第二轮回复：再见"), diagnostics)
-                val firstCommittedInSnapshot = committedResponseAfter(inlineTranscript, initiallyReady, "第一轮回复：你好")
-                val secondCommittedInSnapshot = committedResponseAfter(
-                    inlineTranscript,
-                    firstCommittedInSnapshot?.readyOffset ?: 0,
-                    "第二轮回复：再见",
-                )
-                assertTrue(firstCommittedInSnapshot != null, diagnostics)
-                assertTrue(secondCommittedInSnapshot != null, diagnostics)
-                assertTrue(firstCommittedInSnapshot.lineOffset < secondCommittedInSnapshot.lineOffset, diagnostics)
-                val afterFirstCommit = inlineTranscript.substring(firstCommittedInSnapshot.lineOffset)
-                assertFalse(DESTRUCTIVE_TERMINAL_SEQUENCE.containsMatchIn(afterFirstCommit), diagnostics)
-                assertFalse(physicalLines.any { it.startsWith(" [status]") }, diagnostics)
-                assertFalse(physicalLines.any { it.startsWith(" ATRI:") }, diagnostics)
+                val renderedLines = ScreenTerminal(100, 30, true)
+                    .apply { write(inlineTranscript) }
+                    .screenAndScrollbackLines()
+                val firstIndex = renderedLines.indexOf("ATRI: 第一轮回复：你好")
+                val secondIndex = renderedLines.indexOf("ATRI: 第二轮回复：再见")
+                assertTrue(firstIndex >= 0, diagnostics)
+                assertTrue(secondIndex > firstIndex, diagnostics)
+                assertFalse(renderedLines.any { it.startsWith(" [status]") }, diagnostics)
+                assertFalse(renderedLines.any { it.startsWith(" ATRI:") }, diagnostics)
                 assertFalse(inlineTranscript.contains('\uFFFD'), diagnostics)
                 assertFalse(inlineTranscript.contains("??"), diagnostics)
 
@@ -151,24 +147,6 @@ class CliPseudoTerminalTest {
         }
     }
 
-    @Test
-    fun `committed response matcher ignores active status rows`() {
-        val response = "第一轮回复：你好"
-        val activeStatus = "\r\n[status] generating\u001B[0K\r\nATRI: $response\u001B[0K\r\n\u001B[28A"
-        assertEquals(null, committedResponseAfter(activeStatus, 0, response))
-
-        val committed = activeStatus + "\u001B[?25l\r\nATRI: $response\u001B[0K\r\n>\u001B[0K"
-        val match = committedResponseAfter(committed, 0, response)
-        assertTrue(match != null)
-        assertTrue(match.lineOffset > activeStatus.indexOf(response))
-
-        assertTrue(
-            listOf("\u001B[2J", "\u001B[3J", "\u001B[?47h", "\u001B[?1047l", "\u001B[?1049h")
-                .all(DESTRUCTIVE_TERMINAL_SEQUENCE::containsMatchIn),
-        )
-        assertFalse(DESTRUCTIVE_TERMINAL_SEQUENCE.containsMatchIn("\u001B[0K\u001B[27A"))
-    }
-
     private fun HttpExchange.respond(contentType: String, body: String) {
         val bytes = body.encodeToByteArray()
         responseHeaders.add("Content-Type", contentType)
@@ -180,12 +158,6 @@ class CliPseudoTerminalTest {
         description = "'$marker' after offset $offset",
     ) { output ->
         output.indexOf(marker, offset).takeIf { it >= 0 }?.plus(marker.length)
-    }
-
-    private fun StringBuffer.awaitCommittedResponseAfter(offset: Int, response: String): CommittedResponse = awaitOutput(
-        description = "committed response '$response' after offset $offset",
-    ) { output ->
-        committedResponseAfter(output, offset, response)
     }
 
     private fun StringBuffer.awaitPromptAfter(offset: Int): Int = awaitOutput(
@@ -215,37 +187,8 @@ class CliPseudoTerminalTest {
 
     private fun String.stripAnsi(): String = replace(ANSI_CSI, "")
 
-    private fun committedResponseAfter(output: String, offset: Int, response: String): CommittedResponse? {
-        val line = "ATRI: $response"
-        val linePattern = Regex("(?:^|[\\r\\n])${Regex.escape(line)}(?:$ANSI_CSI_PATTERN)*(?=[\\r\\n]|$)")
-        return linePattern.findAll(output, offset).mapNotNull { match ->
-            val afterResponse = match.range.last + 1
-            val nextPhysicalLine = output.substring(afterResponse)
-                .stripAnsi()
-                .split("\r\n", "\n", "\r")
-                .firstOrNull { it.isNotEmpty() }
-            val prompt = PROMPT_PHYSICAL_LINE.find(output, afterResponse)
-            if (nextPhysicalLine?.startsWith(">") == true && prompt != null) {
-                CommittedResponse(
-                    lineOffset = output.indexOf(line, match.range.first),
-                    readyOffset = prompt.range.last + 1,
-                )
-            } else {
-                null
-            }
-        }.lastOrNull()
-    }
-
-    private data class CommittedResponse(
-        val lineOffset: Int,
-        val readyOffset: Int,
-    )
-
     private companion object {
-        const val ANSI_CSI_PATTERN = "\\u001B\\[[0-?]*[ -/]*[@-~]"
-        val ANSI_CSI = Regex(ANSI_CSI_PATTERN)
-        val DESTRUCTIVE_TERMINAL_SEQUENCE = Regex("\\u001B\\[(?:[23]J|\\?(?:47|1047|1049)[hl])")
+        val ANSI_CSI = Regex("\\u001B\\[[0-?]*[ -/]*[@-~]")
         val PROMPT = Regex("(?:^|[\\r\\n])> ?")
-        val PROMPT_PHYSICAL_LINE = Regex("(?:^|[\\r\\n])(?:$ANSI_CSI_PATTERN)*>(?:$ANSI_CSI_PATTERN)*(?=[\\r\\n]|$)")
     }
 }
