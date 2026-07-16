@@ -1,7 +1,10 @@
 package io.openeden.cli.terminal
 
 sealed interface CliTerminalEvent {
-    data class Submit(val text: String) : CliTerminalEvent
+    data class Submit(
+        val text: String,
+        val inlineTerminalCommitted: Boolean = false,
+    ) : CliTerminalEvent
 
     data object Cancel : CliTerminalEvent
 

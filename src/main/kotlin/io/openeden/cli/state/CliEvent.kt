@@ -3,7 +3,11 @@ package io.openeden.cli.state
 import io.openeden.client.ConversationHistoryPage
 
 sealed interface CliEvent {
-    data class Submitted(val text: String, val id: String) : CliEvent
+    data class Submitted(
+        val text: String,
+        val id: String,
+        val inlineTerminalCommitted: Boolean = false,
+    ) : CliEvent
 
     data class RequestAccepted(val requestId: String) : CliEvent
 

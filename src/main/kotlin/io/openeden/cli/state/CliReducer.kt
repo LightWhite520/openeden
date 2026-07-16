@@ -10,6 +10,7 @@ fun CliUiState.reduce(event: CliEvent): CliUiState = when (event) {
                 role = CliRole.USER,
                 markdown = event.text,
                 status = CliMessageStatus.COMPLETE,
+                inlineTerminalCommitted = event.inlineTerminalCommitted,
             ),
             CliMessage(
                 id = "${event.id}:assistant",
