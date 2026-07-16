@@ -45,3 +45,11 @@ History loaded from the server has no terminal ownership marker, so both restore
 - Restarted history includes both user and assistant turns.
 - Switching between inline and full-screen does not lose or duplicate user messages.
 - Unicode editing, terminal encoding, and redirected UTF-8 behavior remain unchanged.
+
+## Active Status Width
+
+JLine `Status` pads every active row to its configured display width. When that width equals the physical Windows ConPTY width, writing the final column enters delayed-wrap state; the first character of the following row can be consumed while the cursor model catches up. This is visible as `TRI:` instead of `ATRI:` only in the temporary multi-line active region.
+
+The CLI keeps JLine as the unified terminal engine and configures the active `Status` display with one fewer column than the physical terminal whenever at least two columns are available. The unused final column prevents delayed wrap without changing message content, completed scrollback, editor ownership, or full-screen rendering. A one-column terminal retains its physical width rather than producing an invalid zero-width display.
+
+The pseudo-terminal regression must hold the request in the generating state and verify that the emulated active rows contain `[status] generating` followed by a complete `ATRI:` prefix. Windows ConPTY coverage must continue to pass without code-page changes.
