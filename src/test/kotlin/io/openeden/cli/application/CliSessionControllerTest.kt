@@ -177,6 +177,63 @@ class CliSessionControllerTest {
     }
 
     @Test
+    fun `history older command launches one tracked request while active`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(
+                    ConversationHistoryPage(listOf(turn("t2")), "before-t2", true),
+                    ConversationHistoryPage(listOf(turn("t1")), null, false),
+                ),
+            ),
+        )
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
+        controller.initializeHistory()
+        api.historyGate = gate
+
+        controller.accept(CliTerminalEvent.Submit("/history older"))
+        controller.accept(CliTerminalEvent.Submit("/history older"))
+        testScheduler.runCurrent()
+
+        assertEquals(2, api.historyCalls.size)
+        assertTrue(controller.state.historyLoading)
+        val draining = async { controller.drain() }
+        testScheduler.runCurrent()
+        assertFalse(draining.isCompleted)
+        gate.complete(Unit)
+        draining.await()
+        assertTrue(controller.state.historyExhausted)
+    }
+
+    @Test
+    fun `history older command reports exhaustion without api call`() = runTest {
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(ConversationHistoryPage(listOf(turn("t1")), null, false)),
+            ),
+        )
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
+        controller.initializeHistory()
+
+        controller.accept(CliTerminalEvent.Submit("/history older"))
+        controller.drain()
+
+        assertEquals(listOf(HistoryCall(50, null)), api.historyCalls)
+        assertEquals("No older conversation history.", controller.state.notice)
+        assertFalse(controller.state.historyLoading)
+    }
+
+    @Test
+    fun `help includes compact older history command`() = runTest {
+        val controller = CliSessionController("local", RecordingHistoryApi(), CapturingRenderer(), scope = this)
+
+        controller.accept(CliTerminalEvent.Submit("/help"))
+
+        assertTrue(controller.state.notice.orEmpty().contains("/history older"))
+        assertTrue(controller.state.notice.orEmpty().lineSequence().count() <= 3)
+    }
+
+    @Test
     fun `older history returns before suspended api and drain tracks it`() = runTest {
         val gate = CompletableDeferred<Unit>()
         val api = RecordingHistoryApi(

@@ -38,6 +38,11 @@ class CliCommandParserTest {
     }
 
     @Test
+    fun `parse recognizes older history command`() {
+        assertEquals(CliCommand.HistoryOlder, parser.parse("/history older"))
+    }
+
+    @Test
     fun `parse preserves unknown command token including case`() {
         assertEquals(CliCommand.Unknown("/unknown"), parser.parse("/unknown value"))
         assertEquals(CliCommand.Unknown("/HELP"), parser.parse("/HELP"))
@@ -64,6 +69,15 @@ class CliCommandParserTest {
     }
 
     @Test
+    fun `history invalid usage has stable message`() {
+        listOf("/history", "/history newest", "/history older extra").forEach { input ->
+            val error = assertFailsWith<IllegalArgumentException> { parser.parse(input) }
+
+            assertEquals("Usage: /history older", error.message)
+        }
+    }
+
+    @Test
     fun `argumentless commands reject extra tokens consistently`() {
         mapOf(
             "/help topic" to "Usage: /help",
@@ -80,7 +94,7 @@ class CliCommandParserTest {
     @Test
     fun `root completion is stable and prefix filtered`() {
         assertEquals(
-            listOf("/help", "/state", "/mode", "/inspect", "/clear", "/exit"),
+            listOf("/help", "/state", "/history", "/mode", "/inspect", "/clear", "/exit"),
             parser.complete("/").map { it.value },
         )
         assertEquals(listOf("/mode"), parser.complete("/mo").map { it.value })
@@ -98,6 +112,15 @@ class CliCommandParserTest {
     fun `inspect completion is stable and prefix filtered`() {
         assertEquals(listOf("on", "off"), parser.complete("/inspect ").map { it.value })
         assertEquals(listOf("off"), parser.complete("/inspect of").map { it.value })
+    }
+
+    @Test
+    fun `history completion offers only older until complete`() {
+        assertEquals(listOf("older"), parser.complete("/history ").map { it.value })
+        val candidate = parser.complete("/history o").single()
+        assertEquals("older", candidate.value)
+        assertTrue(candidate.description.isNotBlank())
+        assertTrue(parser.complete("/history older").isEmpty())
     }
 
     @Test

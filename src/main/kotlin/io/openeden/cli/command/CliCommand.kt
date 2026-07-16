@@ -7,6 +7,8 @@ sealed interface CliCommand {
 
     data object State : CliCommand
 
+    data object HistoryOlder : CliCommand
+
     data class Mode(val mode: CliMode) : CliCommand
 
     data class Inspect(val visible: Boolean) : CliCommand

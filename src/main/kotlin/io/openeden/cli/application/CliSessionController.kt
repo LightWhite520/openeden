@@ -89,7 +89,7 @@ class CliSessionController(
         launchTrackedCommand { loadHistory(initial = true) }?.await()
     }
 
-    suspend fun loadOlderHistory() {
+    fun loadOlderHistory() {
         val current = state
         if (current.historyLoading || current.historyExhausted) return
         launchTrackedCommand { loadHistory(initial = false) }
@@ -170,6 +170,13 @@ class CliSessionController(
                         )
                     }
                     .onFailure { dispatch(CliEvent.Notice(it.message ?: "state unavailable")) }
+            }
+            CliCommand.HistoryOlder -> {
+                if (state.historyExhausted) {
+                    dispatch(CliEvent.Notice(NO_OLDER_HISTORY_MESSAGE))
+                } else {
+                    loadOlderHistory()
+                }
             }
             is CliCommand.Mode -> dispatch(CliEvent.ModeSelected(command.mode))
             is CliCommand.Inspect -> setDiagnostics(command.visible)
@@ -272,9 +279,10 @@ class CliSessionController(
     )
 
     private companion object {
-        const val HELP_TEXT = "/state  /help  /exit\n/mode inline|full  /inspect on|off  /clear"
+        const val HELP_TEXT = "/state  /history older  /help  /exit\n/mode inline|full  /inspect on|off  /clear"
         const val RENDER_INTERVAL_NANOS = 33_000_000L
         const val HISTORY_PAGE_SIZE = 50
         const val HISTORY_UNAVAILABLE_MESSAGE = "Conversation history unavailable."
+        const val NO_OLDER_HISTORY_MESSAGE = "No older conversation history."
     }
 }

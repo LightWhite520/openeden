@@ -12,6 +12,7 @@ class CliCommandParser {
         return when (name) {
             "/help" -> withoutArguments(tokens, name, CliCommand.Help)
             "/state" -> withoutArguments(tokens, name, CliCommand.State)
+            "/history" -> parseHistory(tokens)
             "/clear" -> withoutArguments(tokens, name, CliCommand.Clear)
             "/exit" -> withoutArguments(tokens, name, CliCommand.Exit)
             "/mode" -> parseMode(tokens)
@@ -57,6 +58,11 @@ class CliCommandParser {
         return CliCommand.Inspect(visible)
     }
 
+    private fun parseHistory(tokens: List<String>): CliCommand {
+        require(tokens.size == 2 && tokens[1] == "older") { HISTORY_USAGE }
+        return CliCommand.HistoryOlder
+    }
+
     private fun withoutArguments(
         tokens: List<String>,
         name: String,
@@ -84,10 +90,12 @@ class CliCommandParser {
     private companion object {
         const val MODE_USAGE = "Usage: /mode inline|full"
         const val INSPECT_USAGE = "Usage: /inspect on|off"
+        const val HISTORY_USAGE = "Usage: /history older"
 
         val ROOT_CANDIDATES = listOf(
             CommandCandidate("/help", "Show available commands"),
             CommandCandidate("/state", "Show the current session state"),
+            CommandCandidate("/history", "Browse conversation history"),
             CommandCandidate("/mode", "Select the terminal display mode"),
             CommandCandidate("/inspect", "Show or hide diagnostics"),
             CommandCandidate("/clear", "Clear visible conversation history"),
@@ -102,6 +110,9 @@ class CliCommandParser {
             "/inspect" to listOf(
                 CommandCandidate("on", "Show diagnostics"),
                 CommandCandidate("off", "Hide diagnostics"),
+            ),
+            "/history" to listOf(
+                CommandCandidate("older", "Load older conversation history"),
             ),
         )
     }

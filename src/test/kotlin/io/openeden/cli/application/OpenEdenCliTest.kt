@@ -75,7 +75,7 @@ class OpenEdenCliTest {
 
         assertEquals(0, cli.run(emptyList()))
         assertEquals(1, client.stateCalls)
-        assertTrue(output.toString().contains("/state  /help  /exit"))
+        assertTrue(output.toString().contains("/state  /history older  /help  /exit"))
         assertTrue(output.toString().contains("sessionId=CLI:local"))
     }
 
