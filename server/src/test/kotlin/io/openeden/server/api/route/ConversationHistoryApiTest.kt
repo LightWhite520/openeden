@@ -75,6 +75,13 @@ class ConversationHistoryApiTest {
         val crossIncarnation = HistoryCursorCodec.encode(
             HistoryCursor("old-incarnation", completedAtMs = 2L, turnId = "turn-2"),
         )
+        val canonical = HistoryCursorCodec.encode(
+            HistoryCursor("active-incarnation", completedAtMs = 2L, turnId = "turn-2"),
+        )
+        val padded = java.util.Base64.getUrlEncoder().encodeToString(
+            java.util.Base64.getUrlDecoder().decode(canonical),
+        )
+        assertTrue(padded.endsWith('='))
 
         testApplication {
             application {
@@ -85,7 +92,7 @@ class ConversationHistoryApiTest {
                 configureRouting()
             }
 
-            listOf("not-base64!", crossIncarnation).forEach { cursor ->
+            listOf("not-base64!", padded, crossIncarnation).forEach { cursor ->
                 val response = client.get("/api/v1/history?before=$cursor")
                 assertEquals(HttpStatusCode.BadRequest, response.status)
                 assertEquals("Invalid history cursor", response.bodyAsText())
@@ -145,11 +152,20 @@ class ConversationHistoryApiTest {
     fun `cursor codec is stable and rejects invalid payloads`() {
         val cursor = HistoryCursor("incarnation-a", completedAtMs = 42L, turnId = "turn-42")
         val encoded = HistoryCursorCodec.encode(cursor)
+        val padded = java.util.Base64.getUrlEncoder().encodeToString(
+            java.util.Base64.getUrlDecoder().decode(encoded),
+        )
+        assertTrue(padded.endsWith('='))
 
         assertEquals(encoded, HistoryCursorCodec.encode(cursor))
         assertFalse(encoded.contains('='))
         assertEquals(cursor, HistoryCursorCodec.decode(encoded))
         listOf(
+            "",
+            "=",
+            padded,
+            nonCanonicalPadBits(encoded),
+            "游标",
             "%%%",
             java.util.Base64.getUrlEncoder().withoutPadding().encodeToString("{}".toByteArray()),
             java.util.Base64.getUrlEncoder().withoutPadding()
@@ -240,5 +256,18 @@ class ConversationHistoryApiTest {
             assertFalse(body.contains(privateField, ignoreCase = true), privateField)
         }
         assertTrue(body.contains("completedAtMs"))
+    }
+
+    private fun nonCanonicalPadBits(canonical: String): String {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        val remainder = canonical.length % 4
+        require(remainder == 2 || remainder == 3)
+        val lastIndex = alphabet.indexOf(canonical.last())
+        val alternative = when (remainder) {
+            2 -> (lastIndex and 0b110000) or ((lastIndex + 1) and 0b001111)
+            else -> (lastIndex and 0b111100) or ((lastIndex + 1) and 0b000011)
+        }
+        require(alternative != lastIndex)
+        return canonical.dropLast(1) + alphabet[alternative]
     }
 }

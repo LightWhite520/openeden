@@ -25,9 +25,12 @@ object HistoryCursorCodec {
     }
 
     fun decode(value: String): HistoryCursor = try {
+        require(value.isNotEmpty() && value.indexOf('=') < 0 && value.all(::isBase64UrlCharacter))
+        val decoded = decoder.decode(value)
+        require(encoder.encodeToString(decoded) == value)
         val payload = json.decodeFromString(
             CursorPayload.serializer(),
-            String(decoder.decode(value), StandardCharsets.UTF_8),
+            String(decoded, StandardCharsets.UTF_8),
         )
         require(payload.incarnationId.isNotBlank() && payload.turnId.isNotBlank())
         HistoryCursor(
@@ -40,6 +43,13 @@ object HistoryCursorCodec {
             it.initCause(failure)
         }
     }
+
+    private fun isBase64UrlCharacter(character: Char): Boolean =
+        character in 'A'..'Z' ||
+            character in 'a'..'z' ||
+            character in '0'..'9' ||
+            character == '-' ||
+            character == '_'
 
     @Serializable
     private data class CursorPayload(

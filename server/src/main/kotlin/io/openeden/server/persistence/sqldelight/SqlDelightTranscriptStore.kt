@@ -87,7 +87,7 @@ class SqlDelightTranscriptStore private constructor(
         )
     }
 
-    suspend fun close() = withContext(ioDispatcher) {
+    fun close() {
         driver.close()
     }
 

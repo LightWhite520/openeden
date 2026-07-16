@@ -54,10 +54,12 @@ import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -76,11 +78,13 @@ suspend fun Application.configureRuntime() {
     try {
         startRuntime(startupClosers)
     } catch (failure: Throwable) {
-        startupClosers.forEach { close ->
-            try {
-                close()
-            } catch (cleanupFailure: Throwable) {
-                failure.addSuppressed(cleanupFailure)
+        withContext(NonCancellable) {
+            startupClosers.forEach { close ->
+                try {
+                    close()
+                } catch (cleanupFailure: Throwable) {
+                    failure.addSuppressed(cleanupFailure)
+                }
             }
         }
         throw failure
@@ -146,8 +150,10 @@ private suspend fun Application.startRuntime(
     attributes.put(TranscriptStoreKey, transcriptStore)
     attributes.put(DiagnosticsAccessKey, serverConfig.diagnosticsAccess)
 
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    startupClosers.addFirst { scope.cancel() }
+    val applicationContext = this.coroutineContext
+    val runtimeJob = SupervisorJob(requireNotNull(applicationContext[Job]))
+    val scope = CoroutineScope(applicationContext + runtimeJob + Dispatchers.IO)
+    startupClosers.addFirst { runtimeJob.cancelAndJoin() }
     val diaryWorker = DurableDiaryWorker(
         taskStore = diaryTaskStore,
         memoryStore = memoryStore,
@@ -160,13 +166,13 @@ private suspend fun Application.startRuntime(
             }, models.quantizer, inferenceExecutor, llmClient, models.embeddingModel, serverConfig.diaryMaxRawMemories,
         )::generate),
     )
-    val diaryJob = DiaryWorkerScheduler(
+    DiaryWorkerScheduler(
         taskStore = diaryTaskStore,
         worker = diaryWorker,
         sessionIds = { store.sessionIds() },
         nowMs = { System.currentTimeMillis() },
     ).start(scope)
-    val elapsedJob = scope.launch {
+    scope.launch {
         while (true) {
             diaryCoordinator.flushElapsedSessions(System.currentTimeMillis())
             kotlinx.coroutines.delay(serverConfig.diaryScanIntervalMs)
@@ -180,8 +186,8 @@ private suspend fun Application.startRuntime(
         interval = SecureRandomHeartbeatInterval(),
         routeResolver = OwnerHeartbeatRouteResolver(runtimeConfig.owner),
     )
-    val job = scheduler.start(scope)
-    val tickJob = RuntimeTickScheduler(
+    scheduler.start(scope)
+    RuntimeTickScheduler(
         store = store,
         writer = writer,
         fluctuation = SineWaveFluctuationEngine(SecureRandomSineWaveFluctuation.profile()),
@@ -190,21 +196,29 @@ private suspend fun Application.startRuntime(
     ).start(scope)
     log.info("OpenEden heartbeat scheduler started")
 
+    val shutdown = RuntimeShutdownCoordinator(
+        runtimeJob = runtimeJob,
+        closers = listOf(
+            { transcriptStore.close() },
+            { store.close() },
+            { memoryStore.close(); Unit },
+            { diaryTaskStore.close() },
+            { traceStore.close() },
+            { relationshipStore.close() },
+            { llmClient.close() },
+            { models.close() },
+        ),
+    )
     monitor.subscribe(ApplicationStopping) {
-        job.cancel(); tickJob.cancel(); diaryJob.cancel(); elapsedJob.cancel()
-        scope.launch {
-            joinAll(job, tickJob, diaryJob, elapsedJob)
-            transcriptStore.close()
-            store.close()
-            memoryStore.close()
-            diaryTaskStore.close()
-            traceStore.close()
-            relationshipStore.close()
-            llmClient.close()
-            models.close()
-            scope.cancel()
-            log.info("OpenEden runtime stopped")
+        shutdown.stopping()
+    }
+    // Ktor raises ApplicationStopped only after disposeAndJoin has waited for Application children.
+    // These synchronous closes release already-quiesced resources; they perform no query or inference.
+    monitor.subscribe(ApplicationStopped) {
+        shutdown.stopped()?.let { failure ->
+            log.error("One or more OpenEden runtime resources failed to close", failure)
         }
+        log.info("OpenEden runtime stopped")
     }
     startupClosers.clear()
 }
@@ -222,7 +236,12 @@ private data class RuntimeModels(
     val embeddingModel: MemoryEmbeddingModel,
     val userAffectAnalyzer: UserAffectAnalyzer,
     val closers: List<AutoCloseable> = emptyList(),
-) : AutoCloseable { override fun close() = closers.asReversed().forEach { runCatching { it.close() } } }
+) : AutoCloseable {
+    override fun close() {
+        closeBestEffort(closers.asReversed().map { closeable -> closeable::close })
+            ?.let { throw it }
+    }
+}
 
 private fun loadRuntimeModels(config: ServerRuntimeConfig): RuntimeModels {
     val artifact = requireNotNull(loadLocalArtifact(config)) {
