@@ -63,6 +63,7 @@ class CliPseudoTerminalTest {
                 }
                 assertTrue(active.lines.contains("ATRI:"), active.raw.boundedForFailure())
                 gates.releaseFirstDelta.countDown()
+                assertTrue(gates.firstDeltaSent.await(10, TimeUnit.SECONDS), "Server did not send first delta")
                 val firstDelta = transcriptBuffer.awaitScreenState("first same-height delta") { lines ->
                     lines.contains("ATRI: 第一轮")
                 }
@@ -70,6 +71,7 @@ class CliPseudoTerminalTest {
                 assertTrue(submittedRow >= 0, firstDelta.raw.boundedForFailure())
 
                 gates.releaseSecondDelta.countDown()
+                assertTrue(gates.secondDeltaSent.await(10, TimeUnit.SECONDS), "Server did not send second delta")
                 val secondDelta = transcriptBuffer.awaitScreenState("second same-height delta") { lines ->
                     lines.contains("ATRI: 第一轮回复：你好")
                 }
@@ -167,8 +169,10 @@ class CliPseudoTerminalTest {
                     if (requestNumber == 1) {
                         gates.releaseFirstDelta.await(10, TimeUnit.SECONDS)
                         body.writeEvent("response.delta", """{"text":"第一轮"}""")
+                        gates.firstDeltaSent.countDown()
                         gates.releaseSecondDelta.await(10, TimeUnit.SECONDS)
                         body.writeEvent("response.delta", """{"text":"回复：你好"}""")
+                        gates.secondDeltaSent.countDown()
                         gates.releaseCompletion.await(10, TimeUnit.SECONDS)
                     } else {
                         body.writeEvent("response.delta", """{"text":"$response"}""")
@@ -260,7 +264,9 @@ class CliPseudoTerminalTest {
 
     private data class StreamingGates(
         val releaseFirstDelta: CountDownLatch = CountDownLatch(1),
+        val firstDeltaSent: CountDownLatch = CountDownLatch(1),
         val releaseSecondDelta: CountDownLatch = CountDownLatch(1),
+        val secondDeltaSent: CountDownLatch = CountDownLatch(1),
         val releaseCompletion: CountDownLatch = CountDownLatch(1),
     )
 
