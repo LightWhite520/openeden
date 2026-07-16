@@ -111,7 +111,6 @@ class JLineTerminalSession private constructor(
         displayState = DisplayState.ENTERING
         try {
             lifecycleOperations.enterAlternateScreen()
-            lifecycleOperations.hideCursor()
             lifecycleOperations.flush()
             displayState = DisplayState.FULLSCREEN
         } catch (error: Throwable) {
@@ -135,6 +134,10 @@ class JLineTerminalSession private constructor(
 
     override fun replaceInlineActivity(lines: List<String>) {
         openEdenLineReader.replaceInlineActivity(lines)
+    }
+
+    override fun replaceFullScreenFrame(rows: List<String>, inputRow: Int) {
+        openEdenLineReader.replaceFullScreenFrame(rows, inputRow)
     }
 
     override fun close() = synchronized(lifecycleLock) {
@@ -189,10 +192,12 @@ class JLineTerminalSession private constructor(
             }
         }
 
-        attempt(lifecycleOperations::showCursor)
         attempt(lifecycleOperations::exitAlternateScreen)
         attempt(lifecycleOperations::flush)
-        if (failure == null) displayState = DisplayState.INLINE
+        if (failure == null) {
+            openEdenLineReader.clearFullScreenFrame()
+            displayState = DisplayState.INLINE
+        }
         return failure
     }
 
@@ -407,10 +412,6 @@ private class RealTerminalLifecycleOperations(
     }
 
     override fun enterAlternateScreen() = putRequired(Capability.enter_ca_mode)
-
-    override fun hideCursor() = putRequired(Capability.cursor_invisible)
-
-    override fun showCursor() = putRequired(TerminalFullScreenCapabilities.cursorRestore)
 
     override fun exitAlternateScreen() = putRequired(Capability.exit_ca_mode)
 

@@ -17,4 +17,6 @@ interface TerminalSession : AutoCloseable {
     fun redisplay()
 
     fun replaceInlineActivity(lines: List<String>)
+
+    fun replaceFullScreenFrame(rows: List<String>, inputRow: Int)
 }

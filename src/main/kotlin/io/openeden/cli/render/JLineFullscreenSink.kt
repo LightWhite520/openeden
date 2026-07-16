@@ -1,7 +1,6 @@
 package io.openeden.cli.render
 
 import io.openeden.cli.terminal.TerminalSession
-import org.jline.utils.InfoCmp.Capability
 
 class JLineFullscreenSink(
     private val session: TerminalSession,
@@ -16,16 +15,9 @@ class JLineFullscreenSink(
         return entered
     }
 
-    override fun write(changes: List<RowChange>) {
+    override fun write(rows: List<String>, inputRow: Int) {
         if (!entered) return
-        val terminal = session.terminal
-        val writer = terminal.writer()
-        changes.forEach { change ->
-            terminal.puts(Capability.cursor_address, change.index, 0)
-            terminal.puts(Capability.clr_eol)
-            writer.print(change.text)
-        }
-        terminal.flush()
+        session.replaceFullScreenFrame(rows, inputRow)
     }
 
     override fun close() {

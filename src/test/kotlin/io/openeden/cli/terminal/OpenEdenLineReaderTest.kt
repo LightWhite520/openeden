@@ -6,6 +6,7 @@ import org.jline.utils.AttributedString
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.function.Supplier
+import kotlin.collections.ArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -39,6 +40,40 @@ class OpenEdenLineReaderTest {
         }
     }
 
+    @Test
+    fun `full screen frame contains the editable buffer on its input row`() {
+        terminal().use { terminal ->
+            val reader = InspectableOpenEdenLineReader(terminal)
+            reader.setPrompt("> ")
+            reader.buffer.write("你好")
+
+            reader.replaceFullScreenFrame(
+                rows = listOf("OpenEden", "conversation", "> ", "editor: active=false"),
+                inputRow = 2,
+            )
+
+            assertEquals("OpenEden\nconversation\n> 你好\neditor: active=false", reader.displayedBuffer())
+        }
+    }
+
+    @Test
+    fun `leaving full screen restores the ordinary prompt and inline activity`() {
+        terminal().use { terminal ->
+            val reader = InspectableOpenEdenLineReader(terminal)
+            reader.setPrompt("> ")
+            reader.replaceInlineActivity(listOf("[status] ready"))
+            reader.replaceFullScreenFrame(
+                rows = listOf("OpenEden", "> ", "editor: active=false"),
+                inputRow = 1,
+            )
+
+            reader.clearFullScreenFrame()
+
+            assertEquals("> ", reader.visiblePrompt())
+            assertEquals("[status] ready", reader.visiblePost())
+        }
+    }
+
     private fun terminal() = TerminalBuilder.builder()
         .system(false)
         .streams(ByteArrayInputStream(byteArrayOf()), ByteArrayOutputStream())
@@ -47,6 +82,10 @@ class OpenEdenLineReaderTest {
 
     private class InspectableOpenEdenLineReader(terminal: Terminal) : OpenEdenLineReader(terminal) {
         fun visiblePost(): String? = post?.get()?.toString()
+
+        fun visiblePrompt(): String = prompt.toString()
+
+        fun displayedBuffer(): String = getDisplayedBufferWithPrompts(ArrayList()).toString()
 
         fun installJLinePost(value: String) {
             post = Supplier { AttributedString(value) }

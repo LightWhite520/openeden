@@ -21,6 +21,18 @@ class FullScreenCliRendererTest {
     }
     @Test fun `close is idempotent`() { val sink = FakeFullscreenSink(true); val renderer = FullScreenCliRenderer(sink); renderer.close(); renderer.close(); assertTrue(sink.closed) }
 
+    @Test
+    fun `empty conversation keeps input and editor at the bottom of the terminal`() {
+        val sink = FakeFullscreenSink(true)
+        val renderer = FullScreenCliRenderer(sink)
+
+        renderer.render(CliUiState.initial("local"), Size(100, 30))
+
+        assertEquals(29, sink.changes.maxOf { it.index })
+        assertEquals("> ", sink.rows[28])
+        assertEquals("editor: active=false", sink.rows[29])
+    }
+
     @Test fun `rich layout includes session editor and visible diagnostics`() {
         val sink = FakeFullscreenSink(true)
         val renderer = FullScreenCliRenderer(sink)
@@ -225,13 +237,10 @@ private class FakeFullscreenSink(val capable: Boolean) : FullscreenSink {
     val rows = mutableListOf<String>()
     override fun capabilitiesAvailable() = capable
     override fun enter() = capable
-    override fun write(changes: List<RowChange>) {
-        this.changes += changes
-        changes.forEach { change ->
-            while (rows.size <= change.index) rows += ""
-            rows[change.index] = change.text
-        }
-        while (rows.lastOrNull().isNullOrEmpty()) rows.removeLast()
+    override fun write(rows: List<String>, inputRow: Int) {
+        changes += FrameDiff.between(this.rows, rows)
+        this.rows.clear()
+        this.rows += rows
     }
     override fun close() { closed = true }
 }

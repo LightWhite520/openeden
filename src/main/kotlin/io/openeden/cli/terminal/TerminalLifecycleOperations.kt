@@ -5,10 +5,6 @@ internal interface TerminalLifecycleOperations {
 
     fun enterAlternateScreen()
 
-    fun hideCursor()
-
-    fun showCursor()
-
     fun exitAlternateScreen()
 
     fun flush()

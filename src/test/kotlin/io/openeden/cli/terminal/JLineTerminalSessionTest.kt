@@ -18,6 +18,7 @@ import org.jline.reader.EndOfFileException
 import org.jline.reader.LineReader
 import org.jline.reader.Reference
 import org.jline.reader.UserInterruptException
+import org.jline.reader.impl.LineReaderImpl
 import org.jline.terminal.Terminal
 import org.jline.terminal.TerminalBuilder
 import org.jline.terminal.impl.AbstractTerminal
@@ -467,22 +468,41 @@ class JLineTerminalSessionTest {
         supported.session.exitFullScreen()
         supported.session.exitFullScreen()
         assertEquals(
-            listOf("enter-alt", "hide-cursor", "flush", "show-cursor", "exit-alt", "flush"),
+            listOf("enter-alt", "flush", "exit-alt", "flush"),
             supported.operations.calls,
         )
         supported.session.close()
     }
 
     @Test
-    fun `full screen restores the normal cursor capability`() {
-        assertEquals(Capability.cursor_normal, TerminalFullScreenCapabilities.cursorRestore)
-        assertTrue(TerminalFullScreenCapabilities.required.contains(Capability.cursor_normal))
-        assertFalse(TerminalFullScreenCapabilities.required.contains(Capability.cursor_visible))
+    fun `full screen keeps the editing cursor visible`() {
+        assertEquals(
+            listOf(Capability.enter_ca_mode, Capability.exit_ca_mode),
+            TerminalFullScreenCapabilities.required,
+        )
+    }
+
+    @Test
+    fun `leaving full screen restores the ordinary line reader display`() {
+        val recording = recordingSession(richSupported = true, capabilities = true)
+        val reader = recording.session.lineReader as LineReaderImpl
+        reader.setPrompt("> ")
+        reader.buffer.write("你好")
+        assertTrue(recording.session.enterFullScreen())
+        recording.session.replaceFullScreenFrame(
+            listOf("OpenEden", "> ", "editor: active=false"),
+            inputRow = 1,
+        )
+
+        recording.session.exitFullScreen()
+
+        assertEquals("> 你好", reader.getDisplayedBufferWithPrompts(ArrayList()).toString())
+        recording.session.close()
     }
 
     @Test
     fun `every partial enter failure immediately performs best effort cleanup`() {
-        listOf("enter-alt", "hide-cursor", "flush").forEach { failingOperation ->
+        listOf("enter-alt", "flush").forEach { failingOperation ->
             val recording = recordingSession(
                 richSupported = true,
                 capabilities = true,
@@ -491,7 +511,6 @@ class JLineTerminalSessionTest {
 
             assertFailsWith<IllegalStateException> { recording.session.enterFullScreen() }
 
-            assertTrue(recording.operations.calls.contains("show-cursor"))
             assertTrue(recording.operations.calls.contains("exit-alt"))
             recording.session.close()
             assertEquals(1, recording.operations.calls.count { it == "restore" })
@@ -504,16 +523,15 @@ class JLineTerminalSessionTest {
         val recording = recordingSession(
             richSupported = true,
             capabilities = true,
-            failures = mutableMapOf("hide-cursor" to 1, "show-cursor" to 1),
+            failures = mutableMapOf("enter-alt" to 1, "exit-alt" to 1),
         )
 
         val error = assertFailsWith<IllegalStateException> { recording.session.enterFullScreen() }
         assertEquals(1, error.suppressed.size)
-        assertEquals(1, recording.operations.calls.count { it == "show-cursor" })
+        assertEquals(1, recording.operations.calls.count { it == "exit-alt" })
 
         recording.session.close()
 
-        assertEquals(2, recording.operations.calls.count { it == "show-cursor" })
         assertEquals(2, recording.operations.calls.count { it == "exit-alt" })
         assertEquals(1, recording.operations.calls.count { it == "restore" })
         assertEquals(1, recording.operations.calls.count { it == "close" })
@@ -531,7 +549,6 @@ class JLineTerminalSessionTest {
         assertFailsWith<IllegalStateException> { recording.session.exitFullScreen() }
         recording.session.exitFullScreen()
 
-        assertEquals(2, recording.operations.calls.count { it == "show-cursor" })
         assertEquals(2, recording.operations.calls.count { it == "exit-alt" })
         recording.session.close()
     }
@@ -591,9 +608,7 @@ class JLineTerminalSessionTest {
         assertEquals(
             listOf(
                 "enter-alt",
-                "hide-cursor",
                 "flush",
-                "show-cursor",
                 "exit-alt",
                 "flush",
                 "restore",
@@ -707,10 +722,6 @@ class JLineTerminalSessionTest {
         override fun hasFullScreenCapabilities(): Boolean = capabilities
 
         override fun enterAlternateScreen() = record("enter-alt")
-
-        override fun hideCursor() = record("hide-cursor")
-
-        override fun showCursor() = record("show-cursor")
 
         override fun exitAlternateScreen() = record("exit-alt")
 

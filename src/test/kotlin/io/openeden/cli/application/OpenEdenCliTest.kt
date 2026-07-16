@@ -330,6 +330,7 @@ class OpenEdenCliTest {
         override fun exitFullScreen() = Unit
         override fun redisplay() = Unit
         override fun replaceInlineActivity(lines: List<String>) = Unit
+        override fun replaceFullScreenFrame(rows: List<String>, inputRow: Int) = Unit
         override fun close() {
             closeCalls += 1
         }

@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
 
 class CliPseudoTerminalTest {
     @Test
-    fun `two inline chinese turns retain completed scrollback through pseudo terminal`() {
+    fun `inline scrollback and full screen chinese editing share jline cursor ownership`() {
         val gates = StreamingGates()
         val server = startServer(gates)
         val home = createTempDirectory("openeden-pty-home")
@@ -98,6 +98,30 @@ class CliPseudoTerminalTest {
                 assertFalse(renderedLines.any { it.startsWith(" ATRI:") }, diagnostics)
                 assertFalse(inlineTranscript.contains('\uFFFD'), diagnostics)
                 assertFalse(inlineTranscript.contains("??"), diagnostics)
+
+                input.write("/mode full\r")
+                input.flush()
+                transcriptBuffer.awaitScreenState("full screen frame") { lines ->
+                    val visible = lines.takeLast(30)
+                    visible.firstOrNull()?.startsWith("OpenEden") == true &&
+                        visible.lastOrNull() == "editor: active=false"
+                }
+
+                input.write("多字节输入")
+                input.flush()
+                val fullEditing = transcriptBuffer.awaitScreenState("full screen chinese input row") { lines ->
+                    val visible = lines.takeLast(30)
+                    visible.getOrNull(28) == "> 多字节输入"
+                }
+                assertEquals("> 多字节输入", fullEditing.visibleLines[28], fullEditing.raw.boundedForFailure())
+                assertEquals("editor: active=false", fullEditing.visibleLines[29], fullEditing.raw.boundedForFailure())
+
+                repeat("多字节输入".length) { input.write("\u007f") }
+                input.flush()
+                transcriptBuffer.awaitScreenState("empty full screen input after multibyte deletion") { lines ->
+                    val visible = lines.takeLast(30)
+                    visible.getOrNull(28) == ">"
+                }
 
                 input.write("/exit\r")
                 input.flush()

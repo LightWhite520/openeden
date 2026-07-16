@@ -8,7 +8,7 @@ import java.util.LinkedHashMap
 interface FullscreenSink {
     fun capabilitiesAvailable(): Boolean
     fun enter(): Boolean
-    fun write(changes: List<RowChange>)
+    fun write(rows: List<String>, inputRow: Int)
     fun close()
 }
 
@@ -34,7 +34,6 @@ class FullScreenCliRenderer internal constructor(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedMessageRows>): Boolean =
             size > MAX_CACHED_MESSAGES
     }
-    private var previousRows: List<String> = emptyList()
     private var previousHistoryLoading = false
     private var previousMessageCount = 0
     private var previousLastMessage: CliMessage? = null
@@ -92,8 +91,10 @@ class FullScreenCliRenderer internal constructor(
             )
         }
 
+        val viewportRows = List((viewportHeight - viewport.size).coerceAtLeast(0)) { "" } +
+            viewport.map { "│ ${it.text}" }
         val rows = listOf("OpenEden  ${current.sessionId}", "┌ $rail ┐") +
-            viewport.map { "│ ${it.text}" } +
+            viewportRows +
             diagnostics +
             listOf(
                 "─".repeat(size.columns.coerceAtMost(96)),
@@ -101,8 +102,7 @@ class FullScreenCliRenderer internal constructor(
                 "> ",
                 "editor: active=${current.requestActive}",
             )
-        sink.write(FrameDiff.between(previousRows, rows))
-        previousRows = rows
+        sink.write(rows, inputRow = rows.lastIndex - 1)
         previousHistoryLoading = current.historyLoading
         previousMessageCount = current.messages.size
         previousLastMessage = current.messages.lastOrNull()
@@ -255,7 +255,6 @@ class FullScreenCliRenderer internal constructor(
         if (entered) {
             sink.close()
             entered = false
-            previousRows = emptyList()
         }
         return RenderDecision.FallbackToInline(notice)
     }
