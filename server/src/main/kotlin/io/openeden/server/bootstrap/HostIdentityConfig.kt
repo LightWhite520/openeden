@@ -16,3 +16,16 @@ internal fun loadHostIdentity(config: ApplicationConfig): HostIdentity? {
     }
     return if (platform != null && userId != null) HostIdentity(platform, userId) else null
 }
+
+internal fun loadHostAddress(
+    config: ApplicationConfig,
+    hostIdentity: HostIdentity?,
+): String? {
+    val address = config.propertyOrNull("openeden.relationship.hostAddress")
+        ?.getString()
+        ?.takeIf { it.isNotBlank() }
+    require(address == null || hostIdentity != null) {
+        "Host address requires a complete host identity"
+    }
+    return address
+}

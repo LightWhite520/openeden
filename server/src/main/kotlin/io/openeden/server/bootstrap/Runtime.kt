@@ -151,7 +151,10 @@ private suspend fun Application.startRuntime(
         diaryTaskStore = diaryTaskStore,
         traceStore = traceStore,
         relationshipStore = relationshipStore,
-        relationshipRoleResolver = RelationshipRoleResolver(serverConfig.hostIdentity),
+        relationshipRoleResolver = RelationshipRoleResolver(
+            host = serverConfig.hostIdentity,
+            hostAddress = serverConfig.hostAddress,
+        ),
         userAffectAnalyzer = models.userAffectAnalyzer,
         diaryTriggerCoordinator = diaryCoordinator,
         transcriptStore = transcriptStore,
@@ -324,6 +327,7 @@ private data class ServerRuntimeConfig(
     val djlModelName: String,
     val heartbeatOwner: HeartbeatOwner?,
     val hostIdentity: HostIdentity?,
+    val hostAddress: String?,
     val diaryDeltaThreshold: Float,
     val diaryElapsedHours: Long,
     val diaryScanIntervalMs: Long,
@@ -344,6 +348,7 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
     val diagnosticsEnabled = optional("openeden.diagnostics.enabled", "false").equals("true", ignoreCase = true)
     val diagnosticsToken = config.propertyOrNull("openeden.diagnostics.token")?.getString()
         ?.takeIf { it.isNotBlank() }
+    val hostIdentity = loadHostIdentity(config)
     return ServerRuntimeConfig(
         apiKey = required("openeden.llm.apiKey"),
         model = required("openeden.llm.model"),
@@ -364,7 +369,8 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         } else {
             null
         },
-        hostIdentity = loadHostIdentity(config),
+        hostIdentity = hostIdentity,
+        hostAddress = loadHostAddress(config, hostIdentity),
         diaryDeltaThreshold = optional("openeden.diary.deltaThreshold", "0.25").toFloat(),
         diaryElapsedHours = optional("openeden.diary.elapsedHours", "5").toLong(),
         diaryScanIntervalMs = optional("openeden.diary.scanIntervalSeconds", "60").toLong().coerceAtLeast(1L) * 1000L,
