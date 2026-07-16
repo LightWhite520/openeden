@@ -43,6 +43,7 @@ class InlineCliRenderer(
     }
 
     override fun render(previous: CliUiState?, current: CliUiState, size: Size): RenderDecision {
+        committed.retainAll(current.messages.mapTo(mutableSetOf()) { it.id })
         current.messages.filter { it.status == CliMessageStatus.COMPLETE && committed.add(it.id) }.forEach { msg ->
             val committedState = current.copy(
                 messages = listOf(msg),

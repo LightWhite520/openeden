@@ -151,6 +151,25 @@ class InlineCliRendererTest {
         assertEquals(listOf("history", "clear", "clear"), calls)
     }
 
+    @Test fun `completed id can commit again after leaving visible state`() {
+        val history = mutableListOf<String>()
+        val renderer = InlineCliRenderer(history = InlineHistorySink { history += it })
+        val complete = CliUiState(
+            sessionId = "s",
+            messages = listOf(CliMessage("turn:assistant", CliRole.ASSISTANT, "done", CliMessageStatus.COMPLETE)),
+        )
+        val empty = CliUiState(sessionId = "s")
+
+        renderer.render(null, complete, Size(80, 24))
+        renderer.render(complete, complete, Size(80, 24))
+        assertEquals(1, history.size)
+
+        renderer.render(complete, empty, Size(80, 24))
+        renderer.render(empty, complete, Size(80, 24))
+
+        assertEquals(2, history.size)
+    }
+
     private class RecordingActiveSink : InlineActiveSink {
         val frames = mutableListOf<List<String>>()
         var clearCalls = 0

@@ -52,23 +52,25 @@ class CliPseudoTerminalTest {
             val input = process.outputWriter(UTF_8)
             try {
                 val connected = transcriptBuffer.awaitMarkerAfter(0, "OpenEden connected")
-                val initiallyReady = transcriptBuffer.awaitPromptAfter(connected)
+                transcriptBuffer.awaitPromptAfter(connected)
 
                 input.write("你好\r")
                 input.flush()
-                val firstResponse = transcriptBuffer.awaitMarkerAfter(initiallyReady, "第一轮回复：你好")
-                val readyAfterFirst = transcriptBuffer.awaitPromptAfter(firstResponse)
+                transcriptBuffer.awaitScreenState("first committed response") { lines ->
+                    lines.contains("ATRI: 第一轮回复：你好") && lines.none(::isTransientStatus)
+                }
 
                 input.write("再见\r")
                 input.flush()
-                val secondResponse = transcriptBuffer.awaitMarkerAfter(readyAfterFirst, "第二轮回复：再见")
-                transcriptBuffer.awaitPromptAfter(secondResponse)
+                val completed = transcriptBuffer.awaitScreenState("both committed responses") { lines ->
+                    lines.contains("ATRI: 第一轮回复：你好") &&
+                        lines.contains("ATRI: 第二轮回复：再见") &&
+                        lines.none(::isTransientStatus)
+                }
 
-                val inlineTranscript = transcriptBuffer.snapshot()
+                val inlineTranscript = completed.raw
                 val diagnostics = inlineTranscript.boundedForFailure()
-                val renderedLines = ScreenTerminal(100, 30, true)
-                    .apply { write(inlineTranscript) }
-                    .screenAndScrollbackLines()
+                val renderedLines = completed.lines
                 val firstIndex = renderedLines.indexOf("ATRI: 第一轮回复：你好")
                 val secondIndex = renderedLines.indexOf("ATRI: 第二轮回复：再见")
                 assertTrue(firstIndex >= 0, diagnostics)
@@ -167,6 +169,28 @@ class CliPseudoTerminalTest {
         output.length.takeIf { PROMPT.containsMatchIn(suffix) }
     }
 
+    private fun StringBuffer.awaitScreenState(
+        description: String,
+        condition: (List<String>) -> Boolean,
+    ): EmulatedSnapshot {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (true) {
+            val raw = snapshot()
+            val lines = ScreenTerminal(100, 30, true)
+                .apply { write(raw) }
+                .screenAndScrollbackLines()
+            if (condition(lines)) return EmulatedSnapshot(raw, lines)
+            if (System.nanoTime() >= deadline) {
+                throw AssertionError(
+                    "Timed out waiting for $description:\n" +
+                        "screen/history tail:\n${lines.takeLast(40).joinToString("\n")}\n" +
+                        "raw tail:\n${raw.boundedForFailure()}",
+                )
+            }
+            Thread.sleep(20)
+        }
+    }
+
     private fun <T> StringBuffer.awaitOutput(description: String, condition: (String) -> T?): T {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (true) {
@@ -186,6 +210,13 @@ class CliPseudoTerminalTest {
     private fun String.boundedForFailure(): String = takeLast(4_000)
 
     private fun String.stripAnsi(): String = replace(ANSI_CSI, "")
+
+    private fun isTransientStatus(line: String): Boolean = line.startsWith("[status]")
+
+    private data class EmulatedSnapshot(
+        val raw: String,
+        val lines: List<String>,
+    )
 
     private companion object {
         val ANSI_CSI = Regex("\\u001B\\[[0-?]*[ -/]*[@-~]")
