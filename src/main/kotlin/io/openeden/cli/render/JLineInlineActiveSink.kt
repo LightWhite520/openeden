@@ -11,6 +11,7 @@ class JLineInlineActiveSink(
 
     override fun render(lines: List<String>) {
         val current = status ?: return
+        current.update(emptyList(), false)
         current.resize()
         current.update(lines.map(::AttributedString))
     }

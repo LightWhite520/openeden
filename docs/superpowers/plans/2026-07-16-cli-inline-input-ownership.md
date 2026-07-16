@@ -366,26 +366,20 @@ $env:JAVA_HOME='F:\SDK\JDK21'
 
 Expected: FAIL while waiting for the complete active assistant label because JLine `Status` loses the first character after a full-width row.
 
-- [ ] **Step 4: Reserve the physical terminal's final column for active status rendering**
+- [ ] **Step 4: Invalidate stale Status rows before rendering the active frame**
 
-Retain the terminal in `JLineInlineActiveSink` and resize JLine `Status` with a guarded width:
+Clear the cached Status rows without flushing an empty intermediate frame, then perform the normal resize and update:
 
 ```kotlin
 class JLineInlineActiveSink(
     session: TerminalSession,
 ) : InlineActiveSink {
-    private val terminal = session.terminal
-    private val status: Status? = Status.getStatus(terminal)
+    private val status: Status? = Status.getStatus(session.terminal)
 
     override fun render(lines: List<String>) {
         val current = status ?: return
-        val physical = terminal.size
-        current.resize(
-            org.jline.terminal.Size().apply {
-                columns = (physical.columns - 1).coerceAtLeast(1)
-                rows = physical.rows
-            },
-        )
+        current.update(emptyList(), false)
+        current.resize()
         current.update(lines.map(::AttributedString))
     }
 }

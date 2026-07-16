@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Executors
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
@@ -21,7 +22,8 @@ import kotlin.test.assertTrue
 class CliPseudoTerminalTest {
     @Test
     fun `two inline chinese turns retain completed scrollback through pseudo terminal`() {
-        val server = startServer()
+        val responseGate = CountDownLatch(1)
+        val server = startServer(responseGate)
         val home = createTempDirectory("openeden-pty-home")
         writeConfig(home, server.address.port)
         val process = PtyProcessBuilder(command())
@@ -56,6 +58,11 @@ class CliPseudoTerminalTest {
 
                 input.write("你好\r")
                 input.flush()
+                val active = transcriptBuffer.awaitScreenState("complete active assistant label") { lines ->
+                    lines.contains("[status] generating") && lines.contains("ATRI:")
+                }
+                assertTrue(active.lines.contains("ATRI:"), active.raw.boundedForFailure())
+                responseGate.countDown()
                 transcriptBuffer.awaitScreenState("first committed response") { lines ->
                     lines.contains("ATRI: 第一轮回复：你好") && lines.none(::isTransientStatus)
                 }
@@ -119,7 +126,7 @@ class CliPseudoTerminalTest {
         )
     }
 
-    private fun startServer(): HttpServer {
+    private fun startServer(responseGate: CountDownLatch): HttpServer {
         val requests = AtomicInteger()
         return HttpServer.create(
             InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
@@ -130,21 +137,34 @@ class CliPseudoTerminalTest {
             }
             createContext("/api/v1/chat/stream") { exchange ->
                 exchange.requestBody.use { it.readAllBytes() }
-                val response = if (requests.incrementAndGet() == 1) "第一轮回复：你好" else "第二轮回复：再见"
-                exchange.respond(
-                    "text/event-stream; charset=UTF-8",
-                    """
+                val requestNumber = requests.incrementAndGet()
+                val response = if (requestNumber == 1) "第一轮回复：你好" else "第二轮回复：再见"
+                exchange.responseHeaders.add("Content-Type", "text/event-stream; charset=UTF-8")
+                exchange.sendResponseHeaders(200, 0)
+                exchange.responseBody.use { body ->
+                    val activeEvents = """
                         event: accepted
                         data: {"requestId":"req_1"}
 
+                        event: stage
+                        data: {"stage":"generating"}
+                    """.trimIndent() + "\n\n"
+                    body.write(activeEvents.encodeToByteArray())
+                    body.flush()
+                    if (requestNumber == 1) {
+                        responseGate.await(10, TimeUnit.SECONDS)
+                    }
+                    body.write(
+                        """
                         event: response.delta
                         data: {"text":"$response"}
 
                         event: completed
                         data: {"requestId":"req_1","status":"completed"}
 
-                    """.trimIndent(),
-                )
+                        """.trimIndent().encodeToByteArray(),
+                    )
+                }
             }
             executor = Executors.newCachedThreadPool()
             start()
