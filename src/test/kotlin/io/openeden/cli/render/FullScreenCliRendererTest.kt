@@ -45,6 +45,23 @@ class FullScreenCliRendererTest {
         assertTrue(output.contains("diagnostics"))
     }
 
+    @Test
+    fun `wide full screen conversation does not inherit the inline 96 column cap`() {
+        val sink = FakeFullscreenSink(true)
+        val renderer = FullScreenCliRenderer(sink)
+        val message = "界".repeat(50)
+        val state = CliUiState(
+            sessionId = "CLI:local",
+            messages = listOf(
+                CliMessage("a", CliRole.ASSISTANT, message, CliMessageStatus.COMPLETE),
+            ),
+        )
+
+        renderer.render(state, Size(140, 30))
+
+        assertEquals(listOf("│ ATRI: $message"), sink.rows.filter { it.startsWith("│ ") })
+    }
+
     @Test fun `shrinking after entry exits fullscreen before inline fallback`() {
         val sink = FakeFullscreenSink(true)
         val renderer = FullScreenCliRenderer(sink)

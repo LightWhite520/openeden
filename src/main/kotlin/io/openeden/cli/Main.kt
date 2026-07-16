@@ -36,7 +36,7 @@ suspend fun main(args: Array<String>) {
             terminalFailure?.let { error ->
                 streams.err.println(
                     "interactive terminal unavailable: ${error.message ?: error::class.simpleName}; " +
-                        "using plain input",
+                            "using plain input",
                 )
             }
             suspend { runPlain(arguments, streams) }
@@ -49,11 +49,11 @@ internal suspend fun runInteractive(
     session: TerminalSession,
     runCli: suspend (output: (String) -> Unit) -> Int,
 ): Int = try {
-        val writer = session.terminal.writer()
-        runCli(writer.outputSink())
-    } finally {
-        session.close()
-    }
+    val writer = session.terminal.writer()
+    runCli(writer.outputSink())
+} finally {
+    session.close()
+}
 
 private suspend fun runPlain(arguments: List<String>, streams: CliTextStreams): Int = OpenEdenCli(
     input = StdinCliInput(streams.reader),

@@ -84,7 +84,7 @@ class InlineCliRenderer(
     }
 
     private fun messageRows(message: CliMessage, width: Int): List<String> {
-        val max = width.coerceAtMost(96).coerceAtLeast(1)
+        val max = width.coerceAtLeast(1)
         val prefix = if (message.role == CliRole.USER) "> " else "ATRI: "
         val continuation = " ".repeat(DisplayWidth.of(prefix))
         val minimumContentWidth = message.markdown.codePoints()

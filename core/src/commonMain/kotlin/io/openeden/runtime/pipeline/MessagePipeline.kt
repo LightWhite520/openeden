@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.withContext
+import kotlin.math.log
 import kotlin.time.Clock
 
 class DevelopmentMessagePipeline(
@@ -384,6 +385,7 @@ class DevelopmentMessagePipeline(
                 }
             }
         }
+        println("\n${completed?.internalLogic}\n${completed?.vectorDelta}\n${completed?.response}")
         return checkNotNull(completed) { "LLM stream ended without a completed output" }
     }
 

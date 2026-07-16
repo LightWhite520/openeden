@@ -25,6 +25,21 @@ class InlineCliRendererTest {
         assertTrue(InlineCliRenderer().rows(state, 80).any { it.contains("diagnostics") && it.contains("omega") })
     }
 
+    @Test
+    fun `inspect mode uses the available terminal width beyond 96 columns`() {
+        val message = "界".repeat(50)
+        val state = CliUiState(
+            sessionId = "s",
+            messages = listOf(CliMessage("a", CliRole.ASSISTANT, message, CliMessageStatus.COMPLETE)),
+            diagnosticsVisible = true,
+            diagnostics = CliDiagnostics(emptyList(), .4f, false, null, 1, .2f),
+        )
+
+        val conversation = InlineCliRenderer().rows(state, 120).filterNot { it.startsWith("[diagnostics]") }
+
+        assertEquals(listOf("ATRI: $message"), conversation)
+    }
+
     @Test fun `streaming assistant refreshes active sink without committing`() {
         val frames = mutableListOf<List<String>>()
         val renderer = InlineCliRenderer(active = InlineActiveSink { frames += it })

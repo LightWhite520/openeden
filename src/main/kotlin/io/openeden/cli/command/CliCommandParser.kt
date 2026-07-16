@@ -1,6 +1,5 @@
 package io.openeden.cli.command
 
-import io.openeden.cli.render.Size
 import io.openeden.cli.state.CliMode
 
 class CliCommandParser {

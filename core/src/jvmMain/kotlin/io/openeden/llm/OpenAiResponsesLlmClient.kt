@@ -9,15 +9,14 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
-import io.ktor.utils.io.readLine
+import io.ktor.util.logging.*
+import io.ktor.utils.io.*
 import io.openeden.prompt.BuiltPrompt
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
-
-import io.ktor.util.logging.KtorSimpleLogger
 
 private val log = KtorSimpleLogger("io.openeden.llm.OpenAiResponsesLlmClient")
 
@@ -36,7 +35,6 @@ class OpenAiResponsesLlmClient(
         val response = execute(prompt, stream = false)
         requireSuccess(response)
         val llmOutput = parseBufferedResponse(response.bodyAsText())
-        log.info("\n${llmOutput.internalLogic}\n${llmOutput.vectorDelta}\n${llmOutput.response}")
         return llmOutput
     }
 
@@ -72,6 +70,7 @@ class OpenAiResponsesLlmClient(
                         emit(LlmStreamEvent.ResponseDelta(it))
                     }
                 }
+
                 "response.completed" -> {
                     check(!completed) { "OpenAI response stream completed more than once" }
                     val output = decoder.finish()
@@ -83,6 +82,7 @@ class OpenAiResponsesLlmClient(
                     emit(LlmStreamEvent.Completed(output))
                     completed = true
                 }
+
                 "response.failed", "error" -> throw IllegalStateException("OpenAI response stream failed")
             }
         }

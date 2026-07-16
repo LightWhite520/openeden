@@ -20,6 +20,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import io.openeden.cli.terminal.CliTerminalEvent
 import io.openeden.client.ChatResponse
 import io.openeden.client.OpenEdenServerApi
 import io.openeden.client.OpenEdenServerClient
@@ -85,7 +86,7 @@ class OpenEdenCli(
             while (true) {
                 output("> ")
                 val line = input.readLine() ?: return 0
-                controller.accept(io.openeden.cli.terminal.CliTerminalEvent.Submit(line))
+                controller.accept(CliTerminalEvent.Submit(line))
                 controller.drain()
                 if (controller.isStopped) return 0
             }
@@ -118,13 +119,11 @@ class OpenEdenCli(
                 )
             },
         )
-        session.lineReader.printAbove("OpenEden connected. Type /help for commands.")
-        return try {
+        session.lineReader.printAbove("OpenEden connected.\nType /help for commands.")
+        return controller.use { controller ->
             controller.initializeHistory()
             controller.run(session.events())
             0
-        } finally {
-            controller.close()
         }
     }
 
