@@ -4,6 +4,8 @@ import io.openeden.server.api.dto.ChatRequestDto
 import io.openeden.server.api.dto.ChatResponseDto
 import io.openeden.server.api.dto.ChatStreamEventDto
 import io.openeden.server.api.dto.ChatStreamRequestDto
+import io.openeden.server.api.dto.ConversationHistoryPageDto
+import io.openeden.server.api.dto.ConversationTurnDto
 import io.openeden.server.api.dto.DiagnosticStateDto
 import io.openeden.server.api.dto.DevMessageRequestDto
 import io.openeden.server.api.dto.DevMessageResponseDto
@@ -11,11 +13,13 @@ import io.openeden.server.api.dto.HealthResponseDto
 import io.openeden.server.api.dto.PublicStateDto
 import io.openeden.server.bootstrap.PipelineKey
 import io.openeden.server.bootstrap.SessionStateStoreKey
+import io.openeden.server.bootstrap.TranscriptStoreKey
 import io.openeden.server.bootstrap.loadDefaultPersonaConfig
 import io.openeden.bio.VectorDelta
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.pipeline.DevelopmentMessageEvent
 import io.openeden.runtime.pipeline.DevelopmentMessageRequest
+import io.openeden.transcript.InvalidHistoryCursorException
 import io.ktor.server.request.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -34,6 +38,7 @@ fun Application.configureRouting() {
     val developmentPipeline = attributes.getOrNull(PipelineKey)
         ?: DevelopmentMessagePipeline.create(loadDefaultPersonaConfig())
     val sessionStateStore = attributes.getOrNull(SessionStateStoreKey)
+    val transcriptStore = attributes.getOrNull(TranscriptStoreKey)
     val diagnosticsAccess = attributes.getOrNull(DiagnosticsAccessKey) ?: DiagnosticsAccess.disabled()
     routing {
         get("/") {
@@ -55,6 +60,41 @@ fun Application.configureRouting() {
                     shockActive = state.shockState?.active == true,
                 ),
             )
+        }
+        get("/api/v1/history") {
+            val limitParameter = call.request.queryParameters["limit"]
+            val limit = when {
+                limitParameter == null -> 50
+                else -> limitParameter.toIntOrNull()?.coerceIn(1, 50)
+            }
+            if (limit == null) {
+                call.respondText("Invalid history limit", status = HttpStatusCode.BadRequest)
+                return@get
+            }
+            try {
+                val before = call.request.queryParameters["before"]?.let(HistoryCursorCodec::decode)
+                val page = checkNotNull(transcriptStore) { "transcript store is not configured" }
+                    .page(limit, before)
+                call.respond(
+                    ConversationHistoryPageDto(
+                        turns = page.turns.map { turn ->
+                            ConversationTurnDto(
+                                turnId = turn.turnId,
+                                platform = turn.platform,
+                                scopeId = turn.scopeId,
+                                userId = turn.userId,
+                                userText = turn.userText,
+                                assistantText = turn.assistantText,
+                                completedAtMs = turn.completedAtMs,
+                            )
+                        },
+                        before = page.before?.let(HistoryCursorCodec::encode),
+                        hasMore = page.hasMore,
+                    ),
+                )
+            } catch (_: InvalidHistoryCursorException) {
+                call.respondText("Invalid history cursor", status = HttpStatusCode.BadRequest)
+            }
         }
         get("/api/v1/diagnostics") {
             if (!diagnosticsAccess.enabled) {
@@ -123,7 +163,7 @@ fun Application.configureRouting() {
         post("/api/v1/chat/stream") {
             val requestId = "req_${UUID.randomUUID().toString().replace("-", "")}"
             val request = call.receive<ChatStreamRequestDto>()
-            if (request.userId.isBlank() || request.text.isBlank()) {
+            if (request.userId.isBlank() || request.text.isBlank() || request.clientRequestId.isBlank()) {
                 call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
@@ -133,7 +173,7 @@ fun Application.configureRouting() {
                 try {
                     developmentPipeline.handleStreaming(
                         DevelopmentMessageRequest(
-                            turnId = requestId,
+                            turnId = request.clientRequestId,
                             platform = "CLI",
                             scopeId = request.userId,
                             userId = request.userId,

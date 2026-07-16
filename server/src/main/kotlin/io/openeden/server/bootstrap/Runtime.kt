@@ -48,6 +48,8 @@ import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
 import io.openeden.server.persistence.sqldelight.SqlDelightTraceStore
 import io.openeden.server.persistence.sqldelight.SqlDelightSessionStateStore
 import io.openeden.server.persistence.sqldelight.SqlDelightRelationshipStateStore
+import io.openeden.server.persistence.sqldelight.SqlDelightTranscriptStore
+import io.openeden.transcript.TranscriptStore
 import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CoroutineScope
@@ -62,34 +64,63 @@ import java.nio.file.Path
 /** The shared, durable-backed pipeline, published for [configureRouting] to consume. */
 val PipelineKey = AttributeKey<DevelopmentMessagePipeline>("openeden.pipeline")
 val SessionStateStoreKey = AttributeKey<SessionStateStore>("openeden.session-state-store")
+val TranscriptStoreKey = AttributeKey<TranscriptStore>("openeden.transcript-store")
 
 /**
  * Boots the persona runtime: durable SQLite store → pipeline → heartbeat scheduler. Runs before
  * [configureRouting] (see application.yaml) so the route reads the shared pipeline from attributes.
  * The scheduler runs on its own dispatcher (§9.3.3) and is torn down on application stop.
  */
-fun Application.configureRuntime() {
+suspend fun Application.configureRuntime() {
+    val startupClosers = ArrayDeque<suspend () -> Unit>()
+    try {
+        startRuntime(startupClosers)
+    } catch (failure: Throwable) {
+        startupClosers.forEach { close ->
+            try {
+                close()
+            } catch (cleanupFailure: Throwable) {
+                failure.addSuppressed(cleanupFailure)
+            }
+        }
+        throw failure
+    }
+}
+
+private suspend fun Application.startRuntime(
+    startupClosers: ArrayDeque<suspend () -> Unit>,
+) {
     val serverConfig = loadServerRuntimeConfig(environment.config)
     val persona = PersonaFileLoader.load(serverConfig.personaPath)
+    val transcriptStore = SqlDelightTranscriptStore.open(serverConfig.runtimeDbPath)
+    startupClosers.addFirst { transcriptStore.close() }
     val store = SqlDelightSessionStateStore.open(
         serverConfig.runtimeDbPath,
         persona.mode,
         persona.startSubState,
+        committedTranscriptStore = transcriptStore,
     )
+    startupClosers.addFirst { store.close() }
     val relationshipStore = SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
+    startupClosers.addFirst { relationshipStore.close() }
     val diaryTaskStore = SqlDelightDiaryTaskStore.open(serverConfig.runtimeDbPath)
+    startupClosers.addFirst { diaryTaskStore.close() }
     val traceStore = SqlDelightTraceStore.open(serverConfig.runtimeDbPath)
+    startupClosers.addFirst { traceStore.close() }
     // One VectorWriteService shared by the pipeline and the scheduler so all per-session writes
     // (user deltas + shock-heartbeat latch) serialize on the same Mutex registry (§14.2).
     val writer = VectorWriteService(store)
     val runtimeConfig = RuntimeConfig.Default.copy(owner = serverConfig.heartbeatOwner)
     val inferenceExecutor = JvmInferenceExecutor()
     val models = loadRuntimeModels(serverConfig)
+    startupClosers.addFirst { models.close() }
     val memoryStore = SqlDelightMemoryRepository.open(serverConfig.runtimeDbPath, models.embeddingModel)
+    startupClosers.addFirst { memoryStore.close() }
     val llmClient = OpenAiResponsesLlmClient(
         apiKey = serverConfig.apiKey, model = serverConfig.model,
         reasoningEffort = serverConfig.reasoningEffort, baseUrl = serverConfig.baseUrl,
     )
+    startupClosers.addFirst { llmClient.close() }
     val diaryCoordinator = DiaryTriggerCoordinator(
         diaryTaskStore, diaryTaskStore, memoryStore,
         DiaryTriggerConfig(serverConfig.diaryDeltaThreshold, serverConfig.diaryElapsedHours * 60L * 60L * 1000L),
@@ -108,12 +139,15 @@ fun Application.configureRuntime() {
         relationshipRoleResolver = RelationshipRoleResolver(serverConfig.hostIdentity),
         userAffectAnalyzer = models.userAffectAnalyzer,
         diaryTriggerCoordinator = diaryCoordinator,
+        transcriptStore = transcriptStore,
     )
     attributes.put(PipelineKey, pipeline)
     attributes.put(SessionStateStoreKey, store)
+    attributes.put(TranscriptStoreKey, transcriptStore)
     attributes.put(DiagnosticsAccessKey, serverConfig.diagnosticsAccess)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    startupClosers.addFirst { scope.cancel() }
     val diaryWorker = DurableDiaryWorker(
         taskStore = diaryTaskStore,
         memoryStore = memoryStore,
@@ -160,7 +194,7 @@ fun Application.configureRuntime() {
         job.cancel(); tickJob.cancel(); diaryJob.cancel(); elapsedJob.cancel()
         scope.launch {
             joinAll(job, tickJob, diaryJob, elapsedJob)
-            scope.cancel()
+            transcriptStore.close()
             store.close()
             memoryStore.close()
             diaryTaskStore.close()
@@ -168,9 +202,11 @@ fun Application.configureRuntime() {
             relationshipStore.close()
             llmClient.close()
             models.close()
+            scope.cancel()
             log.info("OpenEden runtime stopped")
         }
     }
+    startupClosers.clear()
 }
 
 internal fun loadDefaultPersonaConfig(): PersonaConfig =
