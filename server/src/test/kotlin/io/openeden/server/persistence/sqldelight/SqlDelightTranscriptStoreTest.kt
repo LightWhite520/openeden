@@ -1,7 +1,11 @@
 package io.openeden.server.persistence.sqldelight
 
+import app.cash.sqldelight.db.AfterVersion
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlSchema
+import io.openeden.server.db.Database
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InvalidHistoryCursorException
@@ -31,6 +35,26 @@ class SqlDelightTranscriptStoreTest {
         Files.walk(tempDir).use { paths ->
             paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists)
         }
+    }
+
+    @Test
+    fun `failed schema initialization rolls back before normal reopen`() = runTest {
+        assertFailsWith<IllegalStateException> {
+            SqlDelightTranscriptStore.open(dbPath, failingSchema)
+        }
+        assertEquals(0L to 0L, schemaState())
+        val movedPath = dbPath.resolveSibling("rolled-back.db")
+        Files.move(dbPath, movedPath)
+        Files.move(movedPath, dbPath)
+
+        val store = SqlDelightTranscriptStore.open(dbPath)
+        try {
+            store.activeIncarnation()
+        } finally {
+            store.close()
+        }
+
+        assertEquals(Database.Schema.version to 0L, schemaState())
     }
 
     @Test
@@ -271,6 +295,49 @@ class SqlDelightTranscriptStoreTest {
             }
             driver.execute(null, "PRAGMA user_version = 4", 0)
         }
+    }
+
+    private fun schemaState(): Pair<Long, Long> {
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}")
+        return try {
+            val version = driver.executeQuery(
+                null,
+                "PRAGMA user_version",
+                { cursor ->
+                    check(cursor.next().value)
+                    QueryResult.Value(checkNotNull(cursor.getLong(0)))
+                },
+                0,
+            ).value
+            val partialTableCount = driver.executeQuery(
+                null,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'partial_schema'",
+                { cursor ->
+                    check(cursor.next().value)
+                    QueryResult.Value(checkNotNull(cursor.getLong(0)))
+                },
+                0,
+            ).value
+            version to partialTableCount
+        } finally {
+            driver.close()
+        }
+    }
+
+    private val failingSchema = object : SqlSchema<QueryResult.Value<Unit>> {
+        override val version: Long = Database.Schema.version
+
+        override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
+            driver.execute(null, "CREATE TABLE partial_schema(id INTEGER NOT NULL PRIMARY KEY)", 0).value
+            error("injected schema failure")
+        }
+
+        override fun migrate(
+            driver: SqlDriver,
+            oldVersion: Long,
+            newVersion: Long,
+            vararg callbacks: AfterVersion,
+        ): QueryResult.Value<Unit> = error("migration is not used by this fixture")
     }
 
     private fun turn(index: Int, incarnationId: String): ConversationTurn = ConversationTurn(

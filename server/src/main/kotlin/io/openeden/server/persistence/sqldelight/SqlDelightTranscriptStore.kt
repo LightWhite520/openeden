@@ -1,6 +1,9 @@
 package io.openeden.server.persistence.sqldelight
 
+import app.cash.sqldelight.db.QueryResult
+import app.cash.sqldelight.db.SqlCursor
 import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.db.SqlSchema
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.openeden.server.db.Database
 import io.openeden.transcript.ActiveIncarnation
@@ -20,7 +23,6 @@ import java.nio.file.StandardOpenOption
 import java.nio.channels.FileChannel
 import java.util.Properties
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 class SqlDelightTranscriptStore private constructor(
     private val database: Database,
@@ -102,32 +104,69 @@ class SqlDelightTranscriptStore private constructor(
         suspend fun open(
             dbPath: Path,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        ): SqlDelightTranscriptStore = open(dbPath, Database.Schema, ioDispatcher)
+
+        internal suspend fun open(
+            dbPath: Path,
+            schema: SqlSchema<QueryResult.Value<Unit>>,
+            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         ): SqlDelightTranscriptStore = withContext(ioDispatcher) {
             val resolvedPath = dbPath.resolveForInitialization()
-            initializationLocks.computeIfAbsent(resolvedPath) { Mutex() }.withLock {
+            initializationMutex.withLock {
                 FileChannel.open(
                     resolvedPath.resolveSibling("${resolvedPath.fileName}.init.lock"),
                     StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE,
                 ).use { channel ->
                     channel.lock().use {
-                        val driver = JdbcSqliteDriver(
-                            "jdbc:sqlite:$resolvedPath",
-                            Properties(),
-                            Database.Schema,
-                        )
+                        val driver = JdbcSqliteDriver("jdbc:sqlite:$resolvedPath", Properties())
                         val database = Database(driver)
-                        database.transcriptQueries.insertIncarnationIfAbsent(
-                            active_incarnation_id = UUID.randomUUID().toString(),
-                            created_at_ms = System.currentTimeMillis(),
-                        )
-                        SqlDelightTranscriptStore(database, driver, ioDispatcher)
+                        try {
+                            database.transaction {
+                                val currentVersion = driver.readSchemaVersion()
+                                when {
+                                    currentVersion == 0L -> schema.create(driver).value
+                                    currentVersion < schema.version -> {
+                                        schema.migrate(driver, currentVersion, schema.version).value
+                                    }
+                                }
+                                if (currentVersion < schema.version) {
+                                    driver.writeSchemaVersion(schema.version)
+                                }
+                            }
+                            driver.closeCurrentThreadConnection()
+                            database.transcriptQueries.insertIncarnationIfAbsent(
+                                active_incarnation_id = UUID.randomUUID().toString(),
+                                created_at_ms = System.currentTimeMillis(),
+                            )
+                            SqlDelightTranscriptStore(database, driver, ioDispatcher)
+                        } catch (failure: Throwable) {
+                            runCatching { driver.closeCurrentThreadConnection() }
+                                .exceptionOrNull()
+                                ?.let(failure::addSuppressed)
+                            throw failure
+                        }
                     }
                 }
             }
         }
 
-        private val initializationLocks = ConcurrentHashMap<Path, Mutex>()
+        private val initializationMutex = Mutex()
+
+        private fun JdbcSqliteDriver.closeCurrentThreadConnection() {
+            closeConnection(getConnection())
+        }
+
+        private fun SqlDriver.readSchemaVersion(): Long {
+            val mapper = { cursor: SqlCursor ->
+                QueryResult.Value(if (cursor.next().value) cursor.getLong(0) else null)
+            }
+            return executeQuery(null, "PRAGMA user_version", mapper, 0).value ?: 0L
+        }
+
+        private fun SqlDriver.writeSchemaVersion(version: Long) {
+            execute(null, "PRAGMA user_version = $version", 0).value
+        }
 
         private fun Path.resolveForInitialization(): Path {
             val absolute = toAbsolutePath().normalize()
