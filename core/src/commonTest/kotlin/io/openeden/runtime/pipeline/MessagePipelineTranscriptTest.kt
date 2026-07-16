@@ -101,18 +101,24 @@ class MessagePipelineTranscriptTest {
     @Test
     fun `invalid output does not persist the inference centroid`() = runTest {
         val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+        val centroids = listOf(
+            BioVector.Neutral.copy(p = 0.2f),
+            BioVector.Neutral.copy(p = 0.3f),
+        )
+        var centroidCalls = 0
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = persona(),
             store = store,
             llmClient = InvalidLlmClient,
             transcriptStore = store,
-            centroidProvider = HomeostasisCentroidProvider { BioVector.Neutral.copy(p = 0.2f) },
+            centroidProvider = HomeostasisCentroidProvider { centroids[centroidCalls++] },
         )
 
         pipeline.handle(request(turnId = "invalid-centroid"))
 
         assertEquals(BioVector.Neutral, store.read("CLI:local").origin)
         assertEquals(0L, store.read("CLI:local").evolutionIndex)
+        assertEquals(1, centroidCalls)
     }
 
     @Test

@@ -316,7 +316,9 @@ class DevelopmentMessagePipeline(
             diaryOutcome = DiaryOutcome(if (tags.isEmpty()) "enqueued" else "overflow", tags)
         }
         trace(traceContext, "memory_write", tags = memoryTraceTags.traceTags)
-        val updatedOrigin = if (alreadyCommitted) null else memoryStore?.let {
+        val shouldUpdatePostCentroid =
+            !alreadyCommitted && validation.isValid && validation.delta != null && validation.output != null
+        val updatedOrigin = if (!shouldUpdatePostCentroid) null else memoryStore?.let {
             inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
         }
         val centroidTags: Set<String> = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
