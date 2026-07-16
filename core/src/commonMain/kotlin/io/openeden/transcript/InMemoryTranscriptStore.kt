@@ -17,6 +17,9 @@ class InMemoryTranscriptStore(
 
     override suspend fun append(turn: ConversationTurn) {
         mutex.withLock {
+            require(turn.incarnationId == activeIncarnation.id) {
+                "Turn incarnation '${turn.incarnationId}' does not match active incarnation '${activeIncarnation.id}'"
+            }
             val existing = turnsById[turn.turnId]
             require(existing == null || existing == turn) {
                 "Turn ID '${turn.turnId}' already exists with a different payload"

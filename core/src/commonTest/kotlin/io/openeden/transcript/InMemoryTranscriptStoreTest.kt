@@ -34,6 +34,16 @@ class InMemoryTranscriptStoreTest {
     }
 
     @Test
+    fun `append rejects a turn from another incarnation`() = runTest {
+        val store = InMemoryTranscriptStore("incarnation-a", createdAtMs = 123L)
+
+        assertFailsWith<IllegalArgumentException> {
+            store.append(turn(1).copy(incarnationId = "incarnation-b"))
+        }
+        assertEquals(emptyList(), store.page(limit = 50).turns)
+    }
+
+    @Test
     fun `cursor from another incarnation is rejected`() = runTest {
         val store = InMemoryTranscriptStore("incarnation-a", createdAtMs = 123L)
 
