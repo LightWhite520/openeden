@@ -96,20 +96,29 @@ private suspend fun Application.startRuntime(
 ) {
     val serverConfig = loadServerRuntimeConfig(environment.config)
     val persona = PersonaFileLoader.load(serverConfig.personaPath)
+    val persistenceIo = PersistenceStartupIo()
     val transcriptStore = SqlDelightTranscriptStore.open(serverConfig.runtimeDbPath)
     startupClosers.addFirst { transcriptStore.close() }
-    val store = SqlDelightSessionStateStore.open(
-        serverConfig.runtimeDbPath,
-        persona.mode,
-        persona.startSubState,
-        committedTranscriptStore = transcriptStore,
-    )
+    val store = persistenceIo.open {
+        SqlDelightSessionStateStore.open(
+            serverConfig.runtimeDbPath,
+            persona.mode,
+            persona.startSubState,
+            committedTranscriptStore = transcriptStore,
+        )
+    }
     startupClosers.addFirst { store.close() }
-    val relationshipStore = SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
+    val relationshipStore = persistenceIo.open {
+        SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
+    }
     startupClosers.addFirst { relationshipStore.close() }
-    val diaryTaskStore = SqlDelightDiaryTaskStore.open(serverConfig.runtimeDbPath)
+    val diaryTaskStore = persistenceIo.open {
+        SqlDelightDiaryTaskStore.open(serverConfig.runtimeDbPath)
+    }
     startupClosers.addFirst { diaryTaskStore.close() }
-    val traceStore = SqlDelightTraceStore.open(serverConfig.runtimeDbPath)
+    val traceStore = persistenceIo.open {
+        SqlDelightTraceStore.open(serverConfig.runtimeDbPath)
+    }
     startupClosers.addFirst { traceStore.close() }
     // One VectorWriteService shared by the pipeline and the scheduler so all per-session writes
     // (user deltas + shock-heartbeat latch) serialize on the same Mutex registry (§14.2).
@@ -118,7 +127,9 @@ private suspend fun Application.startRuntime(
     val inferenceExecutor = JvmInferenceExecutor()
     val models = loadRuntimeModels(serverConfig)
     startupClosers.addFirst { models.close() }
-    val memoryStore = SqlDelightMemoryRepository.open(serverConfig.runtimeDbPath, models.embeddingModel)
+    val memoryStore = persistenceIo.open {
+        SqlDelightMemoryRepository.open(serverConfig.runtimeDbPath, models.embeddingModel)
+    }
     startupClosers.addFirst { memoryStore.close() }
     val llmClient = OpenAiResponsesLlmClient(
         apiKey = serverConfig.apiKey, model = serverConfig.model,
