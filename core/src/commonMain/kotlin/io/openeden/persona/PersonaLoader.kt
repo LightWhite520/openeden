@@ -20,6 +20,11 @@ object MapPersonaLoader {
         "style.source_language_notes",
         "style.do",
         "style.do_not",
+        "style.generation_mechanics",
+        "style.signature_examples",
+        "style.stage_examples.pre_command",
+        "style.stage_examples.true_self",
+        "style.stage_examples.awakened",
     )
 
     fun load(values: Map<String, String>): PersonaConfig {

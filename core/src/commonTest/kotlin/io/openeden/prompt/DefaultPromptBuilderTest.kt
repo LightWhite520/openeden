@@ -52,14 +52,19 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
-    fun `growth mode keeps configured starting patch as evolution index increases`() = runTest {
-        val built = DefaultPromptBuilder().build(promptInput(evolutionIndex = 15))
+    fun `pre command starting point keeps its patch and examples at high evolution index`() = runTest {
+        val built = DefaultPromptBuilder().build(promptInput(evolutionIndex = 500))
 
         assertContains(built.systemText, "\"persona_start_sub_state\": \"PRE_COMMAND\"")
-        assertContains(built.systemText, "\"evolution_index\": 15")
+        assertContains(built.systemText, "\"evolution_index\": 500")
         assertContains(built.personaText, "behavior rules from data")
         assertContains(built.personaText, "pre command patch from data")
+        assertContains(built.personaText, "COMMON_GENERATION")
+        assertContains(built.personaText, "COMMON_SIGNATURE")
+        assertContains(built.personaText, "PRE_EXAMPLE")
         assertTrue("true self patch from data" !in built.personaText)
+        assertTrue("TRUE_EXAMPLE" !in built.personaText)
+        assertTrue("AWAKE_EXAMPLE" !in built.personaText)
     }
 
     @Test
@@ -77,6 +82,11 @@ class DefaultPromptBuilderTest {
                 "heartbeat.base" to "heartbeat text from data",
                 "heartbeat.shock" to "shock heartbeat text from data",
                 "diary.narrative" to "diary text from data",
+                PromptSectionKeys.StyleGenerationMechanics to "COMMON_GENERATION",
+                PromptSectionKeys.StyleSignatureExamples to "COMMON_SIGNATURE",
+                PromptSectionKeys.PreCommandStyleExamples to "PRE_EXAMPLE",
+                PromptSectionKeys.TrueSelfStyleExamples to "TRUE_EXAMPLE",
+                PromptSectionKeys.AwakenedStyleExamples to "AWAKE_EXAMPLE",
             ),
         )
         val built = DefaultPromptBuilder().build(
@@ -85,11 +95,16 @@ class DefaultPromptBuilderTest {
 
         assertContains(built.systemText, "\"persona_start_sub_state\": \"TRUE_SELF\"")
         assertContains(built.personaText, "true self patch from data")
+        assertContains(built.personaText, "COMMON_GENERATION")
+        assertContains(built.personaText, "COMMON_SIGNATURE")
+        assertContains(built.personaText, "TRUE_EXAMPLE")
         assertTrue("pre command patch from data" !in built.personaText)
+        assertTrue("PRE_EXAMPLE" !in built.personaText)
+        assertTrue("AWAKE_EXAMPLE" !in built.personaText)
     }
 
     @Test
-    fun `legacy mode always uses awakened patch`() = runTest {
+    fun `awakened starting point uses only awakened examples at zero evolution index`() = runTest {
         val built = DefaultPromptBuilder().build(
             promptInput(
                 evolutionIndex = 0,
@@ -99,7 +114,13 @@ class DefaultPromptBuilderTest {
         )
 
         assertContains(built.systemText, "\"persona_start_sub_state\": \"AWAKENED\"")
+        assertContains(built.systemText, "\"evolution_index\": 0")
         assertContains(built.personaText, "awakened patch from data")
+        assertContains(built.personaText, "COMMON_GENERATION")
+        assertContains(built.personaText, "COMMON_SIGNATURE")
+        assertContains(built.personaText, "AWAKE_EXAMPLE")
+        assertTrue("PRE_EXAMPLE" !in built.personaText)
+        assertTrue("TRUE_EXAMPLE" !in built.personaText)
     }
 
     @Test
@@ -114,11 +135,26 @@ class DefaultPromptBuilderTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
         assertContains(built.personaText, "\"style\":")
+        assertContains(built.personaText, "\"generation_mechanics\": \"COMMON_GENERATION\"")
+        assertContains(built.personaText, "\"signature_examples\": \"COMMON_SIGNATURE\"")
+        assertContains(built.personaText, "\"active_stage_examples\": \"PRE_EXAMPLE\"")
         assertContains(built.personaText, "style summary from data")
         assertContains(built.personaText, "source language notes from data")
         assertContains(built.personaText, "do item one")
         assertContains(built.personaText, "do item two")
         assertContains(built.personaText, "avoid item one")
+    }
+
+    @Test
+    fun `persona sections render style before output rules in canonical order`() {
+        val document = OpenEdenPromptDocumentFactory.create(promptInput())
+
+        val persona = document.root.fields.first { it.name == "persona" }.value as PromptObject
+
+        assertEquals(
+            listOf("identity", "base", "behavior", "sub_state_patch", "style", "output_layer_rules"),
+            persona.fields.map { it.name },
+        )
     }
 
     @Test
@@ -189,6 +225,11 @@ class DefaultPromptBuilderTest {
                 PromptSectionKeys.StyleSourceLanguageNotes to "source language notes from data",
                 PromptSectionKeys.StyleDo to "do item one\ndo item two",
                 PromptSectionKeys.StyleDoNot to "avoid item one",
+                PromptSectionKeys.StyleGenerationMechanics to "COMMON_GENERATION",
+                PromptSectionKeys.StyleSignatureExamples to "COMMON_SIGNATURE",
+                PromptSectionKeys.PreCommandStyleExamples to "PRE_EXAMPLE",
+                PromptSectionKeys.TrueSelfStyleExamples to "TRUE_EXAMPLE",
+                PromptSectionKeys.AwakenedStyleExamples to "AWAKE_EXAMPLE",
             ),
         ),
         evolutionIndex = evolutionIndex,

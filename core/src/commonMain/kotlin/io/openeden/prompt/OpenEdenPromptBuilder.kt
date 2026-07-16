@@ -76,6 +76,7 @@ object OpenEdenPromptDocumentFactory {
                 personaSection("base", input.personaConfig, PromptSectionKeys.PersonaBase)
                 personaSection("behavior", input.personaConfig, PromptSectionKeys.PersonaBehavior)
                 personaSection("sub_state_patch", input.personaConfig, subState.sectionKey())
+                styleSection(input.personaConfig, subState)
                 personaSection("output_layer_rules", input.personaConfig, PromptSectionKeys.OutputLayerRules)
                 when (input.userInput) {
                     HEARTBEAT_TRIGGER ->
@@ -83,7 +84,6 @@ object OpenEdenPromptDocumentFactory {
                     HEARTBEAT_SHOCK_TRIGGER ->
                         personaSection("shock_heartbeat_context", input.personaConfig, PromptSectionKeys.ShockHeartbeat)
                 }
-                styleSection(input.personaConfig)
             }
             "user" {
                 "input" to input.userInput
@@ -98,12 +98,18 @@ object OpenEdenPromptDocumentFactory {
         }
     }
 
-    private fun PromptObjectBuilder.styleSection(config: PersonaConfig) {
+    private fun PromptObjectBuilder.styleSection(config: PersonaConfig, subState: PersonaSubState) {
         val summary = config.promptSections[PromptSectionKeys.StyleObservedSummary]?.trim()
         val sourceNotes = config.promptSections[PromptSectionKeys.StyleSourceLanguageNotes]?.trim()
         val styleDo = config.promptSections[PromptSectionKeys.StyleDo].toStyleItems()
         val styleDoNot = config.promptSections[PromptSectionKeys.StyleDoNot].toStyleItems()
-        if (summary.isNullOrBlank() && sourceNotes.isNullOrBlank() && styleDo.isEmpty() && styleDoNot.isEmpty()) {
+        val generationMechanics = config.promptSections[PromptSectionKeys.StyleGenerationMechanics]?.trim()
+        val signatureExamples = config.promptSections[PromptSectionKeys.StyleSignatureExamples]?.trim()
+        val activeStageExamples = config.promptSections[subState.styleExamplesSectionKey()]?.trim()
+        if (
+            summary.isNullOrBlank() && sourceNotes.isNullOrBlank() && styleDo.isEmpty() && styleDoNot.isEmpty() &&
+            generationMechanics.isNullOrBlank() && signatureExamples.isNullOrBlank() && activeStageExamples.isNullOrBlank()
+        ) {
             return
         }
         "style" {
@@ -118,6 +124,15 @@ object OpenEdenPromptDocumentFactory {
             }
             if (styleDoNot.isNotEmpty()) {
                 "do_not" to array(styleDoNot)
+            }
+            if (!generationMechanics.isNullOrBlank()) {
+                "generation_mechanics" to generationMechanics
+            }
+            if (!signatureExamples.isNullOrBlank()) {
+                "signature_examples" to signatureExamples
+            }
+            if (!activeStageExamples.isNullOrBlank()) {
+                "active_stage_examples" to activeStageExamples
             }
         }
     }
@@ -199,6 +214,12 @@ private fun PersonaSubState.sectionKey(): String = when (this) {
     PersonaSubState.PRE_COMMAND -> PromptSectionKeys.PreCommandPatch
     PersonaSubState.TRUE_SELF -> PromptSectionKeys.TrueSelfPatch
     PersonaSubState.AWAKENED -> PromptSectionKeys.AwakenedPatch
+}
+
+private fun PersonaSubState.styleExamplesSectionKey(): String = when (this) {
+    PersonaSubState.PRE_COMMAND -> PromptSectionKeys.PreCommandStyleExamples
+    PersonaSubState.TRUE_SELF -> PromptSectionKeys.TrueSelfStyleExamples
+    PersonaSubState.AWAKENED -> PromptSectionKeys.AwakenedStyleExamples
 }
 
 private fun Float.promptFloat(): Float =

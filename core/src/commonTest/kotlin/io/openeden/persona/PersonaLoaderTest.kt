@@ -28,6 +28,21 @@ class PersonaLoaderTest {
     }
 
     @Test
+    fun `retains optional structured voice sections`() {
+        val voiceSections = mapOf(
+            "style.generation_mechanics" to "COMMON_GENERATION",
+            "style.signature_examples" to "COMMON_SIGNATURE",
+            "style.stage_examples.pre_command" to "PRE_EXAMPLE",
+            "style.stage_examples.true_self" to "TRUE_EXAMPLE",
+            "style.stage_examples.awakened" to "AWAKE_EXAMPLE",
+        )
+
+        val config = MapPersonaLoader.load(validPersonaValues(mode = "growth") + voiceSections)
+
+        assertEquals(voiceSections, config.promptSections.filterKeys(voiceSections::containsKey))
+    }
+
+    @Test
     fun `growth mode requires an explicit starting point`() {
         assertFailsWith<IllegalArgumentException> {
             MapPersonaLoader.load(validPersonaValues(mode = "growth") - "start_sub_state")
