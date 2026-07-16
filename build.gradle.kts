@@ -98,8 +98,10 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.client.mock)
+    testImplementation(ktorLibs.server.testHost)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.pty4j)
+    testImplementation(project(":server"))
 }
 
 subprojects {
