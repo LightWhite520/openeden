@@ -12,23 +12,27 @@ import io.openeden.llm.StreamingLlmClient
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.session.MutableSessionStateStore
+import io.openeden.transcript.ActiveIncarnation
+import io.openeden.transcript.ConversationHistoryPage
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InMemoryTranscriptStore
+import io.openeden.transcript.TranscriptStore
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.HttpStatusCode
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -92,7 +96,8 @@ class ConversationHistoryApiTest {
                 configureRouting()
             }
 
-            listOf("not-base64!", padded, crossIncarnation).forEach { cursor ->
+            (listOf("not-base64!", padded, crossIncarnation) + structurallyInvalidCursors())
+                .forEach { cursor ->
                 val response = client.get("/api/v1/history?before=$cursor")
                 assertEquals(HttpStatusCode.BadRequest, response.status)
                 assertEquals("Invalid history cursor", response.bodyAsText())
@@ -160,7 +165,7 @@ class ConversationHistoryApiTest {
         assertEquals(encoded, HistoryCursorCodec.encode(cursor))
         assertFalse(encoded.contains('='))
         assertEquals(cursor, HistoryCursorCodec.decode(encoded))
-        listOf(
+        (listOf(
             "",
             "=",
             padded,
@@ -170,17 +175,27 @@ class ConversationHistoryApiTest {
             java.util.Base64.getUrlEncoder().withoutPadding().encodeToString("{}".toByteArray()),
             java.util.Base64.getUrlEncoder().withoutPadding()
                 .encodeToString("{\"incarnationId\":\"x\"}".toByteArray()),
-        ).forEach { invalid ->
-            kotlin.test.assertFailsWith<io.openeden.transcript.InvalidHistoryCursorException> {
+        ) + structurallyInvalidCursors()).forEach { invalid ->
+            assertFailsWith<io.openeden.transcript.InvalidHistoryCursorException> {
                 HistoryCursorCodec.decode(invalid)
+            }
+        }
+        listOf(
+            HistoryCursor("bad id", 42L, "turn-42"),
+            HistoryCursor("incarnation-a", -1L, "turn-42"),
+            HistoryCursor("incarnation-a", 42L, "t".repeat(129)),
+        ).forEach { invalid ->
+            assertFailsWith<io.openeden.transcript.InvalidHistoryCursorException> {
+                HistoryCursorCodec.encode(invalid)
             }
         }
     }
 
     @Test
-    fun `streaming retries persist the client request id as the stable turn id`() = runTest {
+    fun `streaming retry with the same client request id commits one turn and advances once`() = runTest {
         val transcripts = InMemoryTranscriptStore("active-incarnation", createdAtMs = 0L)
         val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
+        val clientRequestId = "id_" + "a".repeat(125)
         val output = LlmOutput(
             internalLogic = "private",
             vectorDelta = listOf("L", "P", "E", "S", "tau", "V", "M", "F")
@@ -210,18 +225,70 @@ class ConversationHistoryApiTest {
                 configureRouting()
             }
 
-            val response = client.post("/api/v1/chat/stream") {
-                contentType(ContentType.Application.Json)
-                setBody("""{"userId":"local","text":"hello","clientRequestId":"client-stable-1"}""")
+            val responses = List(2) {
+                client.post("/api/v1/chat/stream") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"userId":"local","text":"hello","clientRequestId":"$clientRequestId"}""")
+                }
             }
-            assertEquals(HttpStatusCode.OK, response.status)
-            response.bodyAsText()
+            responses.forEach { response ->
+                assertEquals(HttpStatusCode.OK, response.status)
+                val body = response.bodyAsText()
+                assertTrue(body.contains("event: accepted"))
+                assertTrue(body.contains("event: completed"))
+                assertFalse(body.contains("event: error"))
+            }
 
             assertEquals(
-                listOf("client-stable-1"),
+                listOf(clientRequestId),
                 transcripts.page(50).turns.map { it.turnId },
             )
+            assertEquals(1L, stateStore.read("CLI:local").evolutionIndex)
         }
+    }
+
+    @Test
+    fun `streaming rejects invalid global idempotency keys`() = testApplication {
+        application {
+            configureSerialization()
+            configureStatusPages()
+            configureWebsockets()
+            configureRouting()
+        }
+
+        listOf("", "a".repeat(129), "not valid", "请求", "bad.id").forEach { requestId ->
+            val response = client.post("/api/v1/chat/stream") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"userId":"local","text":"hello","clientRequestId":"$requestId"}""")
+            }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertEquals("Invalid client request ID", response.bodyAsText())
+        }
+    }
+
+    @Test
+    fun `history store failures return a generic service response`() = testApplication {
+        val store = object : TranscriptStore {
+            override suspend fun activeIncarnation() = ActiveIncarnation("active", 0L)
+            override suspend fun append(turn: ConversationTurn) = Unit
+            override suspend fun page(limit: Int, before: HistoryCursor?): ConversationHistoryPage {
+                throw IllegalStateException("SELECT secret_value FROM private_table")
+            }
+        }
+        application {
+            attributes.put(TranscriptStoreKey, store)
+            configureSerialization()
+            configureStatusPages()
+            configureWebsockets()
+            configureRouting()
+        }
+
+        val response = client.get("/api/v1/history")
+
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertEquals("History unavailable", response.bodyAsText())
+        assertFalse(response.bodyAsText().contains("SELECT"))
+        assertFalse(response.bodyAsText().contains("private_table"))
     }
 
     private suspend fun seededStore(): InMemoryTranscriptStore =
@@ -270,4 +337,40 @@ class ConversationHistoryApiTest {
         require(alternative != lastIndex)
         return canonical.dropLast(1) + alphabet[alternative]
     }
+
+    private fun canonicalCursorJson(): String =
+        """{"incarnationId":"incarnation-a","completedAtMs":42,"turnId":"turn-42"}"""
+
+    private fun encodeCursorJson(value: String): String =
+        java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(value.toByteArray())
+
+    private fun structurallyInvalidCursors(): List<String> = listOf(
+        "A".repeat(1025),
+        encodeCursorJson(" " + canonicalCursorJson()),
+        encodeCursorJson(
+            """{"turnId":"turn-42","completedAtMs":42,"incarnationId":"incarnation-a"}""",
+        ),
+        encodeCursorJson(canonicalCursorJson().dropLast(1) + ",\"unknown\":true}"),
+        encodeCursorJson(
+            """{"incarnationId":"incarnation-a","completedAtMs":42,"turnId":"first","turnId":"second"}""",
+        ),
+        encodeCursorJson(
+            """{"incarnationId":"${"a".repeat(129)}","completedAtMs":42,"turnId":"turn-42"}""",
+        ),
+        encodeCursorJson(
+            """{"incarnationId":"bad id","completedAtMs":42,"turnId":"turn-42"}""",
+        ),
+        encodeCursorJson(
+            """{"incarnationId":"incarnation-a","completedAtMs":42,"turnId":""}""",
+        ),
+        encodeCursorJson(
+            """{"incarnationId":"incarnation-a","completedAtMs":42,"turnId":"${"t".repeat(129)}"}""",
+        ),
+        encodeCursorJson(
+            """{"incarnationId":"incarnation-a","completedAtMs":-1,"turnId":"turn-42"}""",
+        ),
+        encodeCursorJson(
+            canonicalCursorJson().dropLast(1) + ",\"padding\":\"${"x".repeat(520)}\"}",
+        ),
+    )
 }

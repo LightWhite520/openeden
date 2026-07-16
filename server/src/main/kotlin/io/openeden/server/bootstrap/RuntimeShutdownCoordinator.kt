@@ -21,8 +21,8 @@ internal fun closeBestEffort(closers: Iterable<() -> Unit>): Throwable? {
         } catch (failure: Throwable) {
             if (firstFailure == null) {
                 firstFailure = failure
-            } else {
-                firstFailure.addSuppressed(failure)
+            } else if (failure !== firstFailure) {
+                runCatching { firstFailure.addSuppressed(failure) }
             }
         }
     }

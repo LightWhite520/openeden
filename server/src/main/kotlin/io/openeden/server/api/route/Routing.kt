@@ -92,8 +92,13 @@ fun Application.configureRouting() {
                         hasMore = page.hasMore,
                     ),
                 )
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (_: InvalidHistoryCursorException) {
                 call.respondText("Invalid history cursor", status = HttpStatusCode.BadRequest)
+            } catch (failure: Exception) {
+                log.error("Conversation history request failed", failure)
+                call.respondText("History unavailable", status = HttpStatusCode.ServiceUnavailable)
             }
         }
         get("/api/v1/diagnostics") {
@@ -163,8 +168,13 @@ fun Application.configureRouting() {
         post("/api/v1/chat/stream") {
             val requestId = "req_${UUID.randomUUID().toString().replace("-", "")}"
             val request = call.receive<ChatStreamRequestDto>()
-            if (request.userId.isBlank() || request.text.isBlank() || request.clientRequestId.isBlank()) {
+            // This is the global transcript idempotency key. Clients should generate a high-entropy UUID token.
+            if (request.userId.isBlank() || request.text.isBlank()) {
                 call.respond(HttpStatusCode.BadRequest)
+                return@post
+            }
+            if (!request.clientRequestId.isValidClientRequestId()) {
+                call.respondText("Invalid client request ID", status = HttpStatusCode.BadRequest)
                 return@post
             }
             call.respondBytesWriter(contentType = ContentType.Text.EventStream) {
@@ -276,3 +286,12 @@ fun Application.configureRouting() {
         }
     }
 }
+
+private fun String.isValidClientRequestId(): Boolean =
+    length in 1..128 && all { character ->
+        character in 'A'..'Z' ||
+            character in 'a'..'z' ||
+            character in '0'..'9' ||
+            character == '_' ||
+            character == '-'
+    }

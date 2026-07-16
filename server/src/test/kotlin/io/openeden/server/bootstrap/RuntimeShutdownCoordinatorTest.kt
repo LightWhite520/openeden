@@ -90,4 +90,30 @@ class RuntimeShutdownCoordinatorTest {
         assertEquals(listOf("first", "second", "third"), events)
         assertFalse(events.isEmpty())
     }
+
+    @Test
+    fun `stopped tolerates the same failure instance and still closes later resources`() {
+        val events = mutableListOf<String>()
+        val sharedFailure = IllegalStateException("shared")
+        val coordinator = RuntimeShutdownCoordinator(
+            runtimeJob = Job(),
+            closers = listOf(
+                {
+                    events += "first"
+                    throw sharedFailure
+                },
+                {
+                    events += "second"
+                    throw sharedFailure
+                },
+                { events += "third" },
+            ),
+        )
+
+        val failure = coordinator.stopped()
+
+        assertSame(sharedFailure, failure)
+        assertTrue(sharedFailure.suppressed.isEmpty())
+        assertEquals(listOf("first", "second", "third"), events)
+    }
 }
