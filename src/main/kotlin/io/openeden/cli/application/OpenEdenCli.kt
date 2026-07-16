@@ -34,7 +34,12 @@ class OpenEdenCli(
     private val output: (String) -> Unit = ::print,
     private val terminalSessionFactory: (() -> TerminalSession)? = null,
 ) {
-    suspend fun run(args: List<String>): Int {
+    suspend fun run(args: List<String>): Int = runInternal(args, suppliedSession = null)
+
+    internal suspend fun runWithTerminal(args: List<String>, session: TerminalSession): Int =
+        runInternal(args, suppliedSession = session)
+
+    private suspend fun runInternal(args: List<String>, suppliedSession: TerminalSession?): Int {
         val config = runCatching { configLoader() }.getOrElse {
             output("configuration error: ${it.message}\n")
             return 2
@@ -44,7 +49,17 @@ class OpenEdenCli(
             check(client.health()) {
                 "OpenEden server is unavailable at ${config.serverUrl}; start :server:run first"
             }
-            if (args.isEmpty()) repl(client, config.userId) else compatibilityCommand(args, client, config.userId)
+            if (args.isEmpty()) {
+                when {
+                    suppliedSession != null -> terminalRepl(client, config.userId, suppliedSession)
+                    terminalSessionFactory != null -> terminalSessionFactory.invoke().use { session ->
+                        terminalRepl(client, config.userId, session)
+                    }
+                    else -> repl(client, config.userId)
+                }
+            } else {
+                compatibilityCommand(args, client, config.userId)
+            }
         } catch (error: Throwable) {
             output("server error: ${error.message ?: "unavailable"}\n")
             1
@@ -54,9 +69,6 @@ class OpenEdenCli(
     }
 
     private suspend fun repl(client: OpenEdenServerApi, userId: String): Int {
-        val sessionFactory = terminalSessionFactory
-        if (sessionFactory != null) return terminalRepl(client, userId, sessionFactory)
-
         output("OpenEden connected.\nType /help for commands.\n")
         val renderer = InlineCliRenderer(
             history = { text -> output("$text\n") },
@@ -82,8 +94,8 @@ class OpenEdenCli(
     private suspend fun terminalRepl(
         client: OpenEdenServerApi,
         userId: String,
-        sessionFactory: () -> TerminalSession,
-    ): Int = sessionFactory().use { session ->
+        session: TerminalSession,
+    ): Int {
         val inline = InlineCliRenderer(
             history = InlineHistorySink(session.lineReader::printAbove),
             active = JLineInlineActiveSink(session),
@@ -104,7 +116,7 @@ class OpenEdenCli(
             },
         )
         session.lineReader.printAbove("OpenEden connected. Type /help for commands.")
-        try {
+        return try {
             controller.run(session.events())
             0
         } finally {

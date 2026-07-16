@@ -1,8 +1,9 @@
 package io.openeden.cli.application
 
 import io.openeden.cli.input.CliInput
+import io.openeden.cli.terminal.CliTerminalEvent
 import io.openeden.cli.terminal.JLineTerminalSession
-
+import io.openeden.cli.terminal.TerminalSession
 import io.openeden.client.ChatResponse
 import io.openeden.client.ChatStreamEvent
 import io.openeden.client.ConversationHistoryPage
@@ -11,17 +12,84 @@ import io.openeden.client.OpenEdenServerApi
 import io.openeden.client.PublicState
 import io.openeden.config.CliConfig
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import java.io.ByteArrayOutputStream
-import kotlin.io.path.createTempDirectory
+import org.jline.reader.LineReader
+import org.jline.terminal.Terminal
 import org.jline.terminal.TerminalBuilder
+import java.io.ByteArrayOutputStream
+import java.lang.reflect.Proxy
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class OpenEdenCliTest {
+    @Test
+    fun `supplied terminal remains open while configuration error is reported`() = runTest {
+        val output = StringBuilder()
+        val session = FakeTerminalSession()
+        val cli = OpenEdenCli(
+            configLoader = { error("bad config") },
+            input = SequenceInput(emptyList()),
+            output = output::append,
+        )
+
+        assertEquals(2, cli.runWithTerminal(emptyList(), session))
+        assertTrue(output.toString().contains("configuration error: bad config"))
+        assertEquals(0, session.closeCalls)
+    }
+
+    @Test
+    fun `supplied terminal remains open while health error is reported`() = runTest {
+        val output = StringBuilder()
+        val session = FakeTerminalSession()
+        val client = FakeServerClient().apply { healthy = false }
+        val cli = OpenEdenCli(
+            configLoader = { config() },
+            clientFactory = { client },
+            input = SequenceInput(emptyList()),
+            output = output::append,
+        )
+
+        assertEquals(1, cli.runWithTerminal(emptyList(), session))
+        assertTrue(output.toString().contains("server error:"))
+        assertEquals(0, session.closeCalls)
+    }
+
+    @Test
+    fun `supplied terminal remains open while repl error is reported`() = runTest {
+        val output = StringBuilder()
+        val session = FakeTerminalSession(events = flow { throw IllegalStateException("repl failed") })
+        val cli = OpenEdenCli(
+            configLoader = { config() },
+            clientFactory = { FakeServerClient() },
+            input = SequenceInput(emptyList()),
+            output = output::append,
+        )
+
+        assertEquals(1, cli.runWithTerminal(emptyList(), session))
+        assertTrue(output.toString().contains("server error: repl failed"))
+        assertEquals(0, session.closeCalls)
+    }
+
+    @Test
+    fun `factory terminal remains self owned and closes exactly once`() = runTest {
+        val session = FakeTerminalSession()
+        val cli = OpenEdenCli(
+            configLoader = { config() },
+            clientFactory = { FakeServerClient() },
+            input = SequenceInput(emptyList()),
+            output = {},
+            terminalSessionFactory = { session },
+        )
+
+        assertEquals(0, cli.run(emptyList()))
+        assertEquals(1, session.closeCalls)
+    }
+
     @Test
     fun `interactive terminal events drive the session controller`() = runTest {
         val client = FakeServerClient()
@@ -124,8 +192,9 @@ class OpenEdenCliTest {
         var stateCalls = 0
         var closeCalls = 0
         var serverStopRequested = false
+        var healthy = true
 
-        override suspend fun health() = true
+        override suspend fun health() = healthy
 
         override suspend fun chat(userId: String, text: String): ChatResponse {
             messages += text
@@ -155,5 +224,34 @@ class OpenEdenCliTest {
         override fun close() {
             closeCalls += 1
         }
+    }
+
+    private class FakeTerminalSession(
+        private val events: Flow<CliTerminalEvent> = flowOf(CliTerminalEvent.EndOfFile),
+    ) : TerminalSession {
+        override val terminal: Terminal = proxy()
+        override val lineReader: LineReader = proxy()
+        var closeCalls = 0
+            private set
+
+        override fun events(): Flow<CliTerminalEvent> = events
+        override fun enterFullScreen() = false
+        override fun exitFullScreen() = Unit
+        override fun redisplay() = Unit
+        override fun close() {
+            closeCalls += 1
+        }
+
+        private inline fun <reified T> proxy(): T = Proxy.newProxyInstance(
+            T::class.java.classLoader,
+            arrayOf(T::class.java),
+        ) { _, method, _ ->
+            when {
+                method.name == "printAbove" -> null
+                method.returnType == java.lang.Boolean.TYPE -> false
+                method.returnType == java.lang.Integer.TYPE -> 0
+                else -> null
+            }
+        } as T
     }
 }

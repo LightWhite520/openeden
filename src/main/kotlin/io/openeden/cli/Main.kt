@@ -18,7 +18,14 @@ suspend fun main(args: Array<String>) {
         stdoutInteractive = consoleInteractive,
         interactiveFactory = {
             val session = JLineTerminalSession.create()
-            suspend { runInteractive(arguments, session) }
+            suspend {
+                runInteractive(session) { output ->
+                    OpenEdenCli(
+                        input = CliInput { error("Plain stdin is unavailable while JLine owns the terminal") },
+                        output = output,
+                    ).runWithTerminal(arguments, session)
+                }
+            }
         },
         plainFactory = { terminalFailure ->
             val streams = CliTextStreams.create(
@@ -38,18 +45,15 @@ suspend fun main(args: Array<String>) {
     exitProcess(launch())
 }
 
-private suspend fun runInteractive(arguments: List<String>, session: TerminalSession): Int {
-    val writer = session.terminal.writer()
-    return try {
-        OpenEdenCli(
-            input = CliInput { error("Plain stdin is unavailable while JLine owns the terminal") },
-            output = writer.outputSink(),
-            terminalSessionFactory = { session },
-        ).run(arguments)
+internal suspend fun runInteractive(
+    session: TerminalSession,
+    runCli: suspend (output: (String) -> Unit) -> Int,
+): Int = try {
+        val writer = session.terminal.writer()
+        runCli(writer.outputSink())
     } finally {
         session.close()
     }
-}
 
 private suspend fun runPlain(arguments: List<String>, streams: CliTextStreams): Int = OpenEdenCli(
     input = StdinCliInput(streams.reader),

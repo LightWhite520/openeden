@@ -14,7 +14,9 @@ internal object CliIoModeSelector {
 
         return try {
             interactiveFactory()
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
+            plainFactory(error)
+        } catch (error: UnsatisfiedLinkError) {
             plainFactory(error)
         }
     }

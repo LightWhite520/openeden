@@ -280,6 +280,26 @@ class JLineTerminalSessionTest {
     }
 
     @Test
+    fun `event collection leaves terminal lifecycle open for its owner`() = runTest {
+        val terminal = testTerminal()
+        val operations = RecordingLifecycleOperations(capabilities = false)
+        val session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = false,
+            readLine = { null },
+            lifecycleOperations = operations,
+        )
+
+        assertEquals(listOf(CliTerminalEvent.EndOfFile), session.events().toList())
+        assertTrue(operations.calls.isEmpty())
+
+        session.close()
+        assertEquals(listOf("restore", "close"), operations.calls)
+    }
+
+    @Test
     fun `external close makes a late reader result a graceful shutdown`() = runTest {
         val terminal = testTerminal()
         val readStarted = CountDownLatch(1)

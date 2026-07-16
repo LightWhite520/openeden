@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertFailsWith
 
 class CliIoModeSelectorTest {
     @Test
@@ -104,5 +105,48 @@ class CliIoModeSelectorTest {
         assertEquals("streams", selected)
         assertEquals(1, streamCreations)
         assertSame(terminalError, receivedFailure)
+    }
+
+    @Test
+    fun `native linkage failure falls back to one plain owner`() {
+        val nativeError = UnsatisfiedLinkError("native terminal unavailable")
+        var streamCreations = 0
+
+        val selected = CliIoModeSelector.select(
+            arguments = emptyList(),
+            stdinInteractive = true,
+            stdoutInteractive = true,
+            interactiveFactory = { throw nativeError },
+            plainFactory = { failure ->
+                streamCreations += 1
+                assertSame(nativeError, failure)
+                "streams"
+            },
+        )
+
+        assertEquals("streams", selected)
+        assertEquals(1, streamCreations)
+    }
+
+    @Test
+    fun `fatal errors propagate without creating plain streams`() {
+        val fatalError = object : Error("fatal") {}
+        var streamCreations = 0
+
+        val thrown = assertFailsWith<Error> {
+            CliIoModeSelector.select(
+                arguments = emptyList(),
+                stdinInteractive = true,
+                stdoutInteractive = true,
+                interactiveFactory = { throw fatalError },
+                plainFactory = {
+                    streamCreations += 1
+                    "streams"
+                },
+            )
+        }
+
+        assertSame(fatalError, thrown)
+        assertEquals(0, streamCreations)
     }
 }
