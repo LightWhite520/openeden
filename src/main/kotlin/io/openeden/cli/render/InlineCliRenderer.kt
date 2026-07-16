@@ -5,8 +5,8 @@ import io.openeden.cli.state.CliMessageStatus
 import io.openeden.cli.state.CliRole
 import io.openeden.cli.state.CliUiState
 
-// Retain long-session deduplication while bounding renderer-owned history metadata.
-private const val MAX_COMMITTED_MESSAGE_IDS = 4_096
+// Keep all visible IDs stable while bounding IDs retained after they leave the transcript.
+private const val MAX_REMOVED_MESSAGE_IDS = 4_096
 
 fun interface InlineHistorySink {
     fun printAbove(text: String)
@@ -25,7 +25,7 @@ class InlineCliRenderer(
     private val markdown: MarkdownTextRenderer = MarkdownTextRenderer(),
     private val active: InlineActiveSink? = null,
 ) : CliRenderer {
-    private val committed = BoundedCommittedIds(MAX_COMMITTED_MESSAGE_IDS)
+    private val committed = CommittedMessageOwnership(MAX_REMOVED_MESSAGE_IDS)
 
     fun rows(state: CliUiState, width: Int): List<String> {
         return buildList {
@@ -46,7 +46,11 @@ class InlineCliRenderer(
     }
 
     override fun render(previous: CliUiState?, current: CliUiState, size: Size): RenderDecision {
-        current.messages.filter { it.status == CliMessageStatus.COMPLETE && committed.mark(it.id) }.forEach { msg ->
+        val completedMessages = LinkedHashMap<String, CliMessage>()
+        current.messages.forEach { message ->
+            if (message.status == CliMessageStatus.COMPLETE) completedMessages.putIfAbsent(message.id, message)
+        }
+        committed.newIds(completedMessages.keys.toList()).mapNotNull(completedMessages::get).forEach { msg ->
             val committedState = current.copy(
                 messages = listOf(msg),
                 requestActive = false,

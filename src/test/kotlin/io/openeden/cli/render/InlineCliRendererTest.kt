@@ -170,6 +170,37 @@ class InlineCliRendererTest {
         assertEquals(1, history.size)
     }
 
+    @Test fun `more than ownership capacity stays stable across consecutive frames`() {
+        var historyWrites = 0
+        val renderer = InlineCliRenderer(history = InlineHistorySink { historyWrites += 1 })
+        val messages = List(4_097) { index ->
+            CliMessage("turn:$index", CliRole.ASSISTANT, "", CliMessageStatus.COMPLETE)
+        }
+        val state = CliUiState(sessionId = "s", messages = messages)
+
+        renderer.render(null, state, Size(80, 24))
+        assertEquals(messages.size, historyWrites)
+
+        renderer.render(state, state, Size(80, 24))
+        assertEquals(messages.size, historyWrites)
+    }
+
+    @Test fun `streaming and failed ids commit only after complete transition`() {
+        val history = mutableListOf<String>()
+        val renderer = InlineCliRenderer(history = InlineHistorySink { history += it })
+        val streaming = CliMessage("turn", CliRole.ASSISTANT, "partial", CliMessageStatus.STREAMING)
+        val failed = streaming.copy(status = CliMessageStatus.FAILED)
+        val complete = streaming.copy(markdown = "done", status = CliMessageStatus.COMPLETE)
+
+        renderer.render(null, CliUiState("s", messages = listOf(streaming)), Size(80, 24))
+        renderer.render(null, CliUiState("s", messages = listOf(failed)), Size(80, 24))
+        renderer.render(null, CliUiState("s", messages = listOf(complete)), Size(80, 24))
+        renderer.render(null, CliUiState("s", messages = listOf(complete)), Size(80, 24))
+
+        assertEquals(1, history.size)
+        assertTrue(history.single().contains("done"))
+    }
+
     private class RecordingActiveSink : InlineActiveSink {
         val frames = mutableListOf<List<String>>()
         var clearCalls = 0
