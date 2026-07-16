@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -36,11 +37,25 @@ class CliPseudoTerminalTest {
             .start()
         val reader = Executors.newSingleThreadExecutor()
         try {
-            val transcriptFuture = reader.submit<String> { process.inputReader(UTF_8).readText() }
+            val transcriptBuffer = StringBuffer()
+            val transcriptFuture = reader.submit<Unit> {
+                process.inputReader(UTF_8).use { output ->
+                    val chunk = CharArray(1_024)
+                    while (true) {
+                        val read = output.read(chunk)
+                        if (read < 0) break
+                        transcriptBuffer.append(chunk, 0, read)
+                    }
+                }
+            }
             process.outputWriter(UTF_8).use { input ->
+                transcriptBuffer.awaitContains("OpenEden connected")
                 input.write("你好\r")
                 input.flush()
-                Thread.sleep(350)
+                transcriptBuffer.awaitContains("第一轮回复：你好")
+                input.write("再见\r")
+                input.flush()
+                transcriptBuffer.awaitContains("第二轮回复：再见")
                 input.write("/mode full\r")
                 input.flush()
                 Thread.sleep(150)
@@ -53,15 +68,25 @@ class CliPseudoTerminalTest {
 
             if (!process.waitFor(20, TimeUnit.SECONDS)) {
                 process.destroyForcibly()
-                val transcript = transcriptFuture.get(5, TimeUnit.SECONDS)
+                transcriptFuture.get(5, TimeUnit.SECONDS)
+                val transcript = transcriptBuffer.toString()
                 throw AssertionError("CLI did not exit within 20 seconds:\n$transcript")
             }
-            val transcript = transcriptFuture.get(5, TimeUnit.SECONDS)
+            transcriptFuture.get(5, TimeUnit.SECONDS)
+            val transcript = transcriptBuffer.toString()
 
             assertEquals(0, process.exitValue(), transcript)
             assertTrue(transcript.contains("你好"), transcript)
-            assertTrue(transcript.contains("回复：你好"), transcript)
-            assertTrue(transcript.countOccurrences("> 你好") <= 2, transcript)
+            assertTrue(transcript.contains("第一轮回复：你好"), transcript)
+            assertTrue(transcript.contains("第二轮回复：再见"), transcript)
+            val afterSecondResponse = transcript.substring(transcript.indexOf("第二轮回复：再见"))
+            assertTrue(afterSecondResponse.contains("第一轮回复：你好"), transcript)
+            assertTrue(transcript.countOccurrences("> 你好") <= 3, transcript)
+            val physicalLines = transcript
+                .replace(Regex("\\u001B\\[[0-?]*[ -/]*[@-~]"), "")
+                .split("\r\n", "\n", "\r")
+            assertFalse(physicalLines.any { it.startsWith(" [status]") }, transcript)
+            assertFalse(physicalLines.any { it.startsWith(" ATRI:") }, transcript)
             assertFalse(transcript.contains('\uFFFD'), transcript)
             assertFalse(transcript.contains("??"), transcript)
         } finally {
@@ -90,32 +115,36 @@ class CliPseudoTerminalTest {
         )
     }
 
-    private fun startServer(): HttpServer = HttpServer.create(
-        InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
-        0,
-    ).apply {
-        createContext("/health") { exchange ->
-            exchange.respond("application/json", """{"status":"ready"}""")
+    private fun startServer(): HttpServer {
+        val requests = AtomicInteger()
+        return HttpServer.create(
+            InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
+            0,
+        ).apply {
+            createContext("/health") { exchange ->
+                exchange.respond("application/json", """{"status":"ready"}""")
+            }
+            createContext("/api/v1/chat/stream") { exchange ->
+                exchange.requestBody.use { it.readAllBytes() }
+                val response = if (requests.incrementAndGet() == 1) "第一轮回复：你好" else "第二轮回复：再见"
+                exchange.respond(
+                    "text/event-stream; charset=UTF-8",
+                    """
+                        event: accepted
+                        data: {"requestId":"req_1"}
+
+                        event: response.delta
+                        data: {"text":"$response"}
+
+                        event: completed
+                        data: {"requestId":"req_1","status":"completed"}
+
+                    """.trimIndent(),
+                )
+            }
+            executor = Executors.newCachedThreadPool()
+            start()
         }
-        createContext("/api/v1/chat/stream") { exchange ->
-            exchange.requestBody.use { it.readAllBytes() }
-            exchange.respond(
-                "text/event-stream; charset=UTF-8",
-                """
-                    event: accepted
-                    data: {"requestId":"req_1"}
-
-                    event: response.delta
-                    data: {"text":"回复：你好"}
-
-                    event: completed
-                    data: {"requestId":"req_1","status":"completed"}
-
-                """.trimIndent(),
-            )
-        }
-        executor = Executors.newCachedThreadPool()
-        start()
     }
 
     private fun HttpExchange.respond(contentType: String, body: String) {
@@ -133,6 +162,16 @@ class CliPseudoTerminalTest {
             if (match < 0) return count
             count += 1
             start = match + value.length
+        }
+    }
+
+    private fun StringBuffer.awaitContains(value: String) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (!contains(value)) {
+            if (System.nanoTime() >= deadline) {
+                throw AssertionError("Timed out waiting for '$value':\n$this")
+            }
+            Thread.sleep(20)
         }
     }
 }

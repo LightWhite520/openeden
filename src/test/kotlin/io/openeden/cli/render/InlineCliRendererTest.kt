@@ -35,6 +35,48 @@ class InlineCliRendererTest {
         assertTrue(frames.single().any { it.contains("partial") })
     }
 
+    @Test fun `active rows put status before streaming message at column zero`() {
+        val state = CliUiState(
+            sessionId = "s",
+            requestActive = true,
+            stage = "generating",
+            notice = "still working",
+            messages = listOf(CliMessage("a", CliRole.ASSISTANT, "你好", CliMessageStatus.STREAMING)),
+        )
+
+        assertEquals(
+            listOf("[status] generating", "ATRI: 你好", "[notice] still working"),
+            InlineCliRenderer().activeRows(state, 80),
+        )
+    }
+
+    @Test fun `wrapped labels appear only on first row with exact continuation indent`() {
+        val state = CliUiState(
+            sessionId = "s",
+            messages = listOf(
+                CliMessage("u", CliRole.USER, "123456789", CliMessageStatus.COMPLETE),
+                CliMessage("a", CliRole.ASSISTANT, "你好世界", CliMessageStatus.COMPLETE),
+            ),
+        )
+
+        assertEquals(
+            listOf("> 12345678", "  9", "ATRI: 你好", "      世界"),
+            InlineCliRenderer().rows(state, 10),
+        )
+    }
+
+    @Test fun `very narrow width keeps one label and does not fail`() {
+        val rows = InlineCliRenderer().rows(
+            CliUiState(
+                sessionId = "s",
+                messages = listOf(CliMessage("a", CliRole.ASSISTANT, "你好", CliMessageStatus.COMPLETE)),
+            ),
+            width = 1,
+        )
+
+        assertEquals(listOf("ATRI: 你", "      好"), rows)
+    }
+
     @Test fun `committed history excludes transient status rows`() {
         val history = mutableListOf<String>()
         val renderer = InlineCliRenderer(history = InlineHistorySink { history += it })
@@ -85,6 +127,28 @@ class InlineCliRendererTest {
         assertEquals(1, active.clearCalls)
         assertEquals(1, history.count { it.contains("hello") })
         assertEquals(1, history.count { it.contains("done") })
+    }
+
+    @Test fun `completed history is printed once before active rows clear`() {
+        val calls = mutableListOf<String>()
+        val renderer = InlineCliRenderer(
+            history = InlineHistorySink { calls += "history" },
+            active = object : InlineActiveSink {
+                override fun render(lines: List<String>) = Unit
+                override fun clear() {
+                    calls += "clear"
+                }
+            },
+        )
+        val hydrated = CliUiState(
+            sessionId = "s",
+            messages = listOf(CliMessage("restored:assistant", CliRole.ASSISTANT, "restored", CliMessageStatus.COMPLETE)),
+        )
+
+        renderer.render(null, hydrated, Size(80, 24))
+        renderer.render(hydrated, hydrated, Size(80, 24))
+
+        assertEquals(listOf("history", "clear", "clear"), calls)
     }
 
     private class RecordingActiveSink : InlineActiveSink {
