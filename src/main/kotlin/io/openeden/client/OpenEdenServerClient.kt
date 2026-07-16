@@ -11,8 +11,10 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.Parameters
 import io.ktor.http.contentType
 import io.ktor.http.encodeURLParameter
+import io.ktor.http.formUrlEncode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -42,6 +44,14 @@ class OpenEdenServerClient(
             response.requireSuccess()
             SseEventParser().parse(response.bodyAsChannel()).collect(::emit)
         }
+    }
+
+    override suspend fun history(limit: Int, before: String?): ConversationHistoryPage {
+        val query = Parameters.build {
+            append("limit", limit.coerceIn(1, 50).toString())
+            before?.let { append("before", it) }
+        }.formUrlEncode()
+        return httpClient.get("$baseUrl/api/v1/history?$query").decodeSuccess()
     }
 
     override suspend fun state(userId: String): PublicState =

@@ -5,6 +5,7 @@ import io.openeden.cli.terminal.JLineTerminalSession
 
 import io.openeden.client.ChatResponse
 import io.openeden.client.ChatStreamEvent
+import io.openeden.client.ConversationHistoryPage
 import io.openeden.client.DiagnosticState
 import io.openeden.client.OpenEdenServerApi
 import io.openeden.client.PublicState
@@ -139,6 +140,9 @@ class OpenEdenCliTest {
                 ChatStreamEvent.Completed("req_test", "completed"),
             )
         }
+
+        override suspend fun history(limit: Int, before: String?) =
+            ConversationHistoryPage(emptyList(), null, false)
 
         override suspend fun state(userId: String): PublicState {
             stateCalls += 1

@@ -8,6 +8,7 @@ import io.openeden.cli.state.CliMode
 import io.openeden.cli.terminal.CliTerminalEvent
 import io.openeden.client.ChatResponse
 import io.openeden.client.ChatStreamEvent
+import io.openeden.client.ConversationHistoryPage
 import io.openeden.client.OpenEdenServerApi
 import io.openeden.client.PublicState
 import kotlinx.coroutines.CompletableDeferred
@@ -104,6 +105,8 @@ class CliSessionControllerTest {
             streamCalls += 1
             return events
         }
+        override suspend fun history(limit: Int, before: String?) =
+            ConversationHistoryPage(emptyList(), null, false)
         override suspend fun state(userId: String) = PublicState("CLI:$userId", "ready", 0.0f, false)
         override suspend fun diagnostics(userId: String, token: String) = error("unused")
         override fun close() = Unit
@@ -120,6 +123,8 @@ class CliSessionControllerTest {
             started.complete(Unit)
             MutableSharedFlow<ChatStreamEvent>().collect { emit(it) }
         }
+        override suspend fun history(limit: Int, before: String?) =
+            ConversationHistoryPage(emptyList(), null, false)
         override suspend fun state(userId: String) = PublicState("CLI:$userId", "ready", 0.0f, false)
         override suspend fun diagnostics(userId: String, token: String) = error("unused")
         override fun close() = Unit
