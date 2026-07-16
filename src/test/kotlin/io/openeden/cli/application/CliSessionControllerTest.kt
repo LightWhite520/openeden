@@ -9,9 +9,12 @@ import io.openeden.cli.terminal.CliTerminalEvent
 import io.openeden.client.ChatResponse
 import io.openeden.client.ChatStreamEvent
 import io.openeden.client.ConversationHistoryPage
+import io.openeden.client.ConversationTurn
 import io.openeden.client.OpenEdenServerApi
 import io.openeden.client.PublicState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -20,9 +23,122 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CliSessionControllerTest {
+    @Test
+    fun `initialize history requests first page and hydrates messages`() = runTest {
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(ConversationHistoryPage(listOf(turn("t1")), "older", true)),
+            ),
+        )
+        val controller = CliSessionController("local", api, CapturingRenderer())
+
+        controller.initializeHistory()
+
+        assertEquals(listOf(HistoryCall(50, null)), api.historyCalls)
+        assertEquals(listOf("t1:user", "t1:assistant"), controller.state.messages.map { it.id })
+        assertEquals("older", controller.state.historyBefore)
+        assertFalse(controller.state.historyExhausted)
+    }
+
+    @Test
+    fun `older history uses cursor from previous page`() = runTest {
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(
+                    ConversationHistoryPage(listOf(turn("t2")), "before-t2", true),
+                    ConversationHistoryPage(listOf(turn("t1")), null, false),
+                ),
+            ),
+        )
+        val controller = CliSessionController("local", api, CapturingRenderer())
+
+        controller.initializeHistory()
+        controller.loadOlderHistory()
+
+        assertEquals(listOf(HistoryCall(50, null), HistoryCall(50, "before-t2")), api.historyCalls)
+        assertEquals(
+            listOf("t1:user", "t1:assistant", "t2:user", "t2:assistant"),
+            controller.state.messages.map { it.id },
+        )
+        assertTrue(controller.state.historyExhausted)
+    }
+
+    @Test
+    fun `history failure hides internal details`() = runTest {
+        val api = RecordingHistoryApi(failure = IllegalStateException("secret backend detail"))
+        val controller = CliSessionController("local", api, CapturingRenderer())
+
+        controller.initializeHistory()
+
+        assertEquals("Conversation history unavailable.", controller.state.notice)
+        assertFalse(controller.state.historyLoading)
+    }
+
+    @Test
+    fun `history cancellation propagates without unavailable notice`() = runTest {
+        val controller = CliSessionController(
+            "local",
+            RecordingHistoryApi(failure = CancellationException("cancelled")),
+            CapturingRenderer(),
+        )
+
+        assertFailsWith<CancellationException> { controller.initializeHistory() }
+
+        assertNull(controller.state.notice)
+        assertFalse(controller.state.historyLoading)
+    }
+
+    @Test
+    fun `exhausted history does not request another page`() = runTest {
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(ConversationHistoryPage(listOf(turn("t1")), null, false)),
+            ),
+        )
+        val controller = CliSessionController("local", api, CapturingRenderer())
+
+        controller.initializeHistory()
+        controller.loadOlderHistory()
+
+        assertEquals(listOf(HistoryCall(50, null)), api.historyCalls)
+    }
+
+    @Test
+    fun `concurrent older history requests are single flight`() = runTest {
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(
+                    ConversationHistoryPage(listOf(turn("t2")), "before-t2", true),
+                    ConversationHistoryPage(listOf(turn("t1")), null, false),
+                ),
+            ),
+        )
+        val controller = CliSessionController("local", api, CapturingRenderer())
+        controller.initializeHistory()
+        val olderGate = CompletableDeferred<Unit>()
+        api.historyGate = olderGate
+
+        val first = async { controller.loadOlderHistory() }
+        testScheduler.runCurrent()
+        val second = async { controller.loadOlderHistory() }
+        testScheduler.runCurrent()
+        assertEquals(2, api.historyCalls.size)
+        olderGate.complete(Unit)
+        first.await()
+        second.await()
+
+        assertEquals(
+            listOf(HistoryCall(50, null), HistoryCall(50, "before-t2")),
+            api.historyCalls,
+        )
+    }
+
     @Test
     fun `burst deltas are coalesced without losing response text`() = runTest {
         val renderer = CapturingRenderer()
@@ -129,4 +245,37 @@ class CliSessionControllerTest {
         override suspend fun diagnostics(userId: String, token: String) = error("unused")
         override fun close() = Unit
     }
+
+    private data class HistoryCall(val limit: Int, val before: String?)
+
+    private class RecordingHistoryApi(
+        private val pages: ArrayDeque<ConversationHistoryPage> = ArrayDeque(),
+        private val failure: Throwable? = null,
+        var historyGate: CompletableDeferred<Unit>? = null,
+    ) : OpenEdenServerApi {
+        val historyCalls = mutableListOf<HistoryCall>()
+
+        override suspend fun health() = true
+        override suspend fun chat(userId: String, text: String) = ChatResponse("req", "completed", "fallback")
+        override fun chatStream(userId: String, text: String, clientRequestId: String) = flowOf<ChatStreamEvent>()
+        override suspend fun history(limit: Int, before: String?): ConversationHistoryPage {
+            historyCalls += HistoryCall(limit, before)
+            historyGate?.await()
+            failure?.let { throw it }
+            return pages.removeFirst()
+        }
+        override suspend fun state(userId: String) = PublicState("CLI:$userId", "ready", 0.0f, false)
+        override suspend fun diagnostics(userId: String, token: String) = error("unused")
+        override fun close() = Unit
+    }
+
+    private fun turn(id: String) = ConversationTurn(
+        turnId = id,
+        platform = "CLI",
+        scopeId = "local",
+        userId = "local",
+        userText = "user-$id",
+        assistantText = "assistant-$id",
+        completedAtMs = 1L,
+    )
 }

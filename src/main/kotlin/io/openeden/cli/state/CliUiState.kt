@@ -9,6 +9,9 @@ data class CliUiState(
     val diagnosticsVisible: Boolean = false,
     val diagnostics: CliDiagnostics? = null,
     val notice: String? = null,
+    val historyBefore: String? = null,
+    val historyLoading: Boolean = false,
+    val historyExhausted: Boolean = false,
     val columns: Int = 80,
     val rows: Int = 24,
 ) {

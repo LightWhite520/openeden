@@ -24,6 +24,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import java.util.UUID
 
 class CliSessionController(
@@ -45,6 +46,7 @@ class CliSessionController(
     private var activeCommand: Job? = null
     private var stopped = false
     private val stateLock = Any()
+    private val historyRequestLock = Mutex()
 
     fun accept(event: CliTerminalEvent) {
         if (stopped) return
@@ -72,6 +74,31 @@ class CliSessionController(
             !stopped
         }.collect { }
         drain()
+    }
+
+    suspend fun initializeHistory() = loadHistory(initial = true)
+
+    suspend fun loadOlderHistory() = loadHistory(initial = false)
+
+    private suspend fun loadHistory(initial: Boolean) {
+        if (!historyRequestLock.tryLock()) return
+        try {
+            val current = state
+            if (current.historyLoading || (!initial && current.historyExhausted)) return
+            val before = if (initial) null else current.historyBefore
+            dispatch(CliEvent.HistoryLoading)
+            try {
+                val page = api.history(limit = HISTORY_PAGE_SIZE, before = before)
+                dispatch(CliEvent.HistoryLoaded(page, initial))
+            } catch (error: CancellationException) {
+                dispatch(CliEvent.HistoryLoadCancelled)
+                throw error
+            } catch (_: Throwable) {
+                dispatch(CliEvent.HistoryLoadFailed(HISTORY_UNAVAILABLE_MESSAGE))
+            }
+        } finally {
+            historyRequestLock.unlock()
+        }
     }
 
     private fun acceptText(text: String) {
@@ -215,5 +242,7 @@ class CliSessionController(
     private companion object {
         const val HELP_TEXT = "/state  /help  /exit\n/mode inline|full  /inspect on|off  /clear"
         const val RENDER_INTERVAL_NANOS = 33_000_000L
+        const val HISTORY_PAGE_SIZE = 50
+        const val HISTORY_UNAVAILABLE_MESSAGE = "Conversation history unavailable."
     }
 }

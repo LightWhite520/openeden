@@ -1,5 +1,7 @@
 package io.openeden.cli.state
 
+import io.openeden.client.ConversationHistoryPage
+import io.openeden.client.ConversationTurn
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,6 +10,112 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class CliReducerTest {
+    @Test
+    fun `initial history maps turns to complete chronological message pairs`() {
+        val state = CliUiState.initial("local")
+            .reduce(CliEvent.HistoryLoading)
+            .reduce(
+                CliEvent.HistoryLoaded(
+                    page = historyPage(turn("t1"), turn("t2"), before = "older", hasMore = true),
+                    initial = true,
+                ),
+            )
+
+        assertEquals(
+            listOf("t1:user", "t1:assistant", "t2:user", "t2:assistant"),
+            state.messages.map { it.id },
+        )
+        assertEquals(
+            listOf(CliRole.USER, CliRole.ASSISTANT, CliRole.USER, CliRole.ASSISTANT),
+            state.messages.map { it.role },
+        )
+        assertEquals(listOf("user-t1", "assistant-t1", "user-t2", "assistant-t2"), state.messages.map { it.markdown })
+        assertTrue(state.messages.all { it.status == CliMessageStatus.COMPLETE })
+        assertEquals("older", state.historyBefore)
+        assertFalse(state.historyLoading)
+        assertFalse(state.historyExhausted)
+    }
+
+    @Test
+    fun `history marks exhaustion when page has no cursor or no more turns`() {
+        val missingCursor = CliUiState.initial("local").reduce(
+            CliEvent.HistoryLoaded(historyPage(turn("t1"), before = null, hasMore = true), initial = true),
+        )
+        val noMore = CliUiState.initial("local").reduce(
+            CliEvent.HistoryLoaded(historyPage(turn("t1"), before = "older", hasMore = false), initial = true),
+        )
+
+        assertTrue(missingCursor.historyExhausted)
+        assertTrue(noMore.historyExhausted)
+    }
+
+    @Test
+    fun `older history prepends missing pairs without replacing existing or streaming messages`() {
+        val existing = listOf(
+            historyMessage("t2", CliRole.USER, "existing-user-t2"),
+            historyMessage("t2", CliRole.ASSISTANT, "existing-assistant-t2"),
+            historyMessage("t3", CliRole.USER, "existing-user-t3"),
+            historyMessage("t3", CliRole.ASSISTANT, "existing-assistant-t3"),
+            CliMessage("local", CliRole.USER, "local", CliMessageStatus.COMPLETE),
+            CliMessage("local:assistant", CliRole.ASSISTANT, "partial", CliMessageStatus.STREAMING),
+        )
+        val state = CliUiState(sessionId = "CLI:local", messages = existing).reduce(
+            CliEvent.HistoryLoaded(
+                historyPage(turn("t1"), turn("t2"), before = null, hasMore = false),
+                initial = false,
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                "t1:user", "t1:assistant", "t2:user", "t2:assistant",
+                "t3:user", "t3:assistant", "local", "local:assistant",
+            ),
+            state.messages.map { it.id },
+        )
+        assertEquals("existing-user-t2", state.messages[2].markdown)
+        assertEquals("existing-assistant-t2", state.messages[3].markdown)
+        assertEquals(CliMessageStatus.STREAMING, state.messages.last().status)
+    }
+
+    @Test
+    fun `initial history replaces stale complete messages while preserving active pair`() {
+        val state = CliUiState(
+            sessionId = "CLI:local",
+            messages = listOf(
+                historyMessage("stale", CliRole.USER, "stale-user"),
+                historyMessage("stale", CliRole.ASSISTANT, "stale-assistant"),
+                CliMessage("local", CliRole.USER, "local", CliMessageStatus.COMPLETE),
+                CliMessage("local:assistant", CliRole.ASSISTANT, "partial", CliMessageStatus.STREAMING),
+            ),
+            requestActive = true,
+        ).reduce(
+            CliEvent.HistoryLoaded(
+                historyPage(turn("t1"), before = null, hasMore = false),
+                initial = true,
+            ),
+        )
+
+        assertEquals(
+            listOf("t1:user", "t1:assistant", "local", "local:assistant"),
+            state.messages.map { it.id },
+        )
+        assertEquals(CliMessageStatus.STREAMING, state.messages.last().status)
+    }
+
+    @Test
+    fun `history loading clears notice and failure stops loading with fixed notice`() {
+        val loading = CliUiState.initial("local")
+            .reduce(CliEvent.Notice("old"))
+            .reduce(CliEvent.HistoryLoading)
+        val failed = loading.reduce(CliEvent.HistoryLoadFailed("Conversation history unavailable."))
+
+        assertTrue(loading.historyLoading)
+        assertNull(loading.notice)
+        assertFalse(failed.historyLoading)
+        assertEquals("Conversation history unavailable.", failed.notice)
+    }
+
     @Test
     fun `submission and delta append vertically ordered user and provisional assistant messages`() {
         val state = CliUiState.initial("local")
@@ -158,5 +266,28 @@ class CliReducerTest {
         shockIntensity = null,
         evolutionIndex = 3L,
         derivedDissonance = 0.1f,
+    )
+
+    private fun turn(id: String) = ConversationTurn(
+        turnId = id,
+        platform = "CLI",
+        scopeId = "local",
+        userId = "local",
+        userText = "user-$id",
+        assistantText = "assistant-$id",
+        completedAtMs = 1L,
+    )
+
+    private fun historyPage(
+        vararg turns: ConversationTurn,
+        before: String?,
+        hasMore: Boolean,
+    ) = ConversationHistoryPage(turns.toList(), before, hasMore)
+
+    private fun historyMessage(turnId: String, role: CliRole, markdown: String) = CliMessage(
+        id = "$turnId:${role.name.lowercase()}",
+        role = role,
+        markdown = markdown,
+        status = CliMessageStatus.COMPLETE,
     )
 }

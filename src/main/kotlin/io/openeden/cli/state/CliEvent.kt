@@ -1,5 +1,7 @@
 package io.openeden.cli.state
 
+import io.openeden.client.ConversationHistoryPage
+
 sealed interface CliEvent {
     data class Submitted(val text: String, val id: String) : CliEvent
 
@@ -24,6 +26,17 @@ sealed interface CliEvent {
     data class Resized(val columns: Int, val rows: Int) : CliEvent
 
     data class Notice(val message: String?) : CliEvent
+
+    data object HistoryLoading : CliEvent
+
+    data class HistoryLoaded(
+        val page: ConversationHistoryPage,
+        val initial: Boolean,
+    ) : CliEvent
+
+    data class HistoryLoadFailed(val message: String) : CliEvent
+
+    data object HistoryLoadCancelled : CliEvent
 
     data object ClearVisibleHistory : CliEvent
 }
