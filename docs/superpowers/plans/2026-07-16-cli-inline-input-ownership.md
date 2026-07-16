@@ -320,3 +320,100 @@ Then commit:
 git add src/test/kotlin/io/openeden/cli
 git commit -m "test(cli): cover inline input ownership"
 ```
+
+### Task 3: Preserve The Full Active Assistant Label
+
+**Files:**
+- Modify: `src/test/kotlin/io/openeden/cli/terminal/CliPseudoTerminalTest.kt`
+- Modify: `src/main/kotlin/io/openeden/cli/render/JLineInlineActiveSink.kt`
+
+- [ ] **Step 1: Hold the first SSE response in the generating state**
+
+Create a `CountDownLatch(1)` in the pseudo-terminal test. For the first server request, send and flush `accepted` plus `stage` before waiting on the latch:
+
+```kotlin
+event: accepted
+data: {"requestId":"req_1"}
+
+event: stage
+data: {"stage":"generating"}
+```
+
+After the test observes the active state, release the latch so the existing response delta and completion events continue.
+
+- [ ] **Step 2: Assert the active assistant label is complete**
+
+Before releasing the response latch, capture the emulated screen and scrollback:
+
+```kotlin
+val active = transcriptBuffer.awaitScreenState("complete active assistant label") { lines ->
+    lines.contains("[status] generating") && lines.any { it.endsWith("ATRI: ") }
+}
+assertTrue(active.lines.any { it.endsWith("ATRI: ") }, active.raw.boundedForFailure())
+responseGate.countDown()
+```
+
+The failure timeout must show the actual `TRI:` row.
+
+- [ ] **Step 3: Run the PTY test and verify RED**
+
+Run:
+
+```powershell
+$env:JAVA_HOME='F:\SDK\JDK21'
+.\gradlew.bat :test --tests io.openeden.cli.terminal.CliPseudoTerminalTest --rerun-tasks --no-daemon --console=plain
+```
+
+Expected: FAIL while waiting for the complete active assistant label because JLine `Status` loses the first character after a full-width row.
+
+- [ ] **Step 4: Reserve the physical terminal's final column for active status rendering**
+
+Retain the terminal in `JLineInlineActiveSink` and resize JLine `Status` with a guarded width:
+
+```kotlin
+class JLineInlineActiveSink(
+    session: TerminalSession,
+) : InlineActiveSink {
+    private val terminal = session.terminal
+    private val status: Status? = Status.getStatus(terminal)
+
+    override fun render(lines: List<String>) {
+        val current = status ?: return
+        val physical = terminal.size
+        current.resize(
+            org.jline.terminal.Size().apply {
+                columns = (physical.columns - 1).coerceAtLeast(1)
+                rows = physical.rows
+            },
+        )
+        current.update(lines.map(::AttributedString))
+    }
+}
+```
+
+Keep `clear()` and `close()` unchanged.
+
+- [ ] **Step 5: Run the PTY test and verify GREEN**
+
+Run the Step 3 command again.
+
+Expected: PASS with `[status] generating` and the complete `ATRI:` active row.
+
+- [ ] **Step 6: Run Windows and full project verification**
+
+Run:
+
+```powershell
+.\gradlew.bat :test --tests io.openeden.cli.terminal.CliPseudoTerminalTest --tests io.openeden.cli.terminal.WindowsTerminalInputE2ETest --rerun-tasks --no-daemon --console=plain
+.\gradlew.bat :core:jvmTest :server:test :test --rerun-tasks --no-daemon --console=plain
+git diff --check
+```
+
+Expected: both Gradle commands report `BUILD SUCCESSFUL`; the full matrix has zero failures and errors.
+
+- [ ] **Step 7: Commit the active width guard**
+
+```powershell
+git add src/main/kotlin/io/openeden/cli/render/JLineInlineActiveSink.kt src/test/kotlin/io/openeden/cli/terminal/CliPseudoTerminalTest.kt
+git commit -m "fix(cli): preserve active assistant label"
+```
