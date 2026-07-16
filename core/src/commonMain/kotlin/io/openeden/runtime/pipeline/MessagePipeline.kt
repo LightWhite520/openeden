@@ -448,8 +448,8 @@ class DevelopmentMessagePipeline(
         fun create(
             personaConfig: PersonaConfig,
             llmClient: LlmClient = DevelopmentLlmStub(),
-            store: SessionStateStore = MutableSessionStateStore(),
-            vectorWriteService: VectorWriteService = VectorWriteService(store),
+            store: SessionStateStore? = null,
+            vectorWriteService: VectorWriteService? = null,
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
             quantizer: CodebookQuantizer = HeuristicCodebookFallback(),
             memoryEmbeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
@@ -459,10 +459,7 @@ class DevelopmentMessagePipeline(
             diaryTaskStore: DiaryTaskStore? = null,
             diaryTriggerCoordinator: DiaryTriggerCoordinator? = null,
             traceStore: TraceStore? = null,
-            centroidProvider: HomeostasisCentroidProvider = SlidingWindowHomeostasisCentroidProvider(
-                memoryStore = memoryStore,
-                fallback = StoredOriginCentroidProvider(store),
-            ),
+            centroidProvider: HomeostasisCentroidProvider? = null,
             userAffectAnalyzer: UserAffectAnalyzer = DeterministicUserAffectAnalyzer(),
             relationshipStore: RelationshipStateStore = InMemoryRelationshipStateStore(),
             relationshipRoleResolver: RelationshipRoleResolver = RelationshipRoleResolver(host = null),
@@ -470,20 +467,35 @@ class DevelopmentMessagePipeline(
             transcriptStore: TranscriptStore? = store as? TranscriptStore,
             nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         ): DevelopmentMessagePipeline {
+            val effectiveStore = store ?: MutableSessionStateStore(transcriptStore = transcriptStore)
+            val effectiveVectorWriteService = vectorWriteService ?: VectorWriteService(effectiveStore)
+            require(effectiveVectorWriteService.isBackedBy(effectiveStore)) {
+                "vectorWriteService must use the same session state store as the pipeline"
+            }
+            if (effectiveStore is MutableSessionStateStore && transcriptStore != null) {
+                require(effectiveStore.isTranscriptBackedBy(transcriptStore)) {
+                    "Mutable session state and transcript stores must share one atomic backend"
+                }
+            }
+            val effectiveTranscriptStore = transcriptStore ?: (effectiveStore as? TranscriptStore)
+            val effectiveCentroidProvider = centroidProvider ?: SlidingWindowHomeostasisCentroidProvider(
+                memoryStore = memoryStore,
+                fallback = StoredOriginCentroidProvider(effectiveStore),
+            )
             return DevelopmentMessagePipeline(
                 personaConfig = personaConfig,
-                store = store,
+                store = effectiveStore,
                 quantizer = quantizer,
                 memoryRetriever = memoryStore,
                 promptBuilder = promptBuilder,
                 llmClient = llmClient,
-                vectorWriteService = vectorWriteService,
+                vectorWriteService = effectiveVectorWriteService,
                 diaryQueue = diaryQueue,
                 inferenceExecutor = inferenceExecutor,
                 memoryStore = memoryStore,
                 memoryEmbeddingModel = memoryEmbeddingModel,
-                centroidProvider = centroidProvider,
-                turnGate = SessionTurnGate(vectorWriteService.mutexRegistry),
+                centroidProvider = effectiveCentroidProvider,
+                turnGate = SessionTurnGate(effectiveVectorWriteService.mutexRegistry),
                 diaryTaskStore = diaryTaskStore,
                 diaryTriggerCoordinator = diaryTriggerCoordinator,
                 traceStore = traceStore,
@@ -491,7 +503,7 @@ class DevelopmentMessagePipeline(
                 relationshipStore = relationshipStore,
                 relationshipRoleResolver = relationshipRoleResolver,
                 affectInfluenceMapper = affectInfluenceMapper,
-                transcriptStore = transcriptStore,
+                transcriptStore = effectiveTranscriptStore,
                 nowMs = nowMs,
             )
         }

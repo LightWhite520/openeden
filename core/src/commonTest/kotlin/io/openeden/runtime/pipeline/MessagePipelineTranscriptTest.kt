@@ -9,6 +9,7 @@ import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.runtime.session.MutableSessionStateStore
+import io.openeden.transcript.InMemoryTranscriptStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -19,12 +20,16 @@ import kotlin.test.assertTrue
 class MessagePipelineTranscriptTest {
     @Test
     fun `validated user turn publishes one public transcript record`() = runTest {
-        val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
-        val pipeline = pipeline(store, ValidLlmClient(response = "validated response"))
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            llmClient = ValidLlmClient(response = "validated response"),
+            transcriptStore = transcripts,
+        )
 
         pipeline.handle(request(turnId = "client-turn-1"))
 
-        val turn = store.page(50).turns.single()
+        val turn = transcripts.page(50).turns.single()
         assertEquals("client-turn-1", turn.turnId)
         assertEquals("incarnation-a", turn.incarnationId)
         assertEquals("CLI:local", turn.sessionId)
@@ -78,23 +83,44 @@ class MessagePipelineTranscriptTest {
 
     @Test
     fun `retrying the same turn id does not evolve state twice`() = runTest {
-        val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
         var clock = 1_000L
-        val pipeline = pipeline(store, ValidLlmClient(), nowMs = { clock })
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            llmClient = ValidLlmClient(),
+            store = stateStore,
+            transcriptStore = transcripts,
+            nowMs = { clock },
+        )
         val request = request(turnId = "stable-retry-id")
 
         val firstResult = pipeline.handle(request)
-        val firstTurn = store.page(50).turns.single()
+        val firstTurn = transcripts.page(50).turns.single()
         clock = 2_000L
         val retryResult = pipeline.handle(request)
 
-        assertEquals(1L, store.read("CLI:local").evolutionIndex)
-        assertEquals(1, store.page(50).turns.size)
+        assertEquals(1, transcripts.page(50).turns.size)
         assertEquals(1_000L, firstTurn.completedAtMs)
-        assertEquals(firstTurn.completedAtMs, store.page(50).turns.single().completedAtMs)
+        assertEquals(firstTurn.completedAtMs, transcripts.page(50).turns.single().completedAtMs)
         assertEquals(firstResult.updatedVector, retryResult.updatedVector)
-        assertEquals(store.read("CLI:local").vector, retryResult.updatedVector)
+        assertEquals(1L, stateStore.read("CLI:local").evolutionIndex)
+        assertEquals(stateStore.read("CLI:local").vector, retryResult.updatedVector)
         assertEquals(1L, retryResult.evolutionIndex)
+    }
+
+    @Test
+    fun `explicit mutable state and different transcript stores are rejected`() {
+        val stateStore = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+
+        assertFailsWith<IllegalArgumentException> {
+            DevelopmentMessagePipeline.create(
+                personaConfig = persona(),
+                store = stateStore,
+                transcriptStore = transcripts,
+            )
+        }
     }
 
     private fun pipeline(

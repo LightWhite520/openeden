@@ -17,6 +17,8 @@ class VectorWriteService(
     private val store: SessionStateStore,
     val mutexRegistry: SessionMutexRegistry = SessionMutexRegistry(),
 ) {
+    internal fun isBackedBy(candidate: SessionStateStore): Boolean = store === candidate
+
     suspend fun applyLlmDelta(
         sessionId: String,
         preTickedSnapshot: BioVector,

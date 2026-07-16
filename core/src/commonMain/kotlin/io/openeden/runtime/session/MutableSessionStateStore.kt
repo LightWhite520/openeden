@@ -16,6 +16,7 @@ class MutableSessionStateStore(
     private val states: MutableMap<String, SessionState> = mutableMapOf(),
     activeIncarnationId: String = "development",
     activeIncarnationCreatedAtMs: Long = 0L,
+    private val transcriptStore: TranscriptStore? = null,
 ) : SessionStateStore, AtomicTurnCommitStore, TranscriptStore {
     private val mutex = Mutex()
     private val activeIncarnation = ActiveIncarnation(activeIncarnationId, activeIncarnationCreatedAtMs)
@@ -42,8 +43,9 @@ class MutableSessionStateStore(
             require(turn.sessionId == state.sessionId) {
                 "Turn session '${turn.sessionId}' does not match state session '${state.sessionId}'"
             }
-            require(turn.incarnationId == activeIncarnation.id) {
-                "Turn incarnation '${turn.incarnationId}' does not match active incarnation '${activeIncarnation.id}'"
+            val expectedIncarnation = transcriptStore?.activeIncarnation() ?: activeIncarnation
+            require(turn.incarnationId == expectedIncarnation.id) {
+                "Turn incarnation '${turn.incarnationId}' does not match active incarnation '${expectedIncarnation.id}'"
             }
             turnsById[turn.turnId]?.let { existing ->
                 require(existing.matchesRetry(turn)) {
@@ -51,17 +53,25 @@ class MutableSessionStateStore(
                 }
                 return@withLock
             }
-            writeUnlocked(state)
+            validateWriteUnlocked(state)
+            transcriptStore?.append(turn)
+            states[state.sessionId] = state
             turnsById[turn.turnId] = turn
         }
     }
 
     override suspend fun sessionIds(): Set<String> = mutex.withLock { states.keys.toSet() }
 
-    override suspend fun activeIncarnation(): ActiveIncarnation = mutex.withLock { activeIncarnation }
+    override suspend fun activeIncarnation(): ActiveIncarnation = mutex.withLock {
+        transcriptStore?.activeIncarnation() ?: activeIncarnation
+    }
 
     override suspend fun append(turn: ConversationTurn) {
         mutex.withLock {
+            transcriptStore?.let { delegate ->
+                delegate.append(turn)
+                return@withLock
+            }
             require(turn.incarnationId == activeIncarnation.id) {
                 "Turn incarnation '${turn.incarnationId}' does not match active incarnation '${activeIncarnation.id}'"
             }
@@ -74,6 +84,7 @@ class MutableSessionStateStore(
     }
 
     override suspend fun page(limit: Int, before: HistoryCursor?): ConversationHistoryPage = mutex.withLock {
+        transcriptStore?.let { delegate -> return@withLock delegate.page(limit, before) }
         if (before != null && before.incarnationId != activeIncarnation.id) {
             throw InvalidHistoryCursorException(
                 "Cursor incarnation '${before.incarnationId}' does not match active incarnation '${activeIncarnation.id}'",
@@ -108,14 +119,21 @@ class MutableSessionStateStore(
     }
 
     private fun writeUnlocked(state: SessionState) {
+        validateWriteUnlocked(state)
+        states[state.sessionId] = state
+    }
+
+    private fun validateWriteUnlocked(state: SessionState) {
         states[state.sessionId]?.let { current ->
             require(
                 current.personaMode == state.personaMode &&
                     current.personaStartSubState == state.personaStartSubState,
             ) { "Persona mode and starting point are immutable for an existing session" }
         }
-        states[state.sessionId] = state
     }
+
+    internal fun isTranscriptBackedBy(candidate: TranscriptStore): Boolean =
+        candidate === this || transcriptStore === candidate
 
     private fun ConversationTurn.matchesRetry(other: ConversationTurn): Boolean =
         copy(completedAtMs = other.completedAtMs) == other
