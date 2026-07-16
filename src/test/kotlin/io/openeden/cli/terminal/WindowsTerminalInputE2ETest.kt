@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Assume.assumeTrue
 import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
@@ -24,7 +25,7 @@ import kotlin.test.assertTrue
 class WindowsTerminalInputE2ETest {
     @Test
     fun `Chinese text can be inserted at the cursor under the current code page`() {
-        if (!enabled()) return
+        assumeWindows()
 
         val result = runInCurrentConsole(
             input = "\u4E2D\u6587AB\u001B[D\u001B[D\u6D4B\u8BD5\r",
@@ -36,7 +37,7 @@ class WindowsTerminalInputE2ETest {
 
     @Test
     fun `backspace removes an entire supplementary Unicode character`() {
-        if (!enabled()) return
+        assumeWindows()
 
         val result = runInCurrentConsole(
             input = "\u4E2D\u6587\uD83D\uDE00\b\r",
@@ -145,9 +146,12 @@ class WindowsTerminalInputE2ETest {
     private fun diagnosticOutput(captured: ByteArrayOutputStream): String =
         captured.toString(StandardCharsets.UTF_8).takeLast(8_000)
 
-    private fun enabled(): Boolean =
-        System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true) &&
-            System.getenv("OPENEDEN_TERMINAL_E2E") == "1"
+    private fun assumeWindows() {
+        assumeTrue(
+            "Windows ConPTY integration test",
+            System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true),
+        )
+    }
 
     private data class TerminalResult(
         val submitted: String,

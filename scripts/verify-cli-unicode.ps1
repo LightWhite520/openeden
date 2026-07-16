@@ -20,7 +20,6 @@ function Invoke-CliByteCase {
         [string]$Name,
         [Text.Encoding]$Encoding,
         [bool]$InputBom,
-        [string]$EncodingOverride,
         [string]$CliPath,
         [int]$Port
     )
@@ -45,15 +44,6 @@ function Invoke-CliByteCase {
         $start.RedirectStandardOutput = $true
         $start.RedirectStandardError = $true
         $start.Environment['JAVA_OPTS'] = "-Duser.home=$tempHome"
-        if ($EncodingOverride) {
-            $start.Environment['OPENEDEN_STDIN_ENCODING'] = $EncodingOverride
-            $start.Environment['OPENEDEN_STDOUT_ENCODING'] = $EncodingOverride
-            $start.Environment['OPENEDEN_STDERR_ENCODING'] = $EncodingOverride
-        } else {
-            $start.Environment.Remove('OPENEDEN_STDIN_ENCODING') | Out-Null
-            $start.Environment.Remove('OPENEDEN_STDOUT_ENCODING') | Out-Null
-            $start.Environment.Remove('OPENEDEN_STDERR_ENCODING') | Out-Null
-        }
 
         $process = [Diagnostics.Process]::new()
         $process.StartInfo = $start
@@ -121,9 +111,8 @@ try {
     Start-Sleep -Milliseconds 300
     $cli = (Resolve-Path "$PSScriptRoot\..\build\install\openeden\bin\openeden.bat").Path
     $utf8 = [Text.UTF8Encoding]::new($false)
-    Invoke-CliByteCase 'UTF-8 without BOM' $utf8 $false '' $cli $port
-    Invoke-CliByteCase 'UTF-8 with BOM' $utf8 $true '' $cli $port
-    Invoke-CliByteCase 'GBK override' ([Text.Encoding]::GetEncoding('GBK')) $false 'GBK' $cli $port
+    Invoke-CliByteCase 'UTF-8 without BOM' $utf8 $false $cli $port
+    Invoke-CliByteCase 'UTF-8 with BOM' $utf8 $true $cli $port
     Write-Host 'PASS: CLI redirected Unicode byte contract'
 } finally {
     Stop-Job -Job $server -ErrorAction SilentlyContinue

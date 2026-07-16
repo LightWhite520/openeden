@@ -55,16 +55,16 @@ JLine owns all interactive input and output. Mordant and application rendering w
 
 ### Redirected input and output
 
-Pipes, files, CI capture, and one-shot commands are byte streams rather than Windows console handles. They use explicit reader and writer charsets:
+Pipes, files, CI capture, and one-shot commands are byte streams rather than Windows console handles. They use a fixed UTF-8 byte contract:
 
 - UTF-8 without BOM is the default for redirected stdin, stdout, stderr, history, and exported text.
 - An optional UTF-8 BOM on redirected stdin is consumed once and is never treated as message content.
 - The CLI never emits a BOM.
-- `OPENEDEN_STDIN_ENCODING`, `OPENEDEN_STDOUT_ENCODING`, and `OPENEDEN_STDERR_ENCODING` allow explicit compatibility with a legacy producer or consumer such as CP936. Invalid or unsupported names fail fast with a configuration error.
-- JLine builder encoding fields and plain-mode readers/writers receive the resolved charsets directly. JVM default charset is not used as an implicit fallback.
-- HTTP JSON and SSE remain UTF-8 protocol data and are decoded independently of terminal charset overrides.
+- Malformed non-UTF-8 input bytes are decoded with deterministic replacement characters.
+- JLine builder encoding fields and plain-mode readers/writers receive UTF-8 directly. JVM default charset is not used as an implicit fallback.
+- HTTP JSON and SSE remain UTF-8 protocol data and are decoded independently of CLI stream handling.
 
-The default UTF-8 pipe contract is deterministic. It cannot infer the encoding of arbitrary legacy bytes, so compatibility is explicit rather than heuristic.
+The UTF-8 pipe contract is deterministic. Legacy producers and consumers must transcode outside the CLI rather than changing process-wide or CLI-specific encoding state.
 
 ### Unicode display width
 
