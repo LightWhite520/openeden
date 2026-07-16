@@ -170,9 +170,10 @@ Unicode 字符。终端接管与编码约定见 [终端输入说明](docs/termin
 `OPENEDEN_ENABLE_CLI_DIAGNOSTICS=true` 且配置独立 token 时开放。授权面板只返回
 安全状态摘要，不会返回 prompt、内部推理、凭据或记忆正文。
 
-TTY 使用 JLine 原生 terminal provider。重定向流默认是无输出 BOM 的 UTF-8，
-会消费一次可选输入 BOM，并且不输出 ANSI 控制序列。旧系统可通过三个 stream
-变量显式选择 `GBK` 等编码；CLI 不修改 PowerShell 或全局控制台状态。
+交互输入输出完全由 JLine 原生 terminal provider 独占，不依赖 shell 当前代码页。
+重定向流与一次性命令固定使用 UTF-8，会消费一次可选输入 BOM，且不输出 BOM
+或 ANSI 控制序列，也不提供编码覆盖。外部生产者必须输出 UTF-8，其他管道编码
+不受支持。CLI 不执行 `chcp`，也不修改 PowerShell 或全局控制台状态。
 
 首次启动 CLI 时，OpenEden 会创建：
 

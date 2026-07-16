@@ -195,10 +195,12 @@ endpoint is disabled unless `OPENEDEN_ENABLE_CLI_DIAGNOSTICS=true` with a
 non-empty `OPENEDEN_CLI_DIAGNOSTICS_TOKEN`. The panel contains only safe state
 summaries; prompts and internal reasoning are never returned.
 
-TTY input/output uses JLine's native terminal provider. Redirected streams are
-UTF-8 without an output BOM, consume one optional UTF-8 input BOM, and emit no
-ANSI controls. Legacy producers can opt into a charset such as `GBK` with the
-three explicit stream variables above; the CLI never changes global shell state.
+Interactive input/output is owned exclusively by JLine's native terminal provider
+and does not depend on the shell code page. Redirected streams and one-shot commands
+use fixed UTF-8, consume one optional UTF-8 input BOM, emit neither a BOM nor ANSI
+controls, and provide no encoding overrides. External producers must emit UTF-8;
+other pipe encodings are unsupported. The CLI never runs `chcp` or changes global
+shell state.
 
 On first startup, the CLI creates:
 

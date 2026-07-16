@@ -57,14 +57,14 @@ JLine owns all interactive input and output. Mordant and application rendering w
 
 Pipes, files, CI capture, and one-shot commands are byte streams rather than Windows console handles. They use a fixed UTF-8 byte contract:
 
-- UTF-8 without BOM is the default for redirected stdin, stdout, stderr, history, and exported text.
+- Redirected stdin, stdout, stderr, history, and exported text use UTF-8 without an output BOM.
 - An optional UTF-8 BOM on redirected stdin is consumed once and is never treated as message content.
 - The CLI never emits a BOM.
 - Malformed non-UTF-8 input bytes are decoded with deterministic replacement characters.
 - JLine builder encoding fields and plain-mode readers/writers receive UTF-8 directly. JVM default charset is not used as an implicit fallback.
 - HTTP JSON and SSE remain UTF-8 protocol data and are decoded independently of CLI stream handling.
 
-The UTF-8 pipe contract is deterministic. Legacy producers and consumers must transcode outside the CLI rather than changing process-wide or CLI-specific encoding state.
+The UTF-8 pipe contract is deterministic. Non-UTF-8 producers and consumers must transcode outside the CLI rather than changing process-wide or CLI-specific encoding state.
 
 ### Unicode display width
 
@@ -93,7 +93,7 @@ Command and message history is stored as UTF-8 and round-trips exact Unicode cod
 
 JLine input is inherently blocking. Reads run on a dedicated client-side IO dispatcher and never on a Ktor server or inference dispatcher. Only one coroutine reads terminal input.
 
-`TerminalSession` also owns the resolved interactive or redirected encoding profile. No renderer or command handler reads JVM default charset independently.
+`TerminalSession` exists only for interactive operation and is the sole owner of the JLine terminal input and output. Redirected and one-shot operation never constructs a `TerminalSession`; `CliTextStreams` owns that path with fixed UTF-8 readers and writers. No renderer or command handler reads the JVM default charset independently.
 
 ### CliSessionController
 
@@ -153,7 +153,7 @@ If the terminal is too small for a coherent full-screen layout, the CLI returns 
 - Markdown rendering supports headings, lists, emphasis, quotes, links, fenced code blocks, and syntax highlighting.
 - The stored message text remains plain Markdown. Rendering styles must not contaminate copied text.
 - East Asian wide characters, combining marks, emoji, and ANSI-free output are covered by width and snapshot tests.
-- Interactive Windows console text uses the JLine native Unicode path; redirected text uses the explicit encoding profile.
+- Interactive Windows console text uses the JLine native Unicode path as its sole input/output owner; redirected and one-shot text uses fixed UTF-8 `CliTextStreams`.
 - Streaming repaint is rate-limited so token arrival cannot cause an unbounded redraw loop.
 
 ## Input Model and Commands
@@ -254,7 +254,7 @@ It must not contain internal LLM reasoning, full prompts, API credentials, or un
 
 - Startup detects TTY, color, Unicode, and dimensions. Unsupported or redirected terminals use plain mode.
 - Failure to initialize the Windows native provider disables rich editing and full-screen mode instead of falling back to an unsafe ANSI/native hybrid.
-- Unsupported configured pipe encodings fail before the interactive loop starts.
+- Malformed non-UTF-8 pipe input decodes with deterministic replacement; alternate pipe encodings cannot be configured.
 - Terminal raw mode, cursor visibility, and alternate-screen state are restored in `finally` on every exit path.
 - Full-screen renderer failure falls back to inline mode without ending the chat session.
 - Network interruption preserves visible content but never automatically resubmits a chat request.
@@ -304,9 +304,9 @@ It must not contain internal LLM reasoning, full prompts, API credentials, or un
 ### Windows encoding integration tests
 
 - Windows Terminal/ConPTY with PowerShell and CMD verifies Simplified Chinese input, streamed output, cursor movement, deletion, history recall, paste, and mode switching.
-- Interactive tests run under both a legacy non-UTF-8 console code page and code page 65001; native Unicode behavior must be identical and the test must not invoke `chcp`.
+- Interactive tests inherit the current console code page; native Unicode behavior must not depend on that value, and the test must not invoke `chcp` or mutate shell encoding.
 - Redirected UTF-8 stdin/stdout verifies exact bytes, optional input BOM consumption, no output BOM, and ANSI-free output.
-- Explicit CP936 redirected input and output verifies the configured compatibility path without changing the process console code page.
+- Malformed or non-UTF-8 redirected input verifies deterministic replacement behavior; external producers must transcode to UTF-8 because alternate pipe encodings are unsupported.
 - Mixed Chinese, ASCII, emoji, combining characters, and fenced code round-trip without `U+FFFD`, question-mark substitution, cursor drift, or split surrogate pairs.
 - Native-provider startup failure verifies the warning and plain-mode fallback.
 
@@ -323,7 +323,7 @@ Core terminal tests run on Windows, Linux, and macOS CI. Platform-specific pseud
 
 ## Delivery Sequence
 
-1. Introduce terminal abstractions, explicit encoding profiles, shared UI state, and plain/inline rendering without changing server behavior.
+1. Introduce terminal abstractions, explicit interactive-versus-plain I/O ownership, shared UI state, and plain/inline rendering without changing server behavior.
 2. Replace global `System` stream wrapping with JLine's native Windows Unicode path and explicit redirected UTF-8 readers/writers.
 3. Add JLine input, history, completion, multiline editing, paste handling, and terminal restoration.
 4. Add Mordant Markdown rendering and active-region streaming presentation.
@@ -341,7 +341,7 @@ Each sequence step must leave one-shot commands and the existing public chat end
 - The user can switch to and from full-screen mode without losing the session or duplicating content.
 - Input supports history, completion, multiline editing, safe paste, cancellation, and documented shortcuts on Windows, macOS, and Linux terminals.
 - Simplified Chinese input and output work in Windows Terminal, PowerShell, CMD, and classic console hosts without requiring `chcp` or depending on the active console code page.
-- Redirected streams are deterministic UTF-8 by default, support explicit legacy encoding overrides, consume an optional UTF-8 input BOM, and never emit a BOM.
+- Redirected streams and one-shot commands use fixed deterministic UTF-8, provide no encoding overrides, consume an optional UTF-8 input BOM, and never emit a BOM.
 - Interactive rendering and editing share one Unicode width service and do not drift on covered CJK, combining, or emoji cases.
 - Supported Markdown renders legibly, including Simplified Chinese and code blocks.
 - A capable provider produces visible response deltas through SSE; incapable providers degrade to validated buffered output.
