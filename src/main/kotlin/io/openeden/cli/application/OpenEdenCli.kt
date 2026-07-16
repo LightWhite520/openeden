@@ -26,6 +26,7 @@ import io.openeden.client.OpenEdenServerClient
 import io.openeden.client.PublicState
 import io.openeden.config.CliConfig
 import io.openeden.config.CliConfigStore
+import kotlinx.coroutines.CancellationException
 
 class OpenEdenCli(
     private val configLoader: () -> CliConfig = { CliConfigStore().loadOrCreate() },
@@ -60,6 +61,8 @@ class OpenEdenCli(
             } else {
                 compatibilityCommand(args, client, config.userId)
             }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             output("server error: ${error.message ?: "unavailable"}\n")
             1
@@ -117,6 +120,7 @@ class OpenEdenCli(
         )
         session.lineReader.printAbove("OpenEden connected. Type /help for commands.")
         return try {
+            controller.initializeHistory()
             controller.run(session.events())
             0
         } finally {

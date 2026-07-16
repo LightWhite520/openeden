@@ -195,6 +195,7 @@ class JLineTerminalSession private constructor(
         private const val NEWLINE_WIDGET = "openeden-newline"
         private const val TOGGLE_MODE_WIDGET = "openeden-toggle-mode"
         private const val TOGGLE_DIAGNOSTICS_WIDGET = "openeden-toggle-diagnostics"
+        private const val LOAD_OLDER_WIDGET = "openeden-load-older"
 
         fun create(
             warningSink: (String) -> Unit = { warning -> terminalLogger.warn(warning) },
@@ -332,6 +333,7 @@ class JLineTerminalSession private constructor(
             lineReader.widgets[TOGGLE_MODE_WIDGET] = eventWidget(events, CliTerminalEvent.ToggleMode)
             lineReader.widgets[TOGGLE_DIAGNOSTICS_WIDGET] =
                 eventWidget(events, CliTerminalEvent.ToggleDiagnostics)
+            lineReader.widgets[LOAD_OLDER_WIDGET] = eventWidget(events, CliTerminalEvent.LoadOlderHistory)
             lineReader.widgets[NEWLINE_WIDGET] = Widget {
                 lineReader.buffer.write("\n")
                 true
@@ -354,6 +356,9 @@ class JLineTerminalSession private constructor(
                 bind(Reference(CANCEL_WIDGET), KeyMap.esc(), KeyMap.ctrl('C'))
                 bind(Reference(TOGGLE_MODE_WIDGET), KeyMap.ctrl('T'))
                 bind(Reference(TOGGLE_DIAGNOSTICS_WIDGET), KeyMap.alt('i'))
+                lineReader.terminal.getStringCapability(Capability.key_ppage)?.let { pageUp ->
+                    bind(Reference(LOAD_OLDER_WIDGET), pageUp)
+                }
             }
             lineReader.keyMaps[KEYMAP_NAME] = dedicated
             check(lineReader.setKeyMap(KEYMAP_NAME)) { "Unable to activate OpenEden keymap" }

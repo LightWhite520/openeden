@@ -224,6 +224,26 @@ class CliSessionControllerTest {
     }
 
     @Test
+    fun `terminal older history event is ignored inline and dispatched full screen`() = runTest {
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(ConversationHistoryPage(listOf(turn("t1")), null, false)),
+            ),
+        )
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
+
+        controller.accept(CliTerminalEvent.LoadOlderHistory)
+        controller.drain()
+        assertTrue(api.historyCalls.isEmpty())
+
+        controller.accept(CliTerminalEvent.ToggleMode)
+        controller.accept(CliTerminalEvent.LoadOlderHistory)
+        controller.drain()
+
+        assertEquals(listOf(HistoryCall(50, null)), api.historyCalls)
+    }
+
+    @Test
     fun `help includes compact older history command`() = runTest {
         val controller = CliSessionController("local", RecordingHistoryApi(), CapturingRenderer(), scope = this)
 

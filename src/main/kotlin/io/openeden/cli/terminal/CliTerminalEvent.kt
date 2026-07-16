@@ -9,5 +9,7 @@ sealed interface CliTerminalEvent {
 
     data object ToggleDiagnostics : CliTerminalEvent
 
+    data object LoadOlderHistory : CliTerminalEvent
+
     data object EndOfFile : CliTerminalEvent
 }

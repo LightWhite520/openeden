@@ -7,6 +7,7 @@ import io.openeden.cli.terminal.TerminalSession
 import io.openeden.client.ChatResponse
 import io.openeden.client.ChatStreamEvent
 import io.openeden.client.ConversationHistoryPage
+import io.openeden.client.ConversationTurn
 import io.openeden.client.DiagnosticState
 import io.openeden.client.OpenEdenServerApi
 import io.openeden.client.PublicState
@@ -14,6 +15,7 @@ import io.openeden.config.CliConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.jline.reader.LineReader
 import org.jline.terminal.Terminal
@@ -24,6 +26,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class OpenEdenCliTest {
@@ -88,6 +91,79 @@ class OpenEdenCliTest {
 
         assertEquals(0, cli.run(emptyList()))
         assertEquals(1, session.closeCalls)
+    }
+
+    @Test
+    fun `interactive history hydrates and renders once before terminal input starts`() = runTest {
+        val order = mutableListOf<String>()
+        val printed = mutableListOf<String>()
+        val client = FakeServerClient().apply {
+            historyPage = ConversationHistoryPage(listOf(turn("restored")), null, false)
+            onHistory = { order += "history" }
+        }
+        val session = FakeTerminalSession(
+            events = flow {
+                order += "readLine"
+                emit(CliTerminalEvent.EndOfFile)
+            },
+            printed = printed,
+        )
+        val cli = OpenEdenCli(
+            configLoader = { config() },
+            clientFactory = { client },
+            input = SequenceInput(emptyList()),
+            output = {},
+        )
+
+        assertEquals(0, cli.runWithTerminal(emptyList(), session))
+
+        assertEquals(listOf("history", "readLine"), order)
+        assertEquals(1, printed.count { it == "> user-restored" })
+        assertEquals(1, printed.count { it == "ATRI: assistant-restored" })
+    }
+
+    @Test
+    fun `interactive history cancellation propagates and owned resources close`() = runTest {
+        val session = FakeTerminalSession()
+        val client = FakeServerClient().apply {
+            historyFailure = CancellationException("cancel history")
+        }
+        val cli = OpenEdenCli(
+            configLoader = { config() },
+            clientFactory = { client },
+            input = SequenceInput(emptyList()),
+            output = {},
+            terminalSessionFactory = { session },
+        )
+
+        assertFailsWith<CancellationException> { cli.run(emptyList()) }
+
+        assertEquals(1, session.closeCalls)
+        assertEquals(1, client.closeCalls)
+    }
+
+    @Test
+    fun `interactive history failure is handled before terminal input starts`() = runTest {
+        val order = mutableListOf<String>()
+        val client = FakeServerClient().apply {
+            historyFailure = IllegalStateException("private detail")
+            onHistory = { order += "history" }
+        }
+        val session = FakeTerminalSession(
+            events = flow {
+                order += "readLine"
+                emit(CliTerminalEvent.EndOfFile)
+            },
+        )
+        val cli = OpenEdenCli(
+            configLoader = { config() },
+            clientFactory = { client },
+            input = SequenceInput(emptyList()),
+            output = {},
+        )
+
+        assertEquals(0, cli.runWithTerminal(emptyList(), session))
+        assertEquals(listOf("history", "readLine"), order)
     }
 
     @Test
@@ -166,6 +242,7 @@ class OpenEdenCliTest {
 
         assertEquals(0, cli.run(listOf("chat", "--message", "hello")))
         assertEquals("response\n", output.toString())
+        assertEquals(0, client.historyCalls)
     }
 
     private fun testCli(client: FakeServerClient, lines: List<String>, output: StringBuilder): OpenEdenCli =
@@ -193,6 +270,10 @@ class OpenEdenCliTest {
         var closeCalls = 0
         var serverStopRequested = false
         var healthy = true
+        var historyCalls = 0
+        var historyPage = ConversationHistoryPage(emptyList(), null, false)
+        var historyFailure: Throwable? = null
+        var onHistory: () -> Unit = {}
 
         override suspend fun health() = healthy
 
@@ -210,8 +291,12 @@ class OpenEdenCliTest {
             )
         }
 
-        override suspend fun history(limit: Int, before: String?) =
-            ConversationHistoryPage(emptyList(), null, false)
+        override suspend fun history(limit: Int, before: String?): ConversationHistoryPage {
+            historyCalls += 1
+            onHistory()
+            historyFailure?.let { throw it }
+            return historyPage
+        }
 
         override suspend fun state(userId: String): PublicState {
             stateCalls += 1
@@ -228,8 +313,14 @@ class OpenEdenCliTest {
 
     private class FakeTerminalSession(
         private val events: Flow<CliTerminalEvent> = flowOf(CliTerminalEvent.EndOfFile),
+        private val printed: MutableList<String> = mutableListOf(),
     ) : TerminalSession {
-        override val terminal: Terminal = proxy()
+        override val terminal: Terminal = TerminalBuilder.builder()
+            .name("openeden-cli-fake")
+            .system(false)
+            .streams(java.io.ByteArrayInputStream(ByteArray(0)), ByteArrayOutputStream())
+            .dumb(true)
+            .build()
         override val lineReader: LineReader = proxy()
         var closeCalls = 0
             private set
@@ -245,13 +336,23 @@ class OpenEdenCliTest {
         private inline fun <reified T> proxy(): T = Proxy.newProxyInstance(
             T::class.java.classLoader,
             arrayOf(T::class.java),
-        ) { _, method, _ ->
+        ) { _, method, args ->
             when {
-                method.name == "printAbove" -> null
+                method.name == "printAbove" -> null.also { printed += args?.firstOrNull().toString() }
                 method.returnType == java.lang.Boolean.TYPE -> false
                 method.returnType == java.lang.Integer.TYPE -> 0
                 else -> null
             }
         } as T
     }
+
+    private fun turn(id: String) = ConversationTurn(
+        turnId = id,
+        platform = "CLI",
+        scopeId = "local",
+        userId = "local",
+        userText = "user-$id",
+        assistantText = "assistant-$id",
+        completedAtMs = 1L,
+    )
 }

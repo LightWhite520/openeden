@@ -38,6 +38,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 import kotlin.test.assertTrue
 
@@ -109,6 +110,30 @@ class JLineTerminalSessionTest {
     }
 
     @Test
+    fun `page up capability is bound to the load older widget`() {
+        val terminal = TerminalBuilder.builder()
+            .name("openeden-page-up-test")
+            .system(false)
+            .streams(ByteArrayInputStream(ByteArray(0)), ByteArrayOutputStream())
+            .encoding(StandardCharsets.UTF_8)
+            .type("xterm-256color")
+            .build()
+        val pageUp = assertNotNull(terminal.getStringCapability(Capability.key_ppage))
+        val session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = false,
+        )
+
+        try {
+            assertEquals(Reference("openeden-load-older"), session.lineReader.keys.getBound(pageUp))
+        } finally {
+            session.close()
+        }
+    }
+
+    @Test
     fun `history is persisted incrementally at the configured utf8 path`() {
         val historyPath = Files.createTempDirectory("openeden-jline").resolve("history")
         val first = JLineTerminalSession.createForTest(
@@ -171,6 +196,7 @@ class JLineTerminalSessionTest {
             assertTrue(session.lineReader.widgets.getValue("openeden-cancel").apply())
             assertTrue(session.lineReader.widgets.getValue("openeden-toggle-mode").apply())
             assertTrue(session.lineReader.widgets.getValue("openeden-toggle-diagnostics").apply())
+            assertTrue(session.lineReader.widgets.getValue("openeden-load-older").apply())
             session.lineReader.buffer.write("before")
             assertTrue(session.lineReader.widgets.getValue("openeden-newline").apply())
 
@@ -179,6 +205,7 @@ class JLineTerminalSessionTest {
                     CliTerminalEvent.Cancel,
                     CliTerminalEvent.ToggleMode,
                     CliTerminalEvent.ToggleDiagnostics,
+                    CliTerminalEvent.LoadOlderHistory,
                     CliTerminalEvent.EndOfFile,
                 ),
                 events.await(),

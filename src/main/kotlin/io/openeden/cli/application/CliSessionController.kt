@@ -62,6 +62,9 @@ class CliSessionController(
                 ),
             )
             CliTerminalEvent.ToggleDiagnostics -> setDiagnostics(!state.diagnosticsVisible)
+            CliTerminalEvent.LoadOlderHistory -> {
+                if (state.mode == CliMode.FULL_SCREEN) loadOlderHistory()
+            }
             CliTerminalEvent.EndOfFile -> stopped = true
         }
     }
