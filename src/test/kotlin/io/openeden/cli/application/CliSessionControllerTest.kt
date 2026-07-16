@@ -14,6 +14,11 @@ import io.openeden.client.OpenEdenServerApi
 import io.openeden.client.PublicState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +26,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.CountDownLatch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -29,6 +37,31 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CliSessionControllerTest {
+    @Test
+    fun `pre-start cancelled command clears slot for drain and later commands`() = runTest {
+        val dispatcher = PausingDispatcher()
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val api = RecordingHistoryApi()
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = scope)
+
+        val launching = async(Dispatchers.Default) { controller.loadOlderHistory() }
+        withContext(Dispatchers.IO) { dispatcher.dispatched.await() }
+        controller.activeCommandForTest().cancel()
+        dispatcher.release.countDown()
+        launching.await()
+
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(1_000) { controller.drain() }
+        }
+        controller.accept(CliTerminalEvent.Submit("/state"))
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(1_000) { controller.drain() }
+        }
+
+        assertEquals(1, api.stateCalls)
+        scope.cancel()
+    }
+
     @Test
     fun `initialize history requests first page and hydrates messages`() = runTest {
         val api = RecordingHistoryApi(
@@ -318,6 +351,17 @@ class CliSessionControllerTest {
 
     private data class HistoryCall(val limit: Int, val before: String?)
 
+    private class PausingDispatcher : CoroutineDispatcher() {
+        val dispatched = CountDownLatch(1)
+        val release = CountDownLatch(1)
+
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+            dispatched.countDown()
+            release.await()
+            Dispatchers.Default.dispatch(context, block)
+        }
+    }
+
     private class RecordingHistoryApi(
         private val pages: ArrayDeque<ConversationHistoryPage> = ArrayDeque(),
         private val failure: Throwable? = null,
@@ -356,4 +400,10 @@ class CliSessionControllerTest {
         assistantText = "assistant-$id",
         completedAtMs = 1L,
     )
+
+    private fun CliSessionController.activeCommandForTest(): Job {
+        val field = CliSessionController::class.java.getDeclaredField("activeCommand")
+        field.isAccessible = true
+        return field.get(this) as Job
+    }
 }

@@ -71,6 +71,9 @@ class CliSessionController(
         while (true) {
             val command = synchronized(commandLock) { activeCommand } ?: break
             command.join()
+            synchronized(commandLock) {
+                if (activeCommand === command && command.isCompleted) activeCommand = null
+            }
         }
     }
 
@@ -223,6 +226,7 @@ class CliSessionController(
 
     private fun launchTrackedCommand(block: suspend () -> Unit): Deferred<Unit>? {
         val command = synchronized(commandLock) {
+            if (activeCommand?.isCompleted == true) activeCommand = null
             if (activeCommand != null) return null
             scope.async(start = CoroutineStart.LAZY) {
                 try {
@@ -236,6 +240,9 @@ class CliSessionController(
             }.also { activeCommand = it }
         }
         command.start()
+        synchronized(commandLock) {
+            if (activeCommand === command && command.isCompleted) activeCommand = null
+        }
         return command
     }
 
