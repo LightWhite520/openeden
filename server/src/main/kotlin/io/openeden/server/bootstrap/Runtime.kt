@@ -24,6 +24,8 @@ import io.openeden.runtime.diary.CheckpointedDiaryDataSource
 import io.openeden.runtime.diary.LlmDiaryNarrativeGenerator
 import io.openeden.model.LocalModelArtifactLoader
 import io.openeden.model.LocalModelArtifact
+import io.openeden.server.api.route.DiagnosticsAccess
+import io.openeden.server.api.route.DiagnosticsAccessKey
 import io.openeden.codebook.CodebookDictionary
 import io.openeden.codebook.CodebookQuantizer
 import io.openeden.codebook.DjlVqVaeCodebookModelRunner
@@ -109,6 +111,7 @@ fun Application.configureRuntime() {
     )
     attributes.put(PipelineKey, pipeline)
     attributes.put(SessionStateStoreKey, store)
+    attributes.put(DiagnosticsAccessKey, serverConfig.diagnosticsAccess)
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val diaryWorker = DurableDiaryWorker(
@@ -259,6 +262,7 @@ private data class ServerRuntimeConfig(
     val diaryElapsedHours: Long,
     val diaryScanIntervalMs: Long,
     val diaryMaxRawMemories: Int,
+    val diagnosticsAccess: DiagnosticsAccess,
 )
 
 private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationConfig): ServerRuntimeConfig {
@@ -270,6 +274,9 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
     val ownerPlatform = config.propertyOrNull("openeden.heartbeat.ownerPlatform")?.getString()
         ?.takeIf { it.isNotBlank() }
     val ownerUserId = config.propertyOrNull("openeden.heartbeat.ownerUserId")?.getString()
+        ?.takeIf { it.isNotBlank() }
+    val diagnosticsEnabled = optional("openeden.diagnostics.enabled", "false").equals("true", ignoreCase = true)
+    val diagnosticsToken = config.propertyOrNull("openeden.diagnostics.token")?.getString()
         ?.takeIf { it.isNotBlank() }
     return ServerRuntimeConfig(
         apiKey = required("openeden.llm.apiKey"),
@@ -296,5 +303,10 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         diaryElapsedHours = optional("openeden.diary.elapsedHours", "5").toLong(),
         diaryScanIntervalMs = optional("openeden.diary.scanIntervalSeconds", "60").toLong().coerceAtLeast(1L) * 1000L,
         diaryMaxRawMemories = optional("openeden.diary.maxRawMemories", "32").toInt().coerceAtLeast(1),
+        diagnosticsAccess = if (diagnosticsEnabled) {
+            DiagnosticsAccess.enabled(diagnosticsToken.orEmpty())
+        } else {
+            DiagnosticsAccess.disabled()
+        },
     )
 }

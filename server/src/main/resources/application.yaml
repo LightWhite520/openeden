@@ -37,3 +37,6 @@ openeden:
     elapsedHours: "$OPENEDEN_DIARY_ELAPSED_HOURS:5"
     scanIntervalSeconds: "$OPENEDEN_DIARY_SCAN_INTERVAL_SECONDS:60"
     maxRawMemories: "$OPENEDEN_DIARY_MAX_RAW_MEMORIES:32"
+  diagnostics:
+    enabled: "$OPENEDEN_ENABLE_CLI_DIAGNOSTICS:false"
+    token: "$?OPENEDEN_CLI_DIAGNOSTICS_TOKEN:"

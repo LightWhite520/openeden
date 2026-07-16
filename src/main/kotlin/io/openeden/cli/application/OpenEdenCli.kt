@@ -8,6 +8,14 @@ import com.github.ajalt.clikt.core.main
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
+import io.openeden.cli.render.InlineCliRenderer
+import io.openeden.cli.render.InlineHistorySink
+import io.openeden.cli.render.FullScreenCliRenderer
+import io.openeden.cli.render.JLineFullscreenSink
+import io.openeden.cli.render.JLineInlineActiveSink
+import io.openeden.cli.render.Size
+import io.openeden.cli.render.SwitchableCliRenderer
+import io.openeden.cli.terminal.TerminalSession
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -24,6 +32,7 @@ class OpenEdenCli(
     private val clientFactory: (String) -> OpenEdenServerApi = ::createServerClient,
     private val input: CliInput,
     private val output: (String) -> Unit = ::print,
+    private val terminalSessionFactory: (() -> TerminalSession)? = null,
 ) {
     suspend fun run(args: List<String>): Int {
         val config = runCatching { configLoader() }.getOrElse {
@@ -45,18 +54,61 @@ class OpenEdenCli(
     }
 
     private suspend fun repl(client: OpenEdenServerApi, userId: String): Int {
+        val sessionFactory = terminalSessionFactory
+        if (sessionFactory != null) return terminalRepl(client, userId, sessionFactory)
+
         output("OpenEden connected.\nType /help for commands.\n")
-        while (true) {
-            output("> ")
-            val line = input.readLine() ?: return 0
-            when {
-                line.isBlank() -> Unit
-                line == "/exit" -> return 0
-                line == "/help" -> output("/state  /help  /exit\n")
-                line == "/state" -> printState(client.state(userId))
-                line.startsWith("/") -> output("unknown command: ${line.substringBefore(' ')}\n")
-                else -> printChat(client.chat(userId, line))
+        val renderer = InlineCliRenderer(
+            history = { text -> output("$text\n") },
+        )
+        val controller = CliSessionController(
+            userId = userId,
+            api = client,
+            renderer = renderer,
+        )
+        try {
+            while (true) {
+                output("> ")
+                val line = input.readLine() ?: return 0
+                controller.accept(io.openeden.cli.terminal.CliTerminalEvent.Submit(line))
+                controller.drain()
+                if (controller.isStopped) return 0
             }
+        } finally {
+            controller.close()
+        }
+    }
+
+    private suspend fun terminalRepl(
+        client: OpenEdenServerApi,
+        userId: String,
+        sessionFactory: () -> TerminalSession,
+    ): Int = sessionFactory().use { session ->
+        val inline = InlineCliRenderer(
+            history = InlineHistorySink(session.lineReader::printAbove),
+            active = JLineInlineActiveSink(session),
+        )
+        val renderer = SwitchableCliRenderer(inline) {
+            FullScreenCliRenderer(JLineFullscreenSink(session))
+        }
+        val controller = CliSessionController(
+            userId = userId,
+            api = client,
+            renderer = renderer,
+            size = {
+                val terminalSize = session.terminal.size
+                Size(
+                    columns = terminalSize.columns.takeIf { it > 0 } ?: 80,
+                    rows = terminalSize.rows.takeIf { it > 0 } ?: 24,
+                )
+            },
+        )
+        session.lineReader.printAbove("OpenEden connected. Type /help for commands.")
+        try {
+            controller.run(session.events())
+            0
+        } finally {
+            controller.close()
         }
     }
 

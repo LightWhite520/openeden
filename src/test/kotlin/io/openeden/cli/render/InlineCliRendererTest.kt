@@ -8,6 +8,7 @@ import io.openeden.cli.state.CliUiState
 
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class InlineCliRendererTest {
@@ -43,5 +44,55 @@ class InlineCliRendererTest {
         renderer.render(null, state, Size(80, 24))
         assertTrue(history.single().contains("done"))
         kotlin.test.assertFalse(history.single().contains("finalizing"))
+    }
+
+    @Test fun `active region excludes committed messages and clears after completion`() {
+        val history = mutableListOf<String>()
+        val active = RecordingActiveSink()
+        val renderer = InlineCliRenderer(
+            history = InlineHistorySink { history += it },
+            active = active,
+        )
+        val streaming = CliUiState(
+            sessionId = "s",
+            requestActive = true,
+            stage = "generating",
+            messages = listOf(
+                CliMessage("u", CliRole.USER, "hello", CliMessageStatus.COMPLETE),
+                CliMessage("a", CliRole.ASSISTANT, "partial", CliMessageStatus.STREAMING),
+            ),
+        )
+
+        renderer.render(null, streaming, Size(80, 24))
+        renderer.render(
+            streaming,
+            streaming.copy(
+                requestActive = false,
+                stage = null,
+                messages = streaming.messages.map { message ->
+                    if (message.id == "a") message.copy(markdown = "done", status = CliMessageStatus.COMPLETE) else message
+                },
+            ),
+            Size(80, 24),
+        )
+
+        assertFalse(active.frames.single().any { it.contains("hello") })
+        assertTrue(active.frames.single().any { it.contains("partial") })
+        assertEquals(1, active.clearCalls)
+        assertEquals(1, history.count { it.contains("hello") })
+        assertEquals(1, history.count { it.contains("done") })
+    }
+
+    private class RecordingActiveSink : InlineActiveSink {
+        val frames = mutableListOf<List<String>>()
+        var clearCalls = 0
+
+        override fun render(lines: List<String>) {
+            frames += lines
+        }
+
+        override fun clear() {
+            clearCalls += 1
+        }
     }
 }

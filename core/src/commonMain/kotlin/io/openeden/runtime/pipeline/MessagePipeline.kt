@@ -1,9 +1,27 @@
 package io.openeden.runtime.pipeline
 
+import io.openeden.bio.BioVector
+import io.openeden.bio.VectorDelta
+import io.openeden.bio.VectorMapping
+import io.openeden.codebook.CodebookQuantizer
+import io.openeden.codebook.HeuristicCodebookFallback
+import io.openeden.codebook.QuantizationResult
+import io.openeden.llm.DevelopmentLlmStub
+import io.openeden.llm.LlmClient
+import io.openeden.llm.LlmOutput
+import io.openeden.llm.LlmOutputValidator
+import io.openeden.llm.LlmStreamEvent
+import io.openeden.llm.StreamingLlmClient
+import io.openeden.memory.*
+import io.openeden.persona.PersonaConfig
+import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.DefaultPromptBuilder
+import io.openeden.prompt.PromptBuilder
+import io.openeden.prompt.PromptInput
+import io.openeden.relationship.*
 import io.openeden.runtime.affect.EmotionSignal
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.PreTickEngine
-import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.affect.ShockStateEngine
 import io.openeden.runtime.diary.DiaryEvent
 import io.openeden.runtime.diary.DiaryTaskStore
@@ -14,52 +32,14 @@ import io.openeden.runtime.inference.InferenceExecutor
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.session.SessionTurnGate
-import io.openeden.runtime.state.HomeostasisCentroidProvider
-import io.openeden.runtime.state.PRETICK_SKIP_CONFIDENCE
-import io.openeden.runtime.state.SlidingWindowHomeostasisCentroidProvider
-import io.openeden.runtime.state.StoredOriginCentroidProvider
-import io.openeden.runtime.state.VectorWriteResult
-import io.openeden.runtime.state.VectorWriteService
-
-import io.openeden.bio.BioVector
-import io.openeden.bio.VectorDelta
-import io.openeden.bio.VectorMapping
-import io.openeden.codebook.CodebookQuantizer
-import io.openeden.codebook.HeuristicCodebookFallback
-import io.openeden.codebook.QuantizationResult
-import io.openeden.llm.DevelopmentLlmStub
-import io.openeden.llm.LlmClient
-import io.openeden.llm.LlmOutputValidator
-import io.openeden.memory.InMemoryMemoryPalace
-import io.openeden.memory.DeterministicMemoryEmbeddingModel
-import io.openeden.memory.MemoryEmbeddingModel
-import io.openeden.memory.MemoryEntry
-import io.openeden.memory.MemoryKind
-import io.openeden.memory.MemoryRoom
-import io.openeden.memory.MemoryStore
-import io.openeden.memory.MemoryRetriever
-import io.openeden.memory.RetrievalMode
-import io.openeden.memory.RetrievalModeSelector
-import io.openeden.memory.RetrievalRequest
-import io.openeden.memory.RetrievalResult
-import io.openeden.persona.PersonaConfig
-import io.openeden.prompt.BuiltPrompt
-import io.openeden.prompt.DefaultPromptBuilder
-import io.openeden.prompt.PromptBuilder
-import io.openeden.prompt.PromptInput
-import io.openeden.trace.TraceTag
-import io.openeden.trace.TraceContext
-import io.openeden.trace.TraceSpan
-import io.openeden.trace.TraceStatus
-import io.openeden.trace.TraceStore
-import io.openeden.relationship.DeterministicUserAffectAnalyzer
-import io.openeden.relationship.RelationshipEvidence
-import io.openeden.relationship.RelationshipState
-import io.openeden.relationship.RelationshipStateStore
-import io.openeden.relationship.RelationshipRoleResolver
-import io.openeden.relationship.InMemoryRelationshipStateStore
-import io.openeden.relationship.UserAffectAnalyzer
-import io.openeden.relationship.UserAffectInfluenceMapper
+import io.openeden.runtime.state.*
+import io.openeden.trace.*
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.single
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 
 class DevelopmentMessagePipeline(
@@ -85,16 +65,25 @@ class DevelopmentMessagePipeline(
     private val affectInfluenceMapper: UserAffectInfluenceMapper,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
-    suspend fun handle(request: DevelopmentMessageRequest): DevelopmentMessageResult {
+    suspend fun handle(request: DevelopmentMessageRequest): DevelopmentMessageResult =
+        handleStreaming(request)
+            .filterIsInstance<DevelopmentMessageEvent.Completed>()
+            .single()
+            .result
+
+    fun handleStreaming(request: DevelopmentMessageRequest): Flow<DevelopmentMessageEvent> = flow {
         val sessionId = "${request.platform}:${request.scopeId}"
-        return turnGate.withSession(sessionId) {
-            handleLocked(request, sessionId)
+        turnGate.withSession(sessionId) {
+            emit(DevelopmentMessageEvent.Stage(DevelopmentStage.PREPARING))
+            val result = handleLocked(request, sessionId, ::emit)
+            emit(DevelopmentMessageEvent.Completed(result))
         }
     }
 
     private suspend fun handleLocked(
         request: DevelopmentMessageRequest,
         sessionId: String,
+        emitEvent: suspend (DevelopmentMessageEvent) -> Unit,
     ): DevelopmentMessageResult {
         val traceContext = TraceContext(
             traceId = "$sessionId:${nowMs()}",
@@ -128,9 +117,12 @@ class DevelopmentMessagePipeline(
             tags = setOf(if (relationshipDegraded) TraceTag.RelationshipDegraded else TraceTag.RelationshipLoaded),
         )
         val observedAffect = if (request.source == TurnSource.USER) {
-            inferenceExecutor.run { userAffectAnalyzer.analyze(request.text) }
+            val start = nowMs()
+            val result = inferenceExecutor.run { userAffectAnalyzer.analyze(request.text) }
+            println("Thymos inference has spent ${nowMs() - start}ms")
+            result
         } else {
-            io.openeden.relationship.UserAffectState.Uncertain
+            UserAffectState.Uncertain
         }
         val emotionSignal = if (request.emotionConfidence > 0.0f || request.emotionDelta != VectorDelta.Zero) {
             EmotionSignal(request.emotionDelta, request.emotionConfidence)
@@ -209,7 +201,8 @@ class DevelopmentMessagePipeline(
             ),
         )
         trace(traceContext, "prompt_construction")
-        val llmOutput = llmClient.complete(prompt)
+        emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.GENERATING))
+        val llmOutput = collectLlmOutput(prompt, emitEvent)
         trace(traceContext, "llm_inference")
         val validation = LlmOutputValidator.validate(llmOutput)
         trace(
@@ -219,12 +212,9 @@ class DevelopmentMessagePipeline(
             errorCode = if (validation.isValid) null else "TURN_REJECTED",
             errorSummary = validation.errors.joinToString("; "),
         )
+        emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.FINALIZING))
+        return withContext(NonCancellable) {
         val write = if (validation.isValid && validation.delta != null) {
-            val vectorWrite = vectorWriteService.applyLlmDeltaLocked(
-                sessionId = sessionId,
-                preTickedSnapshot = preTick.preTicked,
-                delta = validation.delta,
-            )
             val detectedShock = inferenceExecutor.run {
                 ShockStateEngine.detectFromLlmOutput(
                     vectorDelta = validation.delta,
@@ -232,20 +222,14 @@ class DevelopmentMessagePipeline(
                     internalLogic = validation.output?.internalLogic.orEmpty(),
                 )
             }
-            val shockWrite = detectedShock?.let { shock ->
-                vectorWriteService.applyShockLocked(sessionId, shock)
-            }
-            val applied = shockWrite?.copy(
-                traceTags = vectorWrite.traceTags + shockWrite.traceTags,
-            ) ?: vectorWrite
-            // USER turns reset the silence clock that gates heartbeats (§9.3); heartbeat turns
-            // evolve state but must not, or ATRI would silence her own proactive impulse.
-            if (request.source == TurnSource.USER) {
-                val refreshed = vectorWriteService.markUserActivityLocked(sessionId, nowMs())
-                applied.copy(state = refreshed)
-            } else {
-                applied
-            }
+            vectorWriteService.commitTurnLocked(
+                sessionId = sessionId,
+                preTickedSnapshot = preTick.preTicked,
+                delta = validation.delta,
+                shock = detectedShock,
+                // Heartbeat turns evolve state but must not silence future proactive turns.
+                lastUserActivityMs = nowMs().takeIf { request.source == TurnSource.USER },
+            )
         } else {
             VectorWriteResult(state = current, traceTags = emptySet())
         }
@@ -314,7 +298,7 @@ class DevelopmentMessagePipeline(
             attributes = mapOf("source" to request.source.name, "retrieval_mode" to retrievalResult.mode.name),
         )
 
-        return DevelopmentMessageResult(
+        DevelopmentMessageResult(
             sessionId = sessionId,
             retrievalMode = retrievalResult.mode,
             traceTags = inference.quantization.traceTags +
@@ -333,6 +317,33 @@ class DevelopmentMessagePipeline(
             diaryOutcome = diaryOutcome.label,
             validationErrors = validation.errors,
         )
+        }
+    }
+
+    private suspend fun collectLlmOutput(
+        prompt: BuiltPrompt,
+        emitEvent: suspend (DevelopmentMessageEvent) -> Unit,
+    ): LlmOutput {
+        val streaming = llmClient as? StreamingLlmClient
+        if (streaming == null || !streaming.supportsStrictStructuredStreaming) {
+            return llmClient.complete(prompt).also { output ->
+                if (LlmOutputValidator.validate(output).isValid) {
+                    emitEvent(DevelopmentMessageEvent.ResponseDelta(output.response))
+                }
+            }
+        }
+
+        var completed: LlmOutput? = null
+        streaming.stream(prompt).collect { event ->
+            when (event) {
+                is LlmStreamEvent.ResponseDelta -> emitEvent(DevelopmentMessageEvent.ResponseDelta(event.text))
+                is LlmStreamEvent.Completed -> {
+                    check(completed == null) { "LLM stream emitted more than one completion" }
+                    completed = event.output
+                }
+            }
+        }
+        return checkNotNull(completed) { "LLM stream ended without a completed output" }
     }
 
     private suspend fun trace(
@@ -386,7 +397,7 @@ class DevelopmentMessagePipeline(
         val rawTags = if (omega.value < 0.75f && delta.toList().all { kotlin.math.abs(it) <= 0.05f }) {
             setOf("daily", "stable")
         } else {
-            emptySet<String>()
+            emptySet()
         }
         val rawTrace = store.write(
             MemoryEntry(

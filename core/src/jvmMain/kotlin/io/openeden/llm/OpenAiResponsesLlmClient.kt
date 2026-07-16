@@ -9,7 +9,10 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.utils.io.readLine
 import io.openeden.prompt.BuiltPrompt
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
@@ -25,10 +28,82 @@ class OpenAiResponsesLlmClient(
     private val baseUrl: String = "https://api.openai.com/v1",
     private val httpClient: HttpClient = httpClient(CIO.create()),
     private val json: Json = Json { ignoreUnknownKeys = true },
-) : LlmClient, AutoCloseable {
+) : StreamingLlmClient, AutoCloseable {
+    override val supportsStrictStructuredStreaming: Boolean = true
+
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
-        log.info("Prompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
-        val response = httpClient.post("${baseUrl.trimEnd('/')}/responses") {
+        log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
+        val response = execute(prompt, stream = false)
+        requireSuccess(response)
+        val llmOutput = parseBufferedResponse(response.bodyAsText())
+        log.info("\n${llmOutput.internalLogic}\n${llmOutput.vectorDelta}\n${llmOutput.response}")
+        return llmOutput
+    }
+
+    override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = flow {
+        log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
+        val response = execute(prompt, stream = true)
+        requireSuccess(response)
+        if (response.contentType()?.withoutParameters() != ContentType.Text.EventStream) {
+            emit(LlmStreamEvent.Completed(parseBufferedResponse(response.bodyAsText())))
+            return@flow
+        }
+
+        val decoder = StrictOutputStreamDecoder(json)
+        val emittedResponse = StringBuilder()
+        val data = StringBuilder()
+        var completed = false
+        suspend fun consumeFrame() {
+            if (data.isEmpty()) return
+            val payload = data.toString()
+            data.clear()
+            if (payload == "[DONE]") return
+            val event = try {
+                json.parseToJsonElement(payload).jsonObject
+            } catch (error: Throwable) {
+                throw IllegalStateException("OpenAI Responses API returned malformed SSE data", error)
+            }
+            when (event["type"]?.jsonPrimitive?.content) {
+                "response.output_text.delta" -> {
+                    val delta = event["delta"]?.jsonPrimitive?.content
+                        ?: throw IllegalStateException("OpenAI response delta omitted delta text")
+                    decoder.accept(delta).forEach {
+                        emittedResponse.append(it)
+                        emit(LlmStreamEvent.ResponseDelta(it))
+                    }
+                }
+                "response.completed" -> {
+                    check(!completed) { "OpenAI response stream completed more than once" }
+                    val output = decoder.finish()
+                    check(output.response.startsWith(emittedResponse.toString())) {
+                        "Streamed response does not match completed structured output"
+                    }
+                    val remaining = output.response.substring(emittedResponse.length)
+                    if (remaining.isNotEmpty()) emit(LlmStreamEvent.ResponseDelta(remaining))
+                    emit(LlmStreamEvent.Completed(output))
+                    completed = true
+                }
+                "response.failed", "error" -> throw IllegalStateException("OpenAI response stream failed")
+            }
+        }
+
+        val channel = response.bodyAsChannel()
+        while (!channel.isClosedForRead) {
+            val line = channel.readLine() ?: break
+            when {
+                line.isEmpty() -> consumeFrame()
+                line.startsWith("data:") -> {
+                    if (data.isNotEmpty()) data.append('\n')
+                    data.append(line.removePrefix("data:").trimStart())
+                }
+            }
+        }
+        consumeFrame()
+        check(completed) { "OpenAI response stream ended without response.completed" }
+    }
+
+    private suspend fun execute(prompt: BuiltPrompt, stream: Boolean): HttpResponse =
+        httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             bearerAuth(apiKey)
             contentType(ContentType.Application.Json)
             setBody(
@@ -48,26 +123,29 @@ class OpenAiResponsesLlmClient(
                             strict = true,
                         ),
                     ),
+                    stream = stream,
                 ),
             )
         }
-        if (!response.status.value.toString().startsWith("2")) {
-            val errorBody = response.bodyAsText().take(1000)
-            val suffix = if (errorBody.isBlank()) "" else ": $errorBody"
-            throw IllegalStateException("OpenAI Responses API request failed: ${response.status.value} ${response.status.description}$suffix")
-        }
-        val body = json.decodeFromString<ResponsesResponse>(response.bodyAsText())
+
+    private suspend fun requireSuccess(response: HttpResponse) {
+        if (response.status.value.toString().startsWith("2")) return
+        val errorBody = response.bodyAsText().take(1000)
+        val suffix = if (errorBody.isBlank()) "" else ": $errorBody"
+        throw IllegalStateException("OpenAI Responses API request failed: ${response.status.value} ${response.status.description}$suffix")
+    }
+
+    private fun parseBufferedResponse(bodyText: String): LlmOutput {
+        val body = json.decodeFromString<ResponsesResponse>(bodyText)
         val outputText = body.outputText
             ?: body.output.orEmpty().flatMap { it.content.orEmpty() }.firstNotNullOfOrNull { it.text }
             ?: throw IllegalStateException("OpenAI Responses API response did not contain output text")
         val root = json.parseToJsonElement(outputText).jsonObject
-        val llmOutput = LlmOutput(
+        return LlmOutput(
             internalLogic = root.getValue("internal_logic").jsonPrimitive.content,
             vectorDelta = root.getValue("vector_delta").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.float },
             response = root.getValue("response").jsonPrimitive.content,
         )
-        log.info("\n$llmOutput")
-        return llmOutput
     }
 
     override fun close() = httpClient.close()
@@ -92,6 +170,7 @@ private data class ResponsesRequest(
     val reasoning: ResponsesReasoning,
     val input: List<ResponsesInputMessage>,
     val text: TextFormat,
+    val stream: Boolean = false,
 )
 
 @Serializable
@@ -121,16 +200,15 @@ private data class ResponseContentItem(val text: String? = null)
 private val llmOutputSchema: JsonElement = JsonObject(
     mapOf(
         "type" to jsonString("object"),
-        "additionalProperties" to kotlinx.serialization.json.JsonPrimitive(false),
+        "additionalProperties" to JsonPrimitive(false),
         "required" to jsonArray("internal_logic", "vector_delta", "response"),
         "properties" to JsonObject(
             mapOf(
                 "internal_logic" to JsonObject(mapOf("type" to jsonString("string"))),
-                "response" to JsonObject(mapOf("type" to jsonString("string"))),
                 "vector_delta" to JsonObject(
                     mapOf(
                         "type" to jsonString("object"),
-                        "additionalProperties" to kotlinx.serialization.json.JsonPrimitive(false),
+                        "additionalProperties" to JsonPrimitive(false),
                         "required" to jsonArray("L", "P", "E", "S", "tau", "V", "M", "F"),
                         "properties" to JsonObject(
                             listOf("L", "P", "E", "S", "tau", "V", "M", "F").associateWith {
@@ -139,10 +217,11 @@ private val llmOutputSchema: JsonElement = JsonObject(
                         ),
                     ),
                 ),
+                "response" to JsonObject(mapOf("type" to jsonString("string"))),
             ),
         ),
     ),
 )
 
-private fun jsonString(value: String) = kotlinx.serialization.json.JsonPrimitive(value)
-private fun jsonArray(vararg values: String) = kotlinx.serialization.json.JsonArray(values.map(::jsonString))
+private fun jsonString(value: String) = JsonPrimitive(value)
+private fun jsonArray(vararg values: String) = JsonArray(values.map(::jsonString))

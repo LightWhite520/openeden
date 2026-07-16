@@ -4,8 +4,9 @@ import io.openeden.cli.command.CliCommandCompleter
 import io.openeden.cli.command.CliCommandParser
 
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
@@ -56,7 +57,7 @@ class JLineTerminalSession private constructor(
             "Terminal events may only be collected once"
         }
 
-        val readerJob = launch(readDispatcher) {
+        val readerJob = CoroutineScope(SupervisorJob() + readDispatcher).launch {
             try {
                 while (currentCoroutineContext().isActive && !shutdownStarted) {
                     try {
@@ -73,7 +74,8 @@ class JLineTerminalSession private constructor(
                         break
                     } catch (error: Throwable) {
                         if (shutdownStarted) break
-                        throw error
+                        eventQueue.close(error)
+                        break
                     }
                 }
             } finally {
@@ -89,9 +91,7 @@ class JLineTerminalSession private constructor(
             eventQueue.close()
             try {
                 close()
-            } finally {
-                readerJob.cancelAndJoin()
-            }
+            } finally { readerJob.cancel() }
         }
     }
 
@@ -301,7 +301,7 @@ class JLineTerminalSession private constructor(
                     terminal = terminal,
                     lineReader = lineReader,
                     richSupported = richSupported,
-                    readLine = readLine ?: lineReader::readLine,
+                    readLine = readLine ?: { lineReader.readLine("> ") },
                     lifecycleOperations = lifecycleOperations
                         ?: RealTerminalLifecycleOperations(terminal, savedAttributes),
                     readDispatcher = Dispatchers.IO.limitedParallelism(1),

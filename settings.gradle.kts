@@ -12,15 +12,10 @@ plugins {
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
+        maven("https://jitpack.io")
     }
     versionCatalogs {
         create("ktorLibs").from("io.ktor:ktor-version-catalog:3.5.0")
-    }
-}
-
-sourceControl {
-    gitRepository(uri("https://github.com/LightWhite520/thymos.git")) {
-        producesModule("io.openeden:thymos")
     }
 }
 

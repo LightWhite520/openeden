@@ -1,0 +1,27 @@
+name: CLI terminal
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test
+        shell: pwsh
+        run: ./gradlew test :core:jvmTest :server:test --no-daemon --console=plain
+      - name: Verify redirected Windows Unicode bytes
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/verify-cli-unicode.ps1

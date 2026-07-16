@@ -4,7 +4,7 @@ import io.openeden.cli.state.CliUiState
 
 interface FullscreenSink {
     fun capabilitiesAvailable(): Boolean
-    fun enter()
+    fun enter(): Boolean
     fun write(changes: List<RowChange>)
     fun close()
 }
@@ -18,7 +18,10 @@ class FullScreenCliRenderer(private val sink: FullscreenSink, private val inline
         if (closed) return RenderDecision.FallbackToInline("Renderer is closed.")
         if (!sink.capabilitiesAvailable()) return fallback("Terminal does not support full-screen capabilities.")
         if (size.columns < 80 || size.rows < 24) return fallback("Terminal too small for full-screen mode.")
-        if (!entered) { sink.enter(); entered = true }
+        if (!entered) {
+            if (!sink.enter()) return fallback("Terminal does not support full-screen capabilities.")
+            entered = true
+        }
         val conversation = inline.rows(current, size.columns - 22)
         val rail = "session ${current.sessionId}"
         val diagnostics = if (current.diagnosticsVisible) current.diagnostics?.let {

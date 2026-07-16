@@ -43,6 +43,33 @@ class VectorWriteService(
         )
     }
 
+    suspend fun commitTurnLocked(
+        sessionId: String,
+        preTickedSnapshot: BioVector,
+        delta: VectorDelta,
+        shock: ShockState?,
+        lastUserActivityMs: Long?,
+    ): VectorWriteResult {
+        val latest = store.read(sessionId)
+        val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
+        val updatedVector = latest.vector.apply(relativePreTickDelta).apply(delta)
+        val updated = latest.copy(
+            vector = updatedVector,
+            evolutionIndex = latest.evolutionIndex + 1,
+            shockState = shock ?: latest.shockState,
+            omega = shock?.let { ShockStateEngine.omegaJump(latest.omega, it) } ?: latest.omega,
+            lastUserActivityMs = lastUserActivityMs ?: latest.lastUserActivityMs,
+        )
+        store.write(updated)
+        return VectorWriteResult(
+            state = updated,
+            traceTags = buildSet {
+                add(TraceTag.VectorWriteSerialized)
+                if (shock != null) add(TraceTag.ShockStateTransition)
+            },
+        )
+    }
+
     /** Mutex-guarded read-modify-write for session mutations that are not LLM vector deltas
      *  (e.g. activity timestamps, shock-heartbeat flag). Shares the per-session Mutex with
      *  [applyLlmDelta] so all writes to a session remain serialized (§14.2). */

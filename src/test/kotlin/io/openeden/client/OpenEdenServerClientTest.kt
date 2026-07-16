@@ -11,6 +11,7 @@ import io.ktor.http.headersOf
 import io.ktor.http.contentType
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,6 +31,23 @@ class OpenEdenServerClientTest {
                     respond("""{"requestId":"req_1","status":"completed","response":"你好","error":null}""", headers = contentType())
                 }
                 "/api/v1/state" -> respond("""{"sessionId":"CLI:local","status":"ready","omega":0.2,"shockActive":false}""", headers = contentType())
+                "/api/v1/chat/stream" -> {
+                    assertTrue(request.body.toByteArray().decodeToString().contains("\"clientRequestId\":\"client_1\""))
+                    respond(
+                        """
+                        event: accepted
+                        data: {"requestId":"req_1"}
+
+                        event: response.delta
+                        data: {"text":"你好"}
+
+                        event: completed
+                        data: {"requestId":"req_1","status":"completed"}
+
+                        """.trimIndent(),
+                        headers = headersOf("Content-Type", ContentType.Text.EventStream.toString()),
+                    )
+                }
                 else -> error("unexpected path: ${request.url.encodedPath}")
             }
         }
@@ -42,9 +60,18 @@ class OpenEdenServerClientTest {
         assertEquals("CLI:local", client.state("local").sessionId)
         assertEquals(
             listOf(
+                ChatStreamEvent.Accepted("req_1"),
+                ChatStreamEvent.ResponseDelta("你好"),
+                ChatStreamEvent.Completed("req_1", "completed"),
+            ),
+            client.chatStream("local", "hello", "client_1").toList(),
+        )
+        assertEquals(
+            listOf(
                 "http://127.0.0.1:8080/health",
                 "http://127.0.0.1:8080/api/v1/chat",
                 "http://127.0.0.1:8080/api/v1/state?userId=local",
+                "http://127.0.0.1:8080/api/v1/chat/stream",
             ),
             requests,
         )

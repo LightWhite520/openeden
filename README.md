@@ -127,6 +127,11 @@ Common variables:
 | `OPENEDEN_OWNER_USER_ID`        | Optional heartbeat owner user ID.                   |
 | `OPENEDEN_HOST_PLATFORM`        | Optional authoritative host identity platform.      |
 | `OPENEDEN_HOST_USER_ID`         | Optional authoritative host identity user ID.       |
+| `OPENEDEN_ENABLE_CLI_DIAGNOSTICS` | Enable the token-gated diagnostic endpoint; default `false`. |
+| `OPENEDEN_CLI_DIAGNOSTICS_TOKEN` | Separate credential used only by the optional CLI diagnostic panel. |
+| `OPENEDEN_STDIN_ENCODING`       | Redirected stdin charset override; default `UTF-8`.  |
+| `OPENEDEN_STDOUT_ENCODING`      | Redirected stdout charset override; default `UTF-8`. |
+| `OPENEDEN_STDERR_ENCODING`      | Redirected stderr charset override; default `UTF-8`. |
 
 ## Quick Start
 
@@ -170,18 +175,33 @@ Print local CLI state:
 ## CLI
 
 ```text
-/state
 /help
+/state
+/mode inline|full
+/inspect on|off
+/clear
 /exit
 ```
 
-Normal input is sent to `POST /api/v1/chat`. `/exit` closes only the CLI HTTP client and does not stop the server.
+Interactive sessions start in vertical inline mode, which keeps completed turns in native terminal scrollback. `/mode full` or `Ctrl+T` switches to the alternate-screen view without creating a second server session; switching back preserves the conversation. `/exit` closes only the CLI HTTP client and does not stop the server.
 
 Interactive input uses JLine for history, cursor movement, insertion, deletion,
 IME input, and supplementary Unicode characters such as emoji. See
 [Terminal input](docs/terminal-input.md) for the terminal ownership and encoding
 contract. Internal Omega, ShockState, and 8D vector diagnostics are not shown by
-default.
+default. `Alt+Enter` inserts a newline, `Tab` completes slash commands, Esc or
+`Ctrl+C` cancels active generation, `Ctrl+D` exits an empty editor, and `Alt+I`
+toggles diagnostics.
+
+Diagnostics have two gates: the panel is hidden on every launch, and the server
+endpoint is disabled unless `OPENEDEN_ENABLE_CLI_DIAGNOSTICS=true` with a
+non-empty `OPENEDEN_CLI_DIAGNOSTICS_TOKEN`. The panel contains only safe state
+summaries; prompts and internal reasoning are never returned.
+
+TTY input/output uses JLine's native terminal provider. Redirected streams are
+UTF-8 without an output BOM, consume one optional UTF-8 input BOM, and emit no
+ANSI controls. Legacy producers can opt into a charset such as `GBK` with the
+three explicit stream variables above; the CLI never changes global shell state.
 
 On first startup, the CLI creates:
 
@@ -204,8 +224,14 @@ Public endpoints:
 ```text
 GET  /health
 POST /api/v1/chat       {"userId":"local","text":"hello"}
+POST /api/v1/chat/stream {"userId":"local","text":"hello","clientRequestId":"..."}
 GET  /api/v1/state?userId=local
 ```
+
+The stream endpoint emits only `accepted`, safe `stage`, `response.delta`,
+`completed`, and safe `error` events. Providers with strict structured streaming
+produce validated public deltas. Other providers fall back to buffered delivery
+after the complete output schema has passed validation.
 
 Chat responses contain:
 
@@ -225,6 +251,7 @@ Internal vectors, `evolutionIndex`, prompts, traces, retrieval modes, and diary 
 ```powershell
 .\gradlew.bat :server:test
 .\gradlew.bat :server:build
+.\scripts\verify-cli-unicode.ps1
 ```
 
 Useful Gradle tasks:

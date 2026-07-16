@@ -98,6 +98,11 @@ Copy-Item .env.example .env
 | `OPENEDEN_OWNER_USER_ID`        | 可选，心跳 owner 用户 ID。                             |
 | `OPENEDEN_HOST_PLATFORM`        | 可选，权威宿主身份平台。                               |
 | `OPENEDEN_HOST_USER_ID`         | 可选，权威宿主身份用户 ID。                            |
+| `OPENEDEN_ENABLE_CLI_DIAGNOSTICS` | 是否启用需要 token 的 CLI 诊断接口，默认 `false`。   |
+| `OPENEDEN_CLI_DIAGNOSTICS_TOKEN` | CLI 诊断面板专用凭据，不写入本地配置。                |
+| `OPENEDEN_STDIN_ENCODING`       | 重定向 stdin 编码覆盖，默认 `UTF-8`。                  |
+| `OPENEDEN_STDOUT_ENCODING`      | 重定向 stdout 编码覆盖，默认 `UTF-8`。                 |
+| `OPENEDEN_STDERR_ENCODING`      | 重定向 stderr 编码覆盖，默认 `UTF-8`。                 |
 
 ## 快速开始
 
@@ -147,16 +152,30 @@ $env:OPENEDEN_OPENAI_BASE_URL="https://api.openai.com/v1"
 ## CLI 命令
 
 ```text
-/state
 /help
+/state
+/mode inline|full
+/inspect on|off
+/clear
 /exit
 ```
 
-普通输入会发送到 `POST /api/v1/chat`。`/exit` 只关闭 CLI HTTP client，不会停止 server。
+交互会话默认使用纵向 inline 模式，完成的消息保留在终端原生 scrollback 中。
+`/mode full` 或 `Ctrl+T` 可切换到全屏模式，再切回时不会新建服务端 session 或丢失对话。
+`/exit` 只关闭 CLI HTTP client，不会停止 server。
 
 交互输入由 JLine 处理历史记录、光标移动、插入、删除、IME 和 emoji 等补充
 Unicode 字符。终端接管与编码约定见 [终端输入说明](docs/terminal-input.md)。
-Omega、ShockState 和 8D 向量等内部诊断信息默认不显示。
+`Alt+Enter` 插入换行，`Tab` 补全命令，Esc 或 `Ctrl+C` 取消生成，空编辑器下
+`Ctrl+D` 退出，`Alt+I` 切换诊断。Omega、ShockState 和 8D 向量默认不显示。
+
+诊断有两层门控：面板每次启动都隐藏；服务端仅在
+`OPENEDEN_ENABLE_CLI_DIAGNOSTICS=true` 且配置独立 token 时开放。授权面板只返回
+安全状态摘要，不会返回 prompt、内部推理、凭据或记忆正文。
+
+TTY 使用 JLine 原生 terminal provider。重定向流默认是无输出 BOM 的 UTF-8，
+会消费一次可选输入 BOM，并且不输出 ANSI 控制序列。旧系统可通过三个 stream
+变量显式选择 `GBK` 等编码；CLI 不修改 PowerShell 或全局控制台状态。
 
 首次启动 CLI 时，OpenEden 会创建：
 
@@ -179,8 +198,13 @@ http://0.0.0.0:8080
 ```text
 GET  /health
 POST /api/v1/chat       {"userId":"local","text":"你好"}
+POST /api/v1/chat/stream {"userId":"local","text":"你好","clientRequestId":"..."}
 GET  /api/v1/state?userId=local
 ```
+
+流接口只发送 `accepted`、安全 `stage`、`response.delta`、`completed` 和安全
+`error`。支持严格结构化流的 provider 会产生已隔离的公开 response delta；不支持时，
+系统在完整 schema 校验通过后一次性发送缓冲结果。
 
 Chat 响应包含：
 
@@ -200,6 +224,7 @@ Chat 响应包含：
 ```powershell
 .\gradlew.bat :server:test
 .\gradlew.bat :server:build
+.\scripts\verify-cli-unicode.ps1
 ```
 
 常用 Gradle 任务：

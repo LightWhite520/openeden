@@ -7,7 +7,9 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.ContentType
 import io.ktor.http.headersOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -16,8 +18,69 @@ import kotlinx.serialization.json.jsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 
 class OpenAiResponsesLlmClientTest {
+    @Test
+    fun `streams strict structured output without exposing private fields`() = runTest {
+        var requestBody = ""
+        val first = """{"internal_logic":"private","vector_delta":{"L":0.0,"P":0.0,"E":0.0,"S":0.0,"tau":0.0,"V":0.0,"M":0.0,"F":0.0},"response":"你"""
+        val second = """好"}"""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = buildString {
+                    append("data: ${Json.encodeToString(mapOf("type" to "response.output_text.delta", "delta" to first))}\n\n")
+                    append("data: ${Json.encodeToString(mapOf("type" to "response.output_text.delta", "delta" to second))}\n\n")
+                    append("data: {\"type\":\"response.completed\"}\n\n")
+                },
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Text.EventStream.toString()),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.5",
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        val events = client.stream(BuiltPrompt("system", "persona", "user")).toList()
+
+        assertEquals(listOf("你", "好"), events.filterIsInstance<LlmStreamEvent.ResponseDelta>().map { it.text })
+        assertEquals("你好", assertIs<LlmStreamEvent.Completed>(events.last()).output.response)
+        val body = Json.parseToJsonElement(requestBody).jsonObject
+        assertEquals(true, body.getValue("stream").jsonPrimitive.content.toBoolean())
+        val schemaProperties = body.getValue("text").jsonObject
+            .getValue("format").jsonObject
+            .getValue("schema").jsonObject
+            .getValue("properties").jsonObject
+        assertEquals(listOf("internal_logic", "vector_delta", "response"), schemaProperties.keys.toList())
+    }
+
+    @Test
+    fun `completes schema valid provider output when object fields are reordered`() = runTest {
+        val structured =
+            """{"internal_logic":"private","response":"你好","vector_delta":{"E":0.0,"F":0.0,"L":0.0,"M":0.0,"P":0.0,"S":0.0,"V":0.0,"tau":0.0}}"""
+        val engine = MockEngine {
+            respond(
+                content = buildString {
+                    append("data: ${Json.encodeToString(mapOf("type" to "response.output_text.delta", "delta" to structured))}\n\n")
+                    append("data: {\"type\":\"response.completed\"}\n\n")
+                },
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Text.EventStream.toString()),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.5",
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        val events = client.stream(BuiltPrompt("system", "persona", "user")).toList()
+
+        assertEquals(listOf("你好"), events.filterIsInstance<LlmStreamEvent.ResponseDelta>().map { it.text })
+        assertEquals("你好", assertIs<LlmStreamEvent.Completed>(events.last()).output.response)
+    }
+
     @Test
     fun `sends prompt layers to responses api and parses output json`() = runTest {
         var requestBody = ""

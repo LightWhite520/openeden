@@ -16,7 +16,10 @@ application {
 
 tasks.named<JavaExec>("run") {
     standardInput = System.`in`
-    jvmArgs("-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+}
+
+tasks.named<Test>("test") {
+    dependsOn(tasks.named("installDist"))
 }
 
 val localModelArtifactPath = providers

@@ -52,6 +52,10 @@ build/affect-qwen-*/
 # Private copyrighted/local corpora
 private_corpus/
 
+# Python caches
+__pycache__/
+*.pyc
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

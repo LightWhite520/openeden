@@ -43,7 +43,7 @@ private class FakeFullscreenSink(val capable: Boolean) : FullscreenSink {
     var closed = false
     val changes = mutableListOf<RowChange>()
     override fun capabilitiesAvailable() = capable
-    override fun enter() = Unit
+    override fun enter() = capable
     override fun write(changes: List<RowChange>) { this.changes += changes }
     override fun close() { closed = true }
 }
