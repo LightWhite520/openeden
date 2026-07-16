@@ -24,4 +24,13 @@ data class PromptInput(
     val relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
     val relationshipAddress: String? = null,
     val relationshipState: RelationshipState? = null,
-)
+) {
+    init {
+        require(relationshipRole == RelationshipRole.HOST || relationshipAddress == null) {
+            "Relationship address requires HOST role"
+        }
+        require(relationshipAddress == null || relationshipAddress.isNotBlank()) {
+            "Relationship address must not be blank"
+        }
+    }
+}

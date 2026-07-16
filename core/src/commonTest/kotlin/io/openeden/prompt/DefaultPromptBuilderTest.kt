@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class DefaultPromptBuilderTest {
@@ -64,6 +65,26 @@ class DefaultPromptBuilderTest {
 
         assertContains(built.systemText, "\"relationship_role\": \"INTERLOCUTOR\"")
         assertContains(built.systemText, "\"relationship_address\": null")
+    }
+
+    @Test
+    fun `prompt input rejects relationship address for interlocutor`() {
+        assertFailsWith<IllegalArgumentException> {
+            promptInput(
+                relationshipRole = RelationshipRole.INTERLOCUTOR,
+                relationshipAddress = "Captain",
+            )
+        }
+    }
+
+    @Test
+    fun `prompt input rejects blank host address`() {
+        assertFailsWith<IllegalArgumentException> {
+            promptInput(
+                relationshipRole = RelationshipRole.HOST,
+                relationshipAddress = " ",
+            )
+        }
     }
 
     @Test
