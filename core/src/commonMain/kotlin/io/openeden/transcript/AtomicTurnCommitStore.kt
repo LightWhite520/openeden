@@ -8,5 +8,5 @@ interface AtomicTurnCommitStore {
     suspend fun writeCommittedTurn(
         state: SessionState,
         turn: ConversationTurn,
-    )
+    ): TurnCommitOutcome
 }

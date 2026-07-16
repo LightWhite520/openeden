@@ -65,21 +65,22 @@ class VectorWriteService(
             omega = shock?.let { ShockStateEngine.omegaJump(latest.omega, it) } ?: latest.omega,
             lastUserActivityMs = lastUserActivityMs ?: latest.lastUserActivityMs,
         )
-        val committedState = if (turn != null) {
+        val turnCommitOutcome = if (turn != null) {
             val atomicStore = store as? AtomicTurnCommitStore
                 ?: error("Public turns require an atomic turn commit store")
             atomicStore.writeCommittedTurn(updated, turn)
-            store.read(sessionId)
         } else {
             store.write(updated)
-            updated
+            null
         }
+        val committedState = if (turnCommitOutcome != null) store.read(sessionId) else updated
         return VectorWriteResult(
             state = committedState,
             traceTags = buildSet {
                 add(TraceTag.VectorWriteSerialized)
                 if (shock != null) add(TraceTag.ShockStateTransition)
             },
+            turnCommitOutcome = turnCommitOutcome,
         )
     }
 

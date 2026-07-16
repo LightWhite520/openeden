@@ -3,12 +3,17 @@ package io.openeden.runtime.pipeline
 import io.openeden.bio.BioVector
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutput
+import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.runtime.session.MutableSessionStateStore
+import io.openeden.runtime.diary.SessionDiaryQueue
+import io.openeden.runtime.inference.DirectInferenceExecutor
+import io.openeden.runtime.state.HomeostasisCentroidProvider
+import io.openeden.relationship.InMemoryRelationshipStateStore
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.transcript.AtomicTurnCommitStore
@@ -18,7 +23,12 @@ import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
+import io.openeden.transcript.TurnCommitOutcome
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -90,31 +100,62 @@ class MessagePipelineTranscriptTest {
     }
 
     @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun `retrying the same turn id does not evolve state twice`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
         val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
+        val relationships = InMemoryRelationshipStateStore()
+        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val diaryQueue = SessionDiaryQueue()
+        val diaryEvents = mutableListOf<io.openeden.runtime.diary.DiaryEvent>()
+        backgroundScope.launch { diaryQueue.events().collect { diaryEvents += it } }
+        runCurrent()
+        var centroidCalls = 0
         var clock = 1_000L
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = persona(),
             llmClient = ValidLlmClient(),
             store = stateStore,
             transcriptStore = transcripts,
+            relationshipStore = relationships,
+            memoryStore = memories,
+            diaryQueue = diaryQueue,
+            centroidProvider = HomeostasisCentroidProvider {
+                centroidCalls++
+                BioVector.Neutral
+            },
             nowMs = { clock },
         )
         val request = request(turnId = "stable-retry-id")
 
         val firstResult = pipeline.handle(request)
+        runCurrent()
         val firstTurn = transcripts.page(50).turns.single()
+        val firstRelationship = relationships.readOrCreate("CLI:local", "user-1", clock)
+        val firstMemories = memories.recent("CLI:local", 50)
+        val firstDiaryCount = diaryEvents.size
+        val firstCentroidCalls = centroidCalls
+        val firstState = stateStore.read("CLI:local")
+        assertTrue(firstRelationship.familiarity > 0.0f)
+        assertTrue(firstMemories.isNotEmpty())
+        assertEquals(1, firstDiaryCount)
+        assertEquals(2, firstCentroidCalls)
         clock = 2_000L
         val retryResult = pipeline.handle(request)
+        runCurrent()
 
         assertEquals(1, transcripts.page(50).turns.size)
         assertEquals(1_000L, firstTurn.completedAtMs)
         assertEquals(firstTurn.completedAtMs, transcripts.page(50).turns.single().completedAtMs)
         assertEquals(firstResult.updatedVector, retryResult.updatedVector)
         assertEquals(1L, stateStore.read("CLI:local").evolutionIndex)
+        assertEquals(firstState, stateStore.read("CLI:local"))
         assertEquals(stateStore.read("CLI:local").vector, retryResult.updatedVector)
         assertEquals(1L, retryResult.evolutionIndex)
+        assertEquals(firstRelationship, relationships.readOrCreate("CLI:local", "user-1", clock))
+        assertEquals(firstMemories, memories.recent("CLI:local", 50))
+        assertEquals(firstDiaryCount, diaryEvents.size)
+        assertEquals(firstCentroidCalls + 1, centroidCalls)
     }
 
     @Test
@@ -138,7 +179,10 @@ class MessagePipelineTranscriptTest {
             AtomicTurnCommitStore {
             override fun commitsTo(transcriptStore: TranscriptStore): Boolean = false
 
-            override suspend fun writeCommittedTurn(state: SessionState, turn: ConversationTurn) = Unit
+            override suspend fun writeCommittedTurn(
+                state: SessionState,
+                turn: ConversationTurn,
+            ) = TurnCommitOutcome.INSERTED
         }
         val transcripts = InMemoryTranscriptStore("incarnation-a")
 

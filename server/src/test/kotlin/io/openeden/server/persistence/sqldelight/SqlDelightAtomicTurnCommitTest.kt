@@ -6,8 +6,10 @@ import io.openeden.bio.VectorDelta
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.session.SessionState
+import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
 import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.TurnCommitOutcome
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -25,6 +27,44 @@ class SqlDelightAtomicTurnCommitTest {
     fun cleanup() {
         Files.list(tempDir).use { files -> files.forEach { Files.deleteIfExists(it) } }
         Files.deleteIfExists(tempDir)
+    }
+
+    @Test
+    fun `atomic store reports inserted then already committed without rewriting state`() = runTest {
+        val transcriptStore = SqlDelightTranscriptStore.open(dbPath)
+        val stateStore = SqlDelightSessionStateStore.open(
+            dbPath,
+            committedTranscriptStore = transcriptStore,
+        )
+        try {
+            val initial = SessionStateStore.neutral("CLI:local")
+            val firstState = initial.copy(evolutionIndex = 1L)
+            val turn = ConversationTurn(
+                turnId = "stable-turn",
+                incarnationId = transcriptStore.activeIncarnation().id,
+                sessionId = initial.sessionId,
+                platform = "CLI",
+                scopeId = "local",
+                userId = "user-1",
+                userText = "hello",
+                assistantText = "response",
+                completedAtMs = 100L,
+            )
+
+            val inserted = stateStore.writeCommittedTurn(firstState, turn)
+            val duplicate = stateStore.writeCommittedTurn(
+                firstState.copy(evolutionIndex = 2L),
+                turn.copy(completedAtMs = 200L),
+            )
+
+            assertEquals(TurnCommitOutcome.INSERTED, inserted)
+            assertEquals(TurnCommitOutcome.ALREADY_COMMITTED, duplicate)
+            assertEquals(1L, stateStore.read(initial.sessionId).evolutionIndex)
+            assertEquals(100L, transcriptStore.page(50).turns.single().completedAtMs)
+        } finally {
+            stateStore.close()
+            transcriptStore.close()
+        }
     }
 
     @Test

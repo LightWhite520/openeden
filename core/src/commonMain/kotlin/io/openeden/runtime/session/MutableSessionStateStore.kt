@@ -9,6 +9,7 @@ import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
+import io.openeden.transcript.TurnCommitOutcome
 import kotlinx.coroutines.sync.withLock
 
 class MutableSessionStateStore(
@@ -45,25 +46,27 @@ class MutableSessionStateStore(
     override fun commitsTo(transcriptStore: TranscriptStore): Boolean =
         transcriptStore === this || transcriptStore === transcript
 
-    override suspend fun writeCommittedTurn(state: SessionState, turn: ConversationTurn) {
-        mutex.withLock {
-            require(turn.sessionId == state.sessionId) {
-                "Turn session '${turn.sessionId}' does not match state session '${state.sessionId}'"
-            }
-            val activeIncarnation = transcript.activeIncarnationLocked()
-            require(turn.incarnationId == activeIncarnation.id) {
-                "Turn incarnation '${turn.incarnationId}' does not match active incarnation '${activeIncarnation.id}'"
-            }
-            transcript.turnByIdLocked(turn.turnId)?.let { existing ->
-                require(existing.matchesRetry(turn)) {
-                    "Turn ID '${turn.turnId}' already exists with a different payload"
-                }
-                return@withLock
-            }
-            validateWriteLocked(state)
-            transcript.appendLocked(turn)
-            states[state.sessionId] = state
+    override suspend fun writeCommittedTurn(
+        state: SessionState,
+        turn: ConversationTurn,
+    ): TurnCommitOutcome = mutex.withLock {
+        require(turn.sessionId == state.sessionId) {
+            "Turn session '${turn.sessionId}' does not match state session '${state.sessionId}'"
         }
+        val activeIncarnation = transcript.activeIncarnationLocked()
+        require(turn.incarnationId == activeIncarnation.id) {
+            "Turn incarnation '${turn.incarnationId}' does not match active incarnation '${activeIncarnation.id}'"
+        }
+        transcript.turnByIdLocked(turn.turnId)?.let { existing ->
+            require(existing.matchesRetry(turn)) {
+                "Turn ID '${turn.turnId}' already exists with a different payload"
+            }
+            return@withLock TurnCommitOutcome.ALREADY_COMMITTED
+        }
+        validateWriteLocked(state)
+        transcript.appendLocked(turn)
+        states[state.sessionId] = state
+        TurnCommitOutcome.INSERTED
     }
 
     override suspend fun sessionIds(): Set<String> = mutex.withLock { states.keys.toSet() }

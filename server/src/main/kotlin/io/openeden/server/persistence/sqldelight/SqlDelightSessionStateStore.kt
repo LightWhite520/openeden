@@ -11,6 +11,7 @@ import io.openeden.runtime.affect.ShockState
 import io.openeden.transcript.AtomicTurnCommitStore
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.TranscriptStore
+import io.openeden.transcript.TurnCommitOutcome
 import io.openeden.persona.PersonaSubState
 import io.openeden.persona.PersonaMode
 import kotlinx.coroutines.CoroutineDispatcher
@@ -95,7 +96,11 @@ class SqlDelightSessionStateStore(
     override fun commitsTo(transcriptStore: TranscriptStore): Boolean =
         transcriptStore === committedTranscriptStore
 
-    override suspend fun writeCommittedTurn(state: SessionState, turn: ConversationTurn) = withContext(ioDispatcher) {
+    override suspend fun writeCommittedTurn(
+        state: SessionState,
+        turn: ConversationTurn,
+    ): TurnCommitOutcome = withContext(ioDispatcher) {
+        var outcome = TurnCommitOutcome.INSERTED
         database.transaction {
             require(turn.sessionId == state.sessionId) {
                 "Turn session '${turn.sessionId}' does not match state session '${state.sessionId}'"
@@ -110,6 +115,7 @@ class SqlDelightSessionStateStore(
                     require(existing.matchesRetry(turn)) {
                         "Turn ID '${turn.turnId}' already exists with a different payload"
                     }
+                    outcome = TurnCommitOutcome.ALREADY_COMMITTED
                     return@transaction
                 }
 
@@ -130,6 +136,7 @@ class SqlDelightSessionStateStore(
                 "Turn ID '${turn.turnId}' was not committed with the expected payload"
             }
         }
+        outcome
     }
 
     private fun writeStateQueries(state: SessionState) {

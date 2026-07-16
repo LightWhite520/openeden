@@ -38,6 +38,7 @@ import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.AtomicTurnCommitStore
 import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
+import io.openeden.transcript.TurnCommitOutcome
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterIsInstance
@@ -261,8 +262,14 @@ class DevelopmentMessagePipeline(
             VectorWriteResult(state = current, traceTags = emptySet())
         }
         trace(traceContext, "state_commit", tags = write.traceTags)
+        val alreadyCommitted = write.turnCommitOutcome == TurnCommitOutcome.ALREADY_COMMITTED
 
-        val relationshipWrite: Set<String> = if (request.source == TurnSource.USER && validation.isValid && relationship != null) {
+        val relationshipWrite: Set<String> = if (
+            !alreadyCommitted &&
+            request.source == TurnSource.USER &&
+            validation.isValid &&
+            relationship != null
+        ) {
             val evidence = relationshipEvidence(request.text)
             val updated = if (evidence != null) {
                 relationship.apply(evidence, nowMs())
@@ -285,7 +292,12 @@ class DevelopmentMessagePipeline(
         val sourceTags: Set<String> = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
 
         var diaryOutcome = DiaryOutcome("not_triggered", emptySet())
-        val memoryTraceTags = if (validation.isValid && validation.delta != null && validation.output != null) {
+        val memoryTraceTags = if (
+            !alreadyCommitted &&
+            validation.isValid &&
+            validation.delta != null &&
+            validation.output != null
+        ) {
             inferenceExecutor.run<MemoryWriteOutcome> {
                 writeMemories(
                     request = request,
@@ -306,7 +318,7 @@ class DevelopmentMessagePipeline(
             diaryOutcome = DiaryOutcome(if (tags.isEmpty()) "enqueued" else "overflow", tags)
         }
         trace(traceContext, "memory_write", tags = memoryTraceTags.traceTags)
-        val updatedOrigin = memoryStore?.let {
+        val updatedOrigin = if (alreadyCommitted) null else memoryStore?.let {
             inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
         }
         val centroidTags: Set<String> = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
