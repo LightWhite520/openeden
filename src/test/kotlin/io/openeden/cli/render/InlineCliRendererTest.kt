@@ -173,7 +173,7 @@ class InlineCliRendererTest {
         assertEquals(1, history.count { it.contains("done") })
     }
 
-    @Test fun `completed history is printed once before active rows clear`() {
+    @Test fun `active rows clear before completed history is printed`() {
         val calls = mutableListOf<String>()
         val renderer = InlineCliRenderer(
             history = InlineHistorySink { calls += "history" },
@@ -184,15 +184,19 @@ class InlineCliRendererTest {
                 }
             },
         )
-        val hydrated = CliUiState(
+        val streaming = CliUiState(
             sessionId = "s",
-            messages = listOf(CliMessage("restored:assistant", CliRole.ASSISTANT, "restored", CliMessageStatus.COMPLETE)),
+            requestActive = true,
+            messages = listOf(CliMessage("turn:assistant", CliRole.ASSISTANT, "partial", CliMessageStatus.STREAMING)),
+        )
+        val completed = streaming.copy(
+            requestActive = false,
+            messages = listOf(CliMessage("turn:assistant", CliRole.ASSISTANT, "done", CliMessageStatus.COMPLETE)),
         )
 
-        renderer.render(null, hydrated, Size(80, 24))
-        renderer.render(hydrated, hydrated, Size(80, 24))
+        renderer.render(streaming, completed, Size(80, 24))
 
-        assertEquals(listOf("history", "clear", "clear"), calls)
+        assertEquals(listOf("clear", "history"), calls)
     }
 
     @Test fun `completed id remains committed after leaving visible state`() {

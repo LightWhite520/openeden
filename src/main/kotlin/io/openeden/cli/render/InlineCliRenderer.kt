@@ -50,8 +50,13 @@ class InlineCliRenderer(
         current.messages.forEach { message ->
             if (message.status == CliMessageStatus.COMPLETE) completedMessages.putIfAbsent(message.id, message)
         }
-        committed.newIds(completedMessages.keys.toList()).mapNotNull(completedMessages::get).forEach { msg ->
-            if (msg.role == CliRole.USER && msg.inlineTerminalCommitted) return@forEach
+        val newlyCompleted = committed.newIds(completedMessages.keys.toList()).mapNotNull(completedMessages::get)
+        val completedToPrint = newlyCompleted.filterNot { it.role == CliRole.USER && it.inlineTerminalCommitted }
+        val previousHadActiveRows = previous?.let { state ->
+            state.requestActive || state.notice != null || state.messages.any { it.status == CliMessageStatus.STREAMING }
+        } == true
+        if (completedToPrint.isNotEmpty() && previousHadActiveRows) active?.clear()
+        completedToPrint.forEach { msg ->
             val committedState = current.copy(
                 messages = listOf(msg),
                 requestActive = false,
@@ -69,7 +74,7 @@ class InlineCliRenderer(
                 history?.printAbove("[notice] ${current.notice}")
             }
         } else {
-            active?.clear()
+            if (completedToPrint.isEmpty()) active?.clear()
         }
         return RenderDecision.Rendered
     }
