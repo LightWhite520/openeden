@@ -56,6 +56,7 @@ import io.openeden.relationship.DeterministicUserAffectAnalyzer
 import io.openeden.relationship.RelationshipEvidence
 import io.openeden.relationship.RelationshipState
 import io.openeden.relationship.RelationshipStateStore
+import io.openeden.relationship.RelationshipRoleResolver
 import io.openeden.relationship.InMemoryRelationshipStateStore
 import io.openeden.relationship.UserAffectAnalyzer
 import io.openeden.relationship.UserAffectInfluenceMapper
@@ -80,6 +81,7 @@ class DevelopmentMessagePipeline(
     private val traceStore: TraceStore?,
     private val userAffectAnalyzer: UserAffectAnalyzer,
     private val relationshipStore: RelationshipStateStore,
+    private val relationshipRoleResolver: RelationshipRoleResolver,
     private val affectInfluenceMapper: UserAffectInfluenceMapper,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
@@ -202,6 +204,7 @@ class DevelopmentMessagePipeline(
                 shockState = current.shockState,
                 userInput = request.text,
                 userAffect = observedAffect,
+                relationshipRole = relationshipRoleResolver.resolve(request.platform, request.userId),
                 relationshipState = relationship,
             ),
         )
@@ -426,6 +429,7 @@ class DevelopmentMessagePipeline(
             ),
             userAffectAnalyzer: UserAffectAnalyzer = DeterministicUserAffectAnalyzer(),
             relationshipStore: RelationshipStateStore = InMemoryRelationshipStateStore(),
+            relationshipRoleResolver: RelationshipRoleResolver = RelationshipRoleResolver(host = null),
             affectInfluenceMapper: UserAffectInfluenceMapper = UserAffectInfluenceMapper.Default,
         ): DevelopmentMessagePipeline {
             return DevelopmentMessagePipeline(
@@ -447,6 +451,7 @@ class DevelopmentMessagePipeline(
                 traceStore = traceStore,
                 userAffectAnalyzer = userAffectAnalyzer,
                 relationshipStore = relationshipStore,
+                relationshipRoleResolver = relationshipRoleResolver,
                 affectInfluenceMapper = affectInfluenceMapper,
             )
         }

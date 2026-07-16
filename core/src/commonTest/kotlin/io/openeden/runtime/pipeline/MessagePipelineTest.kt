@@ -15,6 +15,8 @@ import io.openeden.persona.PersonaSubState
 import io.openeden.llm.LlmOutput
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
+import io.openeden.relationship.HostIdentity
+import io.openeden.relationship.RelationshipRoleResolver
 import io.openeden.trace.TraceTag
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -190,6 +192,24 @@ class MessagePipelineTest {
         assertTrue("AWAKENED\"" !in result.promptPreview)
     }
 
+    @Test
+    fun `pipeline grants host role only to exact configured sender`() = runTest {
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            relationshipRoleResolver = RelationshipRoleResolver(HostIdentity("QQ", "owner")),
+        )
+
+        val host = pipeline.handle(testRequest(userId = "owner"))
+        val member = pipeline.handle(testRequest(userId = "member"))
+        val heartbeat = pipeline.handle(
+            testRequest(userId = "INTERNAL").copy(source = TurnSource.HEARTBEAT),
+        )
+
+        assertContains(host.promptPreview, "\"relationship_role\": \"HOST\"")
+        assertContains(member.promptPreview, "\"relationship_role\": \"INTERLOCUTOR\"")
+        assertContains(heartbeat.promptPreview, "\"relationship_role\": \"INTERLOCUTOR\"")
+    }
+
     private fun testPersonaConfig(
         startSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
         mode: PersonaMode = PersonaMode.GROWTH,
@@ -207,10 +227,10 @@ class MessagePipelineTest {
         ),
     )
 
-    private fun testRequest() = DevelopmentMessageRequest(
+    private fun testRequest(userId: String = "u1") = DevelopmentMessageRequest(
         platform = "QQ",
         scopeId = "100",
-        userId = "u1",
+        userId = userId,
         text = "hello",
         emotionConfidence = 0.49f,
     )

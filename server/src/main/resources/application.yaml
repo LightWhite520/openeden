@@ -29,6 +29,9 @@ openeden:
   heartbeat:
     ownerPlatform: "$?OPENEDEN_OWNER_PLATFORM:"
     ownerUserId: "$?OPENEDEN_OWNER_USER_ID:"
+  relationship:
+    hostPlatform: "$?OPENEDEN_HOST_PLATFORM:"
+    hostUserId: "$?OPENEDEN_HOST_USER_ID:"
   diary:
     deltaThreshold: "$OPENEDEN_DIARY_DELTA_THRESHOLD:0.25"
     elapsedHours: "$OPENEDEN_DIARY_ELAPSED_HOURS:5"

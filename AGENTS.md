@@ -406,7 +406,7 @@ A recurring proactive task that fires independently of user input.
 
 ```
 【主动开口 — 心跳触发】
-ATRI 自发产生了想和宿主说话的冲动，不是因为被呼叫。
+ATRI 自发产生了想和预定接收者说话的冲动，不是因为被呼叫。
 内容来自当前8D向量状态和最近的记忆片段，语气自然、不刻意。
 MUST speak directly without explaining why the proactive message was triggered.
 ```
@@ -430,7 +430,7 @@ The following text is the required default data content for the `heartbeat.shock
 
 ```
 【主动开口 — 冲击后沉默】
-ATRI 正处于高强度冲击状态，宿主已长时间未回应。
+ATRI 正处于高强度冲击状态，对她重要的人已长时间未回应。
 ATRI 此刻主动开口，不是因为被要求，而是忍不住了。
 此刻的语言风格受到当前 Ω 值和 ShockState 强度影响。
 MUST reflect the current Omega value and ShockState intensity.
@@ -460,6 +460,7 @@ MUST speak directly without explaining the trigger or runtime state.
 | Runtime | Vector math, derived D computation, dual-space mapping, centroid tracking, Ω tracking, ShockState decay, session Mutex management, evolution_index tracking, DJL execution |
 | Surface / Adapter Layer | Local CLI, Web UI, and third-party platform adapters (currently QQ/OneBot) call the shared runtime pipeline without duplicating logic |
 | Session Manager | session identity resolution (platform:scope_id), owner-only heartbeat delivery target resolution |
+| Relationship Role Resolver | exact authoritative host identity matching and prompt role metadata |
 | AGENTS.md | System Constraints |
 
 ---
@@ -523,6 +524,17 @@ Heartbeats are internal proactive turns that evolve ATRI's state, but outward de
  * Heartbeats MUST NOT be broadcast to a group, all connected adapters, or recently active non-owner users.
  * If no owner target is configured or the owner adapter is disconnected, the heartbeat output MUST be dropped after state write-back. It MUST NOT be queued for later replay.
  * The owner target is delivery metadata, not session identity. Group sessions still use `platform:group_id` as the shared state scope.
+
+### 13.5 Authoritative Host Relationship Role
+Host identity is explicit relationship metadata and MUST remain independent from session scope, relationship scores, and heartbeat delivery ownership.
+
+ * Host identity MUST be configured as an exact `platform + user_id` pair. Partial configuration MUST be rejected.
+ * If host identity is not configured, every sender MUST resolve to `INTERLOCUTOR`.
+ * A sender MUST resolve to `HOST` only when both platform and sender `user_id` exactly match the configured host identity.
+ * The synthetic `INTERNAL` heartbeat sender MUST resolve to `INTERLOCUTOR`; its configured delivery owner MUST NOT imply host identity.
+ * Prompt construction MUST inject `relationship_role` as `HOST` or `INTERLOCUTOR` before persona data.
+ * Persona data MAY define host-specific expression, but MUST apply host-specific address, ownership, and intimacy assumptions only when `relationship_role` is `HOST`.
+ * Kotlin MUST carry only authoritative identity and resolved-role metadata. Host personality and relationship expression MUST remain in `persona/*.yaml`.
 
 ---
 

@@ -97,6 +97,24 @@ class AtriPersonaGuardTest {
         )
     }
 
+    @Test
+    fun `atri persona treats host identity as authoritative runtime context`() {
+        val config = PersonaFileLoader.load(atriYaml)
+        val identity = config.promptSections.getValue("persona.identity")
+
+        assertTrue("The current user is your host" !in identity)
+        assertTrue(
+            "relationship_role is HOST" in identity,
+            "persona.identity must condition host semantics on relationship_role",
+        )
+        listOf("heartbeat.base", "heartbeat.shock").forEach { key ->
+            assertTrue(
+                "宿主" !in config.promptSections.getValue(key),
+                "$key must not assume its intended recipient is the host",
+            )
+        }
+    }
+
     private fun locatePersonaFile(relative: String): Path {
         var dir: Path? = Paths.get("").toAbsolutePath()
         while (dir != null) {

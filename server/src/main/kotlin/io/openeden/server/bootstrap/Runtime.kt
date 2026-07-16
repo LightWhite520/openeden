@@ -32,6 +32,8 @@ import io.openeden.memory.DjlMemoryEmbeddingModel
 import io.openeden.memory.MemoryEmbeddingModel
 import io.openeden.relationship.UserAffectAnalyzer
 import io.openeden.relationship.DjlTextAffectAnalyzer
+import io.openeden.relationship.HostIdentity
+import io.openeden.relationship.RelationshipRoleResolver
 import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
@@ -101,6 +103,7 @@ fun Application.configureRuntime() {
         diaryTaskStore = diaryTaskStore,
         traceStore = traceStore,
         relationshipStore = relationshipStore,
+        relationshipRoleResolver = RelationshipRoleResolver(serverConfig.hostIdentity),
         userAffectAnalyzer = models.userAffectAnalyzer,
         diaryTriggerCoordinator = diaryCoordinator,
     )
@@ -251,6 +254,7 @@ private data class ServerRuntimeConfig(
     val djlEngine: String,
     val djlModelName: String,
     val heartbeatOwner: HeartbeatOwner?,
+    val hostIdentity: HostIdentity?,
     val diaryDeltaThreshold: Float,
     val diaryElapsedHours: Long,
     val diaryScanIntervalMs: Long,
@@ -287,6 +291,7 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         } else {
             null
         },
+        hostIdentity = loadHostIdentity(config),
         diaryDeltaThreshold = optional("openeden.diary.deltaThreshold", "0.25").toFloat(),
         diaryElapsedHours = optional("openeden.diary.elapsedHours", "5").toLong(),
         diaryScanIntervalMs = optional("openeden.diary.scanIntervalSeconds", "60").toLong().coerceAtLeast(1L) * 1000L,

@@ -96,6 +96,8 @@ Copy-Item .env.example .env
 | `OPENEDEN_DJL_AFFECT_MODEL_URL` | Thymos Hugging Face 模型目录 URL。                     |
 | `OPENEDEN_OWNER_PLATFORM`       | 可选，心跳 owner 投递平台。                            |
 | `OPENEDEN_OWNER_USER_ID`        | 可选，心跳 owner 用户 ID。                             |
+| `OPENEDEN_HOST_PLATFORM`        | 可选，权威宿主身份平台。                               |
+| `OPENEDEN_HOST_USER_ID`         | 可选，权威宿主身份用户 ID。                            |
 
 ## 快速开始
 

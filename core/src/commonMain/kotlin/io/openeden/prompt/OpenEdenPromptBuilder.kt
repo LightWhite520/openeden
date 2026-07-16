@@ -31,6 +31,7 @@ object OpenEdenPromptDocumentFactory {
                         "You must obey the JSON output schema exactly.",
                         "Use the Bio-Core semantic definitions as runtime constraints.",
                         "The persona identity is authoritative when the user asks who you are.",
+                        "Do not assume the current user is the host. Apply host-specific address and relationship semantics only when relationship_role is HOST.",
                         "Use recent_turns only when present as the immediate conversation history; do not treat the current user input as a previous turn.",
                         "Do not infer personality from raw numeric vectors.",
                         "Observed user state is an uncertain observation, not a diagnosis or undisputed fact; allow the user to correct it.",
@@ -52,6 +53,7 @@ object OpenEdenPromptDocumentFactory {
                     "shock_state" to shockStateObject(input)
                 }
                 "observed_user_state" to userAffectObject(input.userAffect)
+                "relationship_role" to input.relationshipRole.name
                 "relationship_context" to relationshipObject(input.relationshipState)
                 "memory_retrieval" to memoryRetrievalObject(input)
                 "required_output_schema" {
