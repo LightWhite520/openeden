@@ -6,7 +6,7 @@ fun CliUiState.reduce(event: CliEvent): CliUiState = when (event) {
     is CliEvent.Submitted -> copy(
         messages = messages + listOf(
             CliMessage(
-                id = event.id,
+                id = "${event.id}:user",
                 role = CliRole.USER,
                 markdown = event.text,
                 status = CliMessageStatus.COMPLETE,

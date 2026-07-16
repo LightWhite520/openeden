@@ -16,15 +16,18 @@ import io.openeden.client.DiagnosticState
 import io.openeden.client.OpenEdenServerApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import java.util.UUID
 
 class CliSessionController(
@@ -46,7 +49,7 @@ class CliSessionController(
     private var activeCommand: Job? = null
     private var stopped = false
     private val stateLock = Any()
-    private val historyRequestLock = Mutex()
+    private val commandLock = Any()
 
     fun accept(event: CliTerminalEvent) {
         if (stopped) return
@@ -65,7 +68,10 @@ class CliSessionController(
 
     suspend fun drain() {
         activeRequest?.join()
-        activeCommand?.join()
+        while (true) {
+            val command = synchronized(commandLock) { activeCommand } ?: break
+            command.join()
+        }
     }
 
     suspend fun run(events: Flow<CliTerminalEvent>) {
@@ -76,28 +82,29 @@ class CliSessionController(
         drain()
     }
 
-    suspend fun initializeHistory() = loadHistory(initial = true)
+    suspend fun initializeHistory() {
+        launchTrackedCommand { loadHistory(initial = true) }?.await()
+    }
 
-    suspend fun loadOlderHistory() = loadHistory(initial = false)
+    suspend fun loadOlderHistory() {
+        val current = state
+        if (current.historyLoading || current.historyExhausted) return
+        launchTrackedCommand { loadHistory(initial = false) }
+    }
 
     private suspend fun loadHistory(initial: Boolean) {
-        if (!historyRequestLock.tryLock()) return
+        val current = state
+        if (current.historyLoading || (!initial && current.historyExhausted)) return
+        val before = if (initial) null else current.historyBefore
+        dispatch(CliEvent.HistoryLoading)
         try {
-            val current = state
-            if (current.historyLoading || (!initial && current.historyExhausted)) return
-            val before = if (initial) null else current.historyBefore
-            dispatch(CliEvent.HistoryLoading)
-            try {
-                val page = api.history(limit = HISTORY_PAGE_SIZE, before = before)
-                dispatch(CliEvent.HistoryLoaded(page, initial))
-            } catch (error: CancellationException) {
-                dispatch(CliEvent.HistoryLoadCancelled)
-                throw error
-            } catch (_: Throwable) {
-                dispatch(CliEvent.HistoryLoadFailed(HISTORY_UNAVAILABLE_MESSAGE))
-            }
-        } finally {
-            historyRequestLock.unlock()
+            val page = api.history(limit = HISTORY_PAGE_SIZE, before = before)
+            dispatch(CliEvent.HistoryLoaded(page, initial))
+        } catch (error: CancellationException) {
+            dispatch(CliEvent.HistoryLoadCancelled)
+            throw error
+        } catch (_: Throwable) {
+            dispatch(CliEvent.HistoryLoadFailed(HISTORY_UNAVAILABLE_MESSAGE))
         }
     }
 
@@ -149,7 +156,7 @@ class CliSessionController(
         }
         when (command) {
             CliCommand.Help -> dispatch(CliEvent.Notice(HELP_TEXT))
-            CliCommand.State -> activeCommand = scope.launch {
+            CliCommand.State -> launchTrackedCommand {
                 runCatching { api.state(userId) }
                     .onSuccess { publicState ->
                         dispatch(
@@ -190,7 +197,7 @@ class CliSessionController(
             dispatch(CliEvent.Notice("Diagnostics unavailable."))
             return
         }
-        activeCommand = scope.launch {
+        launchTrackedCommand {
             runCatching { api.diagnostics(userId, token) }
                 .onSuccess { dispatch(CliEvent.DiagnosticsLoaded(it.toCliDiagnostics())) }
                 .onFailure { dispatch(CliEvent.Notice("Diagnostics unavailable.")) }
@@ -214,10 +221,28 @@ class CliSessionController(
         }
     }
 
+    private fun launchTrackedCommand(block: suspend () -> Unit): Deferred<Unit>? {
+        val command = synchronized(commandLock) {
+            if (activeCommand != null) return null
+            scope.async(start = CoroutineStart.LAZY) {
+                try {
+                    block()
+                } finally {
+                    val completedCommand = currentCoroutineContext()[Job]
+                    synchronized(commandLock) {
+                        if (activeCommand === completedCommand) activeCommand = null
+                    }
+                }
+            }.also { activeCommand = it }
+        }
+        command.start()
+        return command
+    }
+
     override fun close() {
         stopped = true
         activeRequest?.cancel()
-        activeCommand?.cancel()
+        synchronized(commandLock) { activeCommand }?.cancel()
         scope.cancel()
         renderer.close()
     }

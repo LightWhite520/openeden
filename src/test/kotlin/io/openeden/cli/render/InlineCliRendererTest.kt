@@ -58,8 +58,8 @@ class InlineCliRendererTest {
             requestActive = true,
             stage = "generating",
             messages = listOf(
-                CliMessage("u", CliRole.USER, "hello", CliMessageStatus.COMPLETE),
-                CliMessage("a", CliRole.ASSISTANT, "partial", CliMessageStatus.STREAMING),
+                CliMessage("turn:user", CliRole.USER, "hello", CliMessageStatus.COMPLETE),
+                CliMessage("turn:assistant", CliRole.ASSISTANT, "partial", CliMessageStatus.STREAMING),
             ),
         )
 
@@ -70,7 +70,11 @@ class InlineCliRendererTest {
                 requestActive = false,
                 stage = null,
                 messages = streaming.messages.map { message ->
-                    if (message.id == "a") message.copy(markdown = "done", status = CliMessageStatus.COMPLETE) else message
+                    if (message.id == "turn:assistant") {
+                        message.copy(markdown = "done", status = CliMessageStatus.COMPLETE)
+                    } else {
+                        message
+                    }
                 },
             ),
             Size(80, 24),

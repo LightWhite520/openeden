@@ -36,7 +36,7 @@ class CliSessionControllerTest {
                 listOf(ConversationHistoryPage(listOf(turn("t1")), "older", true)),
             ),
         )
-        val controller = CliSessionController("local", api, CapturingRenderer())
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
 
         controller.initializeHistory()
 
@@ -56,10 +56,11 @@ class CliSessionControllerTest {
                 ),
             ),
         )
-        val controller = CliSessionController("local", api, CapturingRenderer())
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
 
         controller.initializeHistory()
         controller.loadOlderHistory()
+        controller.drain()
 
         assertEquals(listOf(HistoryCall(50, null), HistoryCall(50, "before-t2")), api.historyCalls)
         assertEquals(
@@ -72,7 +73,7 @@ class CliSessionControllerTest {
     @Test
     fun `history failure hides internal details`() = runTest {
         val api = RecordingHistoryApi(failure = IllegalStateException("secret backend detail"))
-        val controller = CliSessionController("local", api, CapturingRenderer())
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
 
         controller.initializeHistory()
 
@@ -86,6 +87,7 @@ class CliSessionControllerTest {
             "local",
             RecordingHistoryApi(failure = CancellationException("cancelled")),
             CapturingRenderer(),
+            scope = this,
         )
 
         assertFailsWith<CancellationException> { controller.initializeHistory() }
@@ -101,10 +103,11 @@ class CliSessionControllerTest {
                 listOf(ConversationHistoryPage(listOf(turn("t1")), null, false)),
             ),
         )
-        val controller = CliSessionController("local", api, CapturingRenderer())
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
 
         controller.initializeHistory()
         controller.loadOlderHistory()
+        controller.drain()
 
         assertEquals(listOf(HistoryCall(50, null)), api.historyCalls)
     }
@@ -119,24 +122,88 @@ class CliSessionControllerTest {
                 ),
             ),
         )
-        val controller = CliSessionController("local", api, CapturingRenderer())
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
         controller.initializeHistory()
         val olderGate = CompletableDeferred<Unit>()
         api.historyGate = olderGate
 
-        val first = async { controller.loadOlderHistory() }
-        testScheduler.runCurrent()
-        val second = async { controller.loadOlderHistory() }
+        controller.loadOlderHistory()
+        controller.loadOlderHistory()
         testScheduler.runCurrent()
         assertEquals(2, api.historyCalls.size)
+        val draining = async { controller.drain() }
+        testScheduler.runCurrent()
+        assertFalse(draining.isCompleted)
         olderGate.complete(Unit)
-        first.await()
-        second.await()
+        draining.await()
 
         assertEquals(
             listOf(HistoryCall(50, null), HistoryCall(50, "before-t2")),
             api.historyCalls,
         )
+    }
+
+    @Test
+    fun `older history returns before suspended api and drain tracks it`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(
+                    ConversationHistoryPage(listOf(turn("t2")), "before-t2", true),
+                    ConversationHistoryPage(listOf(turn("t1")), null, false),
+                ),
+            ),
+        )
+        val controller = CliSessionController("local", api, CapturingRenderer(), scope = this)
+        controller.initializeHistory()
+        api.historyGate = gate
+
+        controller.loadOlderHistory()
+        testScheduler.runCurrent()
+
+        assertEquals(2, api.historyCalls.size)
+        assertTrue(controller.state.historyLoading)
+        val draining = async { controller.drain() }
+        testScheduler.runCurrent()
+        assertFalse(draining.isCompleted)
+        gate.complete(Unit)
+        draining.await()
+    }
+
+    @Test
+    fun `history command cannot be orphaned by state or diagnostics commands`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val api = RecordingHistoryApi(
+            pages = ArrayDeque(
+                listOf(
+                    ConversationHistoryPage(listOf(turn("t2")), "before-t2", true),
+                    ConversationHistoryPage(listOf(turn("t1")), null, false),
+                ),
+            ),
+        )
+        val controller = CliSessionController(
+            "local",
+            api,
+            CapturingRenderer(),
+            diagnosticsToken = "token",
+            scope = this,
+        )
+        controller.initializeHistory()
+        api.historyGate = gate
+        controller.loadOlderHistory()
+        testScheduler.runCurrent()
+
+        controller.accept(CliTerminalEvent.Submit("/state"))
+        controller.accept(CliTerminalEvent.ToggleDiagnostics)
+        testScheduler.runCurrent()
+
+        assertEquals(0, api.stateCalls)
+        assertEquals(0, api.diagnosticsCalls)
+        val draining = async { controller.drain() }
+        testScheduler.runCurrent()
+        assertFalse(draining.isCompleted)
+        gate.complete(Unit)
+        draining.await()
     }
 
     @Test
@@ -182,6 +249,9 @@ class CliSessionControllerTest {
 
         assertEquals(1, api.streamCalls)
         assertEquals("你好", controller.state.messages.last().markdown)
+        val ids = controller.state.messages.map { it.id }
+        assertTrue(ids[0].endsWith(":user"))
+        assertEquals(ids[0].removeSuffix(":user") + ":assistant", ids[1])
         assertEquals(CliMode.FULL_SCREEN, controller.state.mode)
     }
 
@@ -254,6 +324,8 @@ class CliSessionControllerTest {
         var historyGate: CompletableDeferred<Unit>? = null,
     ) : OpenEdenServerApi {
         val historyCalls = mutableListOf<HistoryCall>()
+        var stateCalls = 0
+        var diagnosticsCalls = 0
 
         override suspend fun health() = true
         override suspend fun chat(userId: String, text: String) = ChatResponse("req", "completed", "fallback")
@@ -264,8 +336,14 @@ class CliSessionControllerTest {
             failure?.let { throw it }
             return pages.removeFirst()
         }
-        override suspend fun state(userId: String) = PublicState("CLI:$userId", "ready", 0.0f, false)
-        override suspend fun diagnostics(userId: String, token: String) = error("unused")
+        override suspend fun state(userId: String): PublicState {
+            stateCalls += 1
+            return PublicState("CLI:$userId", "ready", 0.0f, false)
+        }
+        override suspend fun diagnostics(userId: String, token: String): io.openeden.client.DiagnosticState {
+            diagnosticsCalls += 1
+            error("unused")
+        }
         override fun close() = Unit
     }
 

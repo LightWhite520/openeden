@@ -85,7 +85,7 @@ class CliReducerTest {
             messages = listOf(
                 historyMessage("stale", CliRole.USER, "stale-user"),
                 historyMessage("stale", CliRole.ASSISTANT, "stale-assistant"),
-                CliMessage("local", CliRole.USER, "local", CliMessageStatus.COMPLETE),
+                CliMessage("local:user", CliRole.USER, "local", CliMessageStatus.COMPLETE),
                 CliMessage("local:assistant", CliRole.ASSISTANT, "partial", CliMessageStatus.STREAMING),
             ),
             requestActive = true,
@@ -99,7 +99,7 @@ class CliReducerTest {
         assertEquals(
             listOf(
                 "t1:user", "t1:assistant", "stale:user", "stale:assistant",
-                "local", "local:assistant",
+                "local:user", "local:assistant",
             ),
             state.messages.map { it.id },
         )
@@ -125,12 +125,13 @@ class CliReducerTest {
         )
 
         assertEquals(
-            listOf("local-turn:user", "local-turn:assistant", "local-turn"),
+            listOf("local-turn:user", "local-turn:assistant"),
             hydrated.messages.map { it.id },
         )
         assertEquals(hydrated.messages.size, hydrated.messages.map { it.id }.distinct().size)
         assertSame(localAssistant, hydrated.messages[1])
-        assertSame(localUser, hydrated.messages[2])
+        assertSame(localUser, hydrated.messages[0])
+        assertEquals("local question", hydrated.messages[0].markdown)
         assertEquals("local response", hydrated.messages[1].markdown)
         assertFalse(hydrated.requestActive)
     }
@@ -155,6 +156,7 @@ class CliReducerTest {
             .reduce(CliEvent.ResponseDelta("\u56DE\u7B54"))
 
         assertEquals("CLI:local", state.sessionId)
+        assertEquals(listOf("turn-1:user", "turn-1:assistant"), state.messages.map { it.id })
         assertEquals(listOf(CliRole.USER, CliRole.ASSISTANT), state.messages.map { it.role })
         assertEquals("\u56DE\u7B54", state.messages.last().markdown)
         assertTrue(state.messages.last().provisional)
@@ -170,10 +172,21 @@ class CliReducerTest {
             .reduce(CliEvent.RequestInterrupted)
 
         assertEquals(CliMessageStatus.INTERRUPTED, state.messages.last().status)
+        assertEquals("turn-1:assistant", state.messages.last().id)
         assertEquals("partial", state.messages.last().markdown)
         assertFalse(state.requestActive)
         assertNull(state.stage)
         assertEquals("Generation interrupted", state.notice)
+    }
+
+    @Test
+    fun `failure marks the canonical assistant message`() {
+        val state = CliUiState.initial("local")
+            .reduce(CliEvent.Submitted(text = "hello", id = "turn-1"))
+            .reduce(CliEvent.RequestFailed("failed"))
+
+        assertEquals("turn-1:assistant", state.messages.last().id)
+        assertEquals(CliMessageStatus.FAILED, state.messages.last().status)
     }
 
     @Test
@@ -213,6 +226,8 @@ class CliReducerTest {
         assertEquals("final", finalCompleted.messages.last().markdown)
         assertEquals(CliMessageStatus.COMPLETE, blankCompleted.messages.last().status)
         assertEquals(CliMessageStatus.COMPLETE, finalCompleted.messages.last().status)
+        assertEquals("turn-1:assistant", blankCompleted.messages.last().id)
+        assertEquals("turn-1:assistant", finalCompleted.messages.last().id)
         assertFalse(blankCompleted.requestActive)
         assertNull(blankCompleted.stage)
     }
