@@ -35,6 +35,8 @@ import io.openeden.runtime.session.SessionTurnGate
 import io.openeden.runtime.state.*
 import io.openeden.trace.*
 import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.AtomicTurnCommitStore
+import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -467,17 +469,23 @@ class DevelopmentMessagePipeline(
             transcriptStore: TranscriptStore? = store as? TranscriptStore,
             nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         ): DevelopmentMessagePipeline {
-            val effectiveStore = store ?: MutableSessionStateStore(transcriptStore = transcriptStore)
+            val effectiveStore = store ?: when (transcriptStore) {
+                null -> MutableSessionStateStore()
+                is InMemoryTranscriptStore -> MutableSessionStateStore(transcriptStore = transcriptStore)
+                else -> error("A non-memory transcript store requires an explicitly co-backed session state store")
+            }
             val effectiveVectorWriteService = vectorWriteService ?: VectorWriteService(effectiveStore)
             require(effectiveVectorWriteService.isBackedBy(effectiveStore)) {
                 "vectorWriteService must use the same session state store as the pipeline"
             }
-            if (effectiveStore is MutableSessionStateStore && transcriptStore != null) {
-                require(effectiveStore.isTranscriptBackedBy(transcriptStore)) {
-                    "Mutable session state and transcript stores must share one atomic backend"
+            val effectiveTranscriptStore = transcriptStore ?: (effectiveStore as? TranscriptStore)
+            if (effectiveTranscriptStore != null) {
+                val atomicStore = effectiveStore as? AtomicTurnCommitStore
+                    ?: error("Public turns require an atomic session state store")
+                require(atomicStore.commitsTo(effectiveTranscriptStore)) {
+                    "Session state and transcript stores must share one atomic backend"
                 }
             }
-            val effectiveTranscriptStore = transcriptStore ?: (effectiveStore as? TranscriptStore)
             val effectiveCentroidProvider = centroidProvider ?: SlidingWindowHomeostasisCentroidProvider(
                 memoryStore = memoryStore,
                 fallback = StoredOriginCentroidProvider(effectiveStore),

@@ -10,6 +10,7 @@ import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.affect.ShockState
 import io.openeden.transcript.AtomicTurnCommitStore
 import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.TranscriptStore
 import io.openeden.persona.PersonaSubState
 import io.openeden.persona.PersonaMode
 import kotlinx.coroutines.CoroutineDispatcher
@@ -37,6 +38,7 @@ class SqlDelightSessionStateStore(
     private val defaultStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
     private val json: Json = Json,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val committedTranscriptStore: TranscriptStore? = null,
 ) : SessionStateStore, AtomicTurnCommitStore {
     private val queries get() = database.sessionStateQueries
     private val transcriptQueries get() = database.transcriptQueries
@@ -89,6 +91,9 @@ class SqlDelightSessionStateStore(
     override suspend fun write(state: SessionState) = withContext(ioDispatcher) {
         writeStateQueries(state)
     }
+
+    override fun commitsTo(transcriptStore: TranscriptStore): Boolean =
+        transcriptStore === committedTranscriptStore
 
     override suspend fun writeCommittedTurn(state: SessionState, turn: ConversationTurn) = withContext(ioDispatcher) {
         database.transaction {
@@ -250,6 +255,7 @@ class SqlDelightSessionStateStore(
             dbPath: Path,
             defaultPersonaMode: PersonaMode = PersonaMode.GROWTH,
             defaultStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
+            committedTranscriptStore: TranscriptStore? = null,
         ): SqlDelightSessionStateStore {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
@@ -258,6 +264,7 @@ class SqlDelightSessionStateStore(
                 driver,
                 defaultPersonaMode,
                 defaultStartSubState,
+                committedTranscriptStore = committedTranscriptStore,
             )
         }
     }

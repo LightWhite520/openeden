@@ -8,32 +8,43 @@ class InMemoryTranscriptStore(
     createdAtMs: Long = 0L,
 ) : TranscriptStore {
     private val activeIncarnation = ActiveIncarnation(activeIncarnationId, createdAtMs)
-    private val mutex = Mutex()
+    internal val atomicMutex = Mutex()
     private val turnsById = mutableMapOf<String, ConversationTurn>()
 
-    override suspend fun activeIncarnation(): ActiveIncarnation = mutex.withLock {
-        activeIncarnation
+    override suspend fun activeIncarnation(): ActiveIncarnation = atomicMutex.withLock {
+        activeIncarnationLocked()
     }
 
     override suspend fun append(turn: ConversationTurn) {
-        mutex.withLock {
-            require(turn.incarnationId == activeIncarnation.id) {
-                "Turn incarnation '${turn.incarnationId}' does not match active incarnation '${activeIncarnation.id}'"
-            }
-            val existing = turnsById[turn.turnId]
-            require(existing == null || existing == turn) {
-                "Turn ID '${turn.turnId}' already exists with a different payload"
-            }
-            if (existing == null) {
-                turnsById[turn.turnId] = turn
-            }
-        }
+        atomicMutex.withLock { appendLocked(turn) }
     }
 
     override suspend fun page(
         limit: Int,
         before: HistoryCursor?,
-    ): ConversationHistoryPage = mutex.withLock {
+    ): ConversationHistoryPage = atomicMutex.withLock {
+        pageLocked(limit, before)
+    }
+
+    internal fun activeIncarnationLocked(): ActiveIncarnation = activeIncarnation
+
+    internal fun turnByIdLocked(turnId: String): ConversationTurn? = turnsById[turnId]
+
+    internal fun appendLocked(turn: ConversationTurn) {
+        require(turn.incarnationId == activeIncarnation.id) {
+            "Turn incarnation '${turn.incarnationId}' does not match active incarnation '${activeIncarnation.id}'"
+        }
+        val existing = turnsById[turn.turnId]
+        require(existing == null || existing == turn) {
+            "Turn ID '${turn.turnId}' already exists with a different payload"
+        }
+        if (existing == null) turnsById[turn.turnId] = turn
+    }
+
+    internal fun pageLocked(
+        limit: Int,
+        before: HistoryCursor?,
+    ): ConversationHistoryPage {
         if (before != null && before.incarnationId != activeIncarnation.id) {
             throw InvalidHistoryCursorException(
                 "Cursor incarnation '${before.incarnationId}' does not match active incarnation '${activeIncarnation.id}'",
@@ -51,7 +62,7 @@ class InMemoryTranscriptStore(
         val turns = candidates.take(clampedLimit).asReversed()
         val nextCursor = if (hasMore) turns.first().toCursor() else null
 
-        ConversationHistoryPage(
+        return ConversationHistoryPage(
             turns = turns,
             before = nextCursor,
             hasMore = hasMore,

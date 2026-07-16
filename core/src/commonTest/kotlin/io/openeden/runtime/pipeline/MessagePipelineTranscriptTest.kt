@@ -9,7 +9,15 @@ import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.runtime.session.MutableSessionStateStore
+import io.openeden.runtime.session.SessionState
+import io.openeden.runtime.session.SessionStateStore
+import io.openeden.transcript.AtomicTurnCommitStore
+import io.openeden.transcript.ActiveIncarnation
+import io.openeden.transcript.ConversationHistoryPage
+import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InMemoryTranscriptStore
+import io.openeden.transcript.TranscriptStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -121,6 +129,54 @@ class MessagePipelineTranscriptTest {
                 transcriptStore = transcripts,
             )
         }
+    }
+
+    @Test
+    fun `unrelated atomic state and transcript stores are rejected despite matching incarnation`() {
+        val unrelatedAtomicStore = object :
+            SessionStateStore by MutableSessionStateStore(activeIncarnationId = "incarnation-a"),
+            AtomicTurnCommitStore {
+            override fun commitsTo(transcriptStore: TranscriptStore): Boolean = false
+
+            override suspend fun writeCommittedTurn(state: SessionState, turn: ConversationTurn) = Unit
+        }
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+
+        assertFailsWith<IllegalArgumentException> {
+            DevelopmentMessagePipeline.create(
+                personaConfig = persona(),
+                store = unrelatedAtomicStore,
+                transcriptStore = transcripts,
+            )
+        }
+    }
+
+    @Test
+    fun `non-memory transcript without co-backed state is rejected before callbacks`() {
+        var callbacks = 0
+        val callbackTranscript = object : TranscriptStore {
+            override suspend fun activeIncarnation(): ActiveIncarnation {
+                callbacks++
+                return ActiveIncarnation("incarnation-a", 0L)
+            }
+
+            override suspend fun append(turn: ConversationTurn) {
+                callbacks++
+            }
+
+            override suspend fun page(limit: Int, before: HistoryCursor?): ConversationHistoryPage {
+                callbacks++
+                return ConversationHistoryPage(emptyList(), null, false)
+            }
+        }
+
+        assertFailsWith<IllegalStateException> {
+            DevelopmentMessagePipeline.create(
+                personaConfig = persona(),
+                transcriptStore = callbackTranscript,
+            )
+        }
+        assertEquals(0, callbacks)
     }
 
     private fun pipeline(
