@@ -176,28 +176,41 @@ class FullScreenCliRenderer internal constructor(
         val firstMessage = messages[index]
         val firstRows = rowsFor(firstMessage, width)
         val firstLine = requestedAnchor.lineIndex.coerceIn(0, firstRows.lastIndex.coerceAtLeast(0))
-        anchor = requestedAnchor.copy(
-            messageId = firstMessage.id,
-            lineIndex = firstLine,
-            messageIndex = index,
-            message = firstMessage,
-        )
-        val visible = ArrayList<ConversationRow>(height)
+        val visible = ArrayDeque<ConversationRow>(height)
         var messageIndex = index
         while (messageIndex < messages.size && visible.size < height) {
             val message = messages[messageIndex]
             val rows = rowsFor(message, width)
             var lineIndex = if (messageIndex == index) firstLine else 0
             while (lineIndex < rows.size && visible.size < height) {
-                visible += ConversationRow(message.id, lineIndex, messageIndex, rows[lineIndex])
+                visible.addLast(ConversationRow(message.id, lineIndex, messageIndex, rows[lineIndex]))
                 lineIndex += 1
             }
             messageIndex += 1
         }
         if (visible.size < height) {
-            notice?.let { visible += ConversationRow(null, 0, -1, "[notice] $it") }
+            notice?.let { visible.addLast(ConversationRow(null, 0, -1, "[notice] $it")) }
         }
-        return visible
+        messageIndex = index
+        var lineIndex = firstLine - 1
+        var rows = firstRows
+        while (visible.size < height) {
+            if (lineIndex >= 0) {
+                val message = messages[messageIndex]
+                visible.addFirst(ConversationRow(message.id, lineIndex, messageIndex, rows[lineIndex]))
+                lineIndex -= 1
+                continue
+            }
+            messageIndex -= 1
+            if (messageIndex < 0) break
+            rows = rowsFor(messages[messageIndex], width)
+            lineIndex = rows.lastIndex
+        }
+        visible.firstOrNull { it.messageId != null }?.let { top ->
+            val message = messages[top.messageIndex]
+            anchor = ViewportAnchor(message.id, top.lineIndex, top.messageIndex, message)
+        }
+        return visible.toList()
     }
 
     private fun moveUp(

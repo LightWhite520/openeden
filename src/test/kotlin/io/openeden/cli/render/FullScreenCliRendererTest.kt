@@ -158,6 +158,54 @@ class FullScreenCliRendererTest {
         assertTrue(renderedIds.size - beforeResize <= 20, "resize rendered=${renderedIds.size - beforeResize}")
     }
 
+    @Test
+    fun `height growth backfills anchored viewport and clamps the saved top by message id`() {
+        val sink = FakeFullscreenSink(true)
+        val renderer = FullScreenCliRenderer(
+            sink,
+            FullScreenMessageRowRenderer { message, _ -> listOf("${message.id}:0") },
+        )
+        val messages = (0 until 100).map { message("m$it", "message-$it") }
+        val initial = CliUiState(sessionId = "CLI:local", messages = messages)
+        renderer.render(initial, Size(80, 24))
+        renderer.render(initial.copy(historyLoading = true), Size(80, 24))
+        assertEquals("m64", sink.topConversationMessageId())
+
+        renderer.render(initial.copy(historyLoading = true), Size(80, 80))
+
+        val conversation = sink.rows.filter { it.startsWith("│ ") }
+        assertEquals(74, conversation.size)
+        assertEquals("m26", sink.topConversationMessageId())
+        assertEquals("│ m99:0", conversation.last())
+
+        renderer.render(initial.copy(historyLoading = true), Size(80, 80))
+        assertEquals("m26", sink.topConversationMessageId())
+    }
+
+    @Test
+    fun `height growth backfills lines inside the anchor message before earlier messages`() {
+        val sink = FakeFullscreenSink(true)
+        val renderer = FullScreenCliRenderer(
+            sink,
+            FullScreenMessageRowRenderer { message, _ ->
+                if (message.id == "big") List(100) { line -> "big:$line" } else listOf("${message.id}:0")
+            },
+        )
+        val initial = CliUiState(
+            sessionId = "CLI:local",
+            messages = listOf(message("earlier", "earlier"), message("big", "big")),
+        )
+        renderer.render(initial, Size(80, 24))
+        renderer.render(initial.copy(historyLoading = true), Size(80, 24))
+
+        renderer.render(initial.copy(historyLoading = true), Size(80, 80))
+
+        val conversation = sink.rows.filter { it.startsWith("│ ") }
+        assertEquals(74, conversation.size)
+        assertEquals("│ big:26", conversation.first())
+        assertEquals("│ big:99", conversation.last())
+    }
+
     private fun message(id: String, text: String) = CliMessage(
         id = id,
         role = CliRole.USER,
