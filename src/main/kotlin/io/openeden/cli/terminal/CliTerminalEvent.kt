@@ -11,5 +11,7 @@ sealed interface CliTerminalEvent {
 
     data object LoadOlderHistory : CliTerminalEvent
 
+    data class Resized(val columns: Int, val rows: Int) : CliTerminalEvent
+
     data object EndOfFile : CliTerminalEvent
 }

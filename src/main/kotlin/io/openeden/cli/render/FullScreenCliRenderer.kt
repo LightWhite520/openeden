@@ -1,7 +1,9 @@
 package io.openeden.cli.render
 
-import io.openeden.cli.state.CliUiState
 import io.openeden.cli.state.CliMessage
+import io.openeden.cli.state.CliUiState
+import java.util.ArrayDeque
+import java.util.LinkedHashMap
 
 interface FullscreenSink {
     fun capabilitiesAvailable(): Boolean
@@ -10,15 +12,33 @@ interface FullscreenSink {
     fun close()
 }
 
-class FullScreenCliRenderer(
+internal fun interface FullScreenMessageRowRenderer {
+    fun rows(message: CliMessage, width: Int): List<String>
+}
+
+class FullScreenCliRenderer internal constructor(
     private val sink: FullscreenSink,
-    private val inline: InlineCliRenderer = InlineCliRenderer(),
+    private val rowRenderer: FullScreenMessageRowRenderer,
 ) : CliRenderer {
+    constructor(
+        sink: FullscreenSink,
+        inline: InlineCliRenderer = InlineCliRenderer(),
+    ) : this(
+        sink,
+        FullScreenMessageRowRenderer { message, width ->
+            inline.rows(CliUiState(sessionId = "", messages = listOf(message)), width)
+        },
+    )
+
+    private val rowCache = object : LinkedHashMap<String, CachedMessageRows>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedMessageRows>): Boolean =
+            size > MAX_CACHED_MESSAGES
+    }
     private var previousRows: List<String> = emptyList()
-    private var previousMessages: List<CliMessage> = emptyList()
-    private var previousConversationWidth: Int? = null
     private var previousHistoryLoading = false
-    private var viewportStartRow: Int? = null
+    private var previousMessageCount = 0
+    private var previousLastMessage: CliMessage? = null
+    private var anchor: ViewportAnchor? = null
     private var entered = false
     private var closed = false
 
@@ -32,67 +52,189 @@ class FullScreenCliRenderer(
             if (!sink.enter()) return fallback("Terminal does not support full-screen capabilities.")
             entered = true
         }
+
         val conversationWidth = size.columns - 22
-        val messageState = current.copy(
-            requestActive = false,
-            stage = null,
-            diagnosticsVisible = false,
-            notice = null,
-        )
-        val messageRows = inline.rows(messageState, conversationWidth)
-        val conversation = buildList {
-            addAll(messageRows)
-            current.notice?.let { add("[notice] $it") }
-        }
         val rail = "session ${current.sessionId}"
         val diagnostics = if (current.diagnosticsVisible) current.diagnostics?.let {
-            listOf("diagnostics", "omega=${it.omega} shock=${it.shockActive}", "evolution=${it.evolutionIndex} D=${it.derivedDissonance}")
+            listOf(
+                "diagnostics",
+                "omega=${it.omega} shock=${it.shockActive}",
+                "evolution=${it.evolutionIndex} D=${it.derivedDissonance}",
+            )
         }.orEmpty() else emptyList()
         val viewportHeight = (size.rows - 2 - diagnostics.size - 4).coerceAtLeast(1)
-        val maxStart = (conversation.size - viewportHeight).coerceAtLeast(0)
-        val purePrependCount = purePrependCount(current.messages, conversationWidth)
-        val start = when {
-            viewportStartRow == null -> maxStart
-            purePrependCount != null -> {
-                val insertedRows = inline.rows(
-                    messageState.copy(messages = current.messages.take(purePrependCount)),
-                    conversationWidth,
-                ).size
-                viewportStartRow!! + insertedRows
+
+        anchor = preserveAnchor(current.messages)
+        var viewport = materializeViewport(
+            messages = current.messages,
+            width = conversationWidth,
+            height = viewportHeight,
+            notice = current.notice,
+            requestedAnchor = anchor,
+        )
+        if (!previousHistoryLoading && current.historyLoading) {
+            val top = viewport.firstOrNull { it.messageId != null }
+            anchor = top?.let {
+                moveUp(
+                    messages = current.messages,
+                    fromMessageIndex = it.messageIndex,
+                    fromLineIndex = it.lineIndex,
+                    rowsToMove = viewportHeight,
+                    width = conversationWidth,
+                )
             }
-            previousMessages != current.messages -> maxStart
-            !previousHistoryLoading && current.historyLoading -> {
-                (viewportStartRow!! - viewportHeight).coerceAtLeast(0)
-            }
-            else -> viewportStartRow!!
-        }.coerceIn(0, maxStart)
-        viewportStartRow = start
-        val viewport = conversation.drop(start).take(viewportHeight)
-        val rows = listOf("OpenEden  ${current.sessionId}", "┌ $rail ┐") + viewport.map { "│ $it" } + diagnostics +
-            listOf("─".repeat(size.columns.coerceAtMost(96)), current.stage?.let { "[$it]" } ?: "Ready", "> ", "editor: active=${current.requestActive}")
+            viewport = materializeViewport(
+                messages = current.messages,
+                width = conversationWidth,
+                height = viewportHeight,
+                notice = current.notice,
+                requestedAnchor = anchor,
+            )
+        }
+
+        val rows = listOf("OpenEden  ${current.sessionId}", "┌ $rail ┐") +
+            viewport.map { "│ ${it.text}" } +
+            diagnostics +
+            listOf(
+                "─".repeat(size.columns.coerceAtMost(96)),
+                current.stage?.let { "[$it]" } ?: "Ready",
+                "> ",
+                "editor: active=${current.requestActive}",
+            )
         sink.write(FrameDiff.between(previousRows, rows))
         previousRows = rows
-        previousMessages = current.messages
-        previousConversationWidth = conversationWidth
         previousHistoryLoading = current.historyLoading
+        previousMessageCount = current.messages.size
+        previousLastMessage = current.messages.lastOrNull()
         return RenderDecision.Rendered
     }
 
     override fun close() {
         if (closed) return
         closed = true
+        rowCache.clear()
         sink.close()
     }
 
-    private fun purePrependCount(currentMessages: List<CliMessage>, width: Int): Int? {
-        if (previousConversationWidth != width || currentMessages.size < previousMessages.size) return null
-        val insertedCount = currentMessages.size - previousMessages.size
-        if (insertedCount == 0) return null
-        val retained = currentMessages.drop(insertedCount)
-        return insertedCount.takeIf {
-            retained.indices.all { index ->
-                retained[index].id == previousMessages[index].id && retained[index] == previousMessages[index]
+    private fun preserveAnchor(messages: List<CliMessage>): ViewportAnchor? {
+        val current = anchor ?: return null
+        if (messages.isEmpty()) return null
+        val sizeDelta = messages.size - previousMessageCount
+        val candidateIndex = when {
+            sizeDelta > 0 -> current.messageIndex + sizeDelta
+            sizeDelta == 0 -> current.messageIndex
+            else -> return null
+        }
+        val candidate = messages.getOrNull(candidateIndex) ?: return null
+        if (candidate.id != current.messageId || candidate != current.message) return null
+        if (sizeDelta == 0 && messages.lastOrNull() != previousLastMessage) return null
+        return current.copy(messageIndex = candidateIndex, message = candidate)
+    }
+
+    private fun materializeViewport(
+        messages: List<CliMessage>,
+        width: Int,
+        height: Int,
+        notice: String?,
+        requestedAnchor: ViewportAnchor?,
+    ): List<ConversationRow> = if (requestedAnchor == null) {
+        materializeBottom(messages, width, height, notice)
+    } else {
+        materializeAnchored(messages, width, height, notice, requestedAnchor)
+    }
+
+    private fun materializeBottom(
+        messages: List<CliMessage>,
+        width: Int,
+        height: Int,
+        notice: String?,
+    ): List<ConversationRow> {
+        val visible = ArrayDeque<ConversationRow>(height)
+        notice?.let { visible.addFirst(ConversationRow(null, 0, -1, "[notice] $it")) }
+        var messageIndex = messages.lastIndex
+        while (messageIndex >= 0 && visible.size < height) {
+            val message = messages[messageIndex]
+            val rows = rowsFor(message, width)
+            var lineIndex = rows.lastIndex
+            while (lineIndex >= 0 && visible.size < height) {
+                visible.addFirst(ConversationRow(message.id, lineIndex, messageIndex, rows[lineIndex]))
+                lineIndex -= 1
             }
+            messageIndex -= 1
+        }
+        return visible.toList()
+    }
+
+    private fun materializeAnchored(
+        messages: List<CliMessage>,
+        width: Int,
+        height: Int,
+        notice: String?,
+        requestedAnchor: ViewportAnchor,
+    ): List<ConversationRow> {
+        val index = requestedAnchor.messageIndex.coerceIn(0, messages.lastIndex)
+        val firstMessage = messages[index]
+        val firstRows = rowsFor(firstMessage, width)
+        val firstLine = requestedAnchor.lineIndex.coerceIn(0, firstRows.lastIndex.coerceAtLeast(0))
+        anchor = requestedAnchor.copy(
+            messageId = firstMessage.id,
+            lineIndex = firstLine,
+            messageIndex = index,
+            message = firstMessage,
+        )
+        val visible = ArrayList<ConversationRow>(height)
+        var messageIndex = index
+        while (messageIndex < messages.size && visible.size < height) {
+            val message = messages[messageIndex]
+            val rows = rowsFor(message, width)
+            var lineIndex = if (messageIndex == index) firstLine else 0
+            while (lineIndex < rows.size && visible.size < height) {
+                visible += ConversationRow(message.id, lineIndex, messageIndex, rows[lineIndex])
+                lineIndex += 1
+            }
+            messageIndex += 1
+        }
+        if (visible.size < height) {
+            notice?.let { visible += ConversationRow(null, 0, -1, "[notice] $it") }
+        }
+        return visible
+    }
+
+    private fun moveUp(
+        messages: List<CliMessage>,
+        fromMessageIndex: Int,
+        fromLineIndex: Int,
+        rowsToMove: Int,
+        width: Int,
+    ): ViewportAnchor {
+        var messageIndex = fromMessageIndex
+        var lineIndex = fromLineIndex
+        var remaining = rowsToMove
+        if (remaining <= lineIndex) {
+            lineIndex -= remaining
+            val message = messages[messageIndex]
+            return ViewportAnchor(message.id, lineIndex, messageIndex, message)
+        }
+        remaining -= lineIndex
+        messageIndex -= 1
+        while (messageIndex >= 0) {
+            val message = messages[messageIndex]
+            val rowCount = rowsFor(message, width).size
+            if (remaining <= rowCount) {
+                return ViewportAnchor(message.id, rowCount - remaining, messageIndex, message)
+            }
+            remaining -= rowCount
+            messageIndex -= 1
+        }
+        val first = messages.first()
+        return ViewportAnchor(first.id, 0, 0, first)
+    }
+
+    private fun rowsFor(message: CliMessage, width: Int): List<String> {
+        val cached = rowCache[message.id]
+        if (cached != null && cached.message == message && cached.width == width) return cached.rows
+        return rowRenderer.rows(message, width).also { rows ->
+            rowCache[message.id] = CachedMessageRows(message, width, rows)
         }
     }
 
@@ -103,5 +245,29 @@ class FullScreenCliRenderer(
             previousRows = emptyList()
         }
         return RenderDecision.FallbackToInline(notice)
+    }
+
+    private data class CachedMessageRows(
+        val message: CliMessage,
+        val width: Int,
+        val rows: List<String>,
+    )
+
+    private data class ViewportAnchor(
+        val messageId: String,
+        val lineIndex: Int,
+        val messageIndex: Int,
+        val message: CliMessage,
+    )
+
+    private data class ConversationRow(
+        val messageId: String?,
+        val lineIndex: Int,
+        val messageIndex: Int,
+        val text: String,
+    )
+
+    private companion object {
+        const val MAX_CACHED_MESSAGES = 512
     }
 }

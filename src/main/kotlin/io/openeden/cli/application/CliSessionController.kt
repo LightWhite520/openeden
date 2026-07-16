@@ -65,6 +65,7 @@ class CliSessionController(
             CliTerminalEvent.LoadOlderHistory -> {
                 if (state.mode == CliMode.FULL_SCREEN) loadOlderHistory()
             }
+            is CliTerminalEvent.Resized -> dispatch(CliEvent.Resized(event.columns, event.rows))
             CliTerminalEvent.EndOfFile -> stopped = true
         }
     }

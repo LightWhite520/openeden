@@ -45,6 +45,7 @@ class JLineTerminalSession private constructor(
     private val readDispatcher: CoroutineDispatcher,
     private val eventQueue: Channel<CliTerminalEvent>,
     private val historySave: () -> Unit,
+    private val previousWinchHandler: Terminal.SignalHandler,
 ) : TerminalSession {
     private val collectionStarted = AtomicBoolean(false)
     private val lifecycleLock = Any()
@@ -130,7 +131,6 @@ class JLineTerminalSession private constructor(
     override fun close() = synchronized(lifecycleLock) {
         if (displayState == DisplayState.CLOSED) return@synchronized
         shutdownStarted = true
-        eventQueue.close()
         var failure: Throwable? = null
         fun attempt(operation: () -> Unit) {
             try {
@@ -141,6 +141,8 @@ class JLineTerminalSession private constructor(
             }
         }
 
+        attempt { terminal.handle(Terminal.Signal.WINCH, previousWinchHandler) }
+        eventQueue.close()
         attempt(historySave)
         if (displayState != DisplayState.INLINE) {
             exitDisplayBestEffortLocked()?.let { exitError ->
@@ -281,11 +283,16 @@ class JLineTerminalSession private constructor(
             historySave: (() -> Unit)? = null,
         ): JLineTerminalSession {
             var savedAttributes: Attributes? = null
+            var previousWinchHandler: Terminal.SignalHandler? = null
 
             try {
                 Files.createDirectories(historyPath.toAbsolutePath().parent)
                 savedAttributes = if (enterRawMode) terminal.enterRawMode() else null
                 val eventQueue = Channel<CliTerminalEvent>(Channel.UNLIMITED)
+                previousWinchHandler = terminal.handle(Terminal.Signal.WINCH) {
+                    val size = terminal.size
+                    eventQueue.trySend(CliTerminalEvent.Resized(size.columns, size.rows))
+                }
                 val lineReader = LineReaderBuilder.builder()
                     .appName("openeden")
                     .terminal(terminal)
@@ -308,9 +315,11 @@ class JLineTerminalSession private constructor(
                     readDispatcher = Dispatchers.IO.limitedParallelism(1),
                     eventQueue = eventQueue,
                     historySave = historySave ?: lineReader.history::save,
+                    previousWinchHandler = previousWinchHandler,
                 )
             } catch (error: Throwable) {
                 try {
+                    previousWinchHandler?.let { terminal.handle(Terminal.Signal.WINCH, it) }
                     savedAttributes?.let(terminal::setAttributes)
                 } catch (cleanupError: Throwable) {
                     error.addSuppressed(cleanupError)

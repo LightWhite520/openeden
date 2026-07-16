@@ -102,6 +102,62 @@ class FullScreenCliRendererTest {
         assertEquals("│ > newest", sink.rows.filter { it.startsWith("│ ") }.last())
     }
 
+    @Test
+    fun `paged anchor keeps the same message across narrow wide and height resize`() {
+        val sink = FakeFullscreenSink(true)
+        val renderer = FullScreenCliRenderer(
+            sink,
+            FullScreenMessageRowRenderer { message, width ->
+                val chunks = message.markdown.chunked(width.coerceAtLeast(1))
+                chunks.mapIndexed { line, text -> "${message.id}:$line:$text" }
+            },
+        )
+        val duplicateText = "duplicate ${"x".repeat(180)}"
+        val messages = (0 until 40).map { index ->
+            message("m$index", if (index in 10..11) duplicateText else "body-$index ${"x".repeat(180)}")
+        }
+        val initial = CliUiState(sessionId = "CLI:local", messages = messages)
+        renderer.render(initial, Size(120, 24))
+        renderer.render(initial.copy(historyLoading = true), Size(120, 24))
+        val anchoredId = sink.topConversationMessageId()
+
+        renderer.render(initial.copy(historyLoading = true), Size(80, 24))
+        assertEquals(anchoredId, sink.topConversationMessageId())
+
+        renderer.render(initial.copy(historyLoading = true), Size(120, 30))
+        assertEquals(anchoredId, sink.topConversationMessageId())
+    }
+
+    @Test
+    fun `large transcript renders and caches only viewport messages`() {
+        val sink = FakeFullscreenSink(true)
+        val renderedIds = mutableListOf<String>()
+        val renderer = FullScreenCliRenderer(
+            sink,
+            FullScreenMessageRowRenderer { message, _ ->
+                renderedIds += message.id
+                listOf("> ${message.markdown}")
+            },
+        )
+        val messages = (0 until 1_000).map { message("m$it", "message-$it") }
+        val initial = CliUiState(sessionId = "CLI:local", messages = messages)
+
+        renderer.render(initial, Size(80, 24))
+        val initialRenderCount = renderedIds.size
+        assertTrue(initialRenderCount <= 20, "initial rendered=$initialRenderCount")
+
+        val streaming = messages.dropLast(1) + messages.last().copy(
+            markdown = "changed streaming tail",
+            status = CliMessageStatus.STREAMING,
+        )
+        renderer.render(initial.copy(messages = streaming), Size(80, 24))
+        assertEquals(initialRenderCount + 1, renderedIds.size)
+
+        val beforeResize = renderedIds.size
+        renderer.render(initial.copy(messages = streaming), Size(120, 24))
+        assertTrue(renderedIds.size - beforeResize <= 20, "resize rendered=${renderedIds.size - beforeResize}")
+    }
+
     private fun message(id: String, text: String) = CliMessage(
         id = id,
         role = CliRole.USER,
@@ -109,6 +165,11 @@ class FullScreenCliRendererTest {
         status = CliMessageStatus.COMPLETE,
     )
 }
+
+private fun FakeFullscreenSink.topConversationMessageId(): String = rows
+    .first { it.startsWith("│ ") }
+    .removePrefix("│ ")
+    .substringBefore(':')
 
 private class FakeFullscreenSink(val capable: Boolean) : FullscreenSink {
     var closed = false

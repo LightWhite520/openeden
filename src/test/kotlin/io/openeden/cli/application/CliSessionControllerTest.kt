@@ -244,6 +244,18 @@ class CliSessionControllerTest {
     }
 
     @Test
+    fun `terminal resize updates state and redraws`() = runTest {
+        val renderer = CapturingRenderer()
+        val controller = CliSessionController("local", RecordingHistoryApi(), renderer, scope = this)
+
+        controller.accept(CliTerminalEvent.Resized(columns = 111, rows = 37))
+
+        assertEquals(111, controller.state.columns)
+        assertEquals(37, controller.state.rows)
+        assertEquals(1, renderer.renderCalls)
+    }
+
+    @Test
     fun `help includes compact older history command`() = runTest {
         val controller = CliSessionController("local", RecordingHistoryApi(), CapturingRenderer(), scope = this)
 

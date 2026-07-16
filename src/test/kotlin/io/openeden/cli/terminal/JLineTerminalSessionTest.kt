@@ -134,6 +134,52 @@ class JLineTerminalSessionTest {
     }
 
     @Test
+    @Suppress("DEPRECATION")
+    fun `winch emits an idle resize event and close restores the previous handler`() = runTest {
+        val terminal = testTerminal()
+        val previousCalls = AtomicInteger()
+        terminal.handle(Terminal.Signal.WINCH) { previousCalls.incrementAndGet() }
+        terminal.setSize(
+            org.jline.terminal.Size().apply {
+                columns = 111
+                rows = 37
+            },
+        )
+        val readStarted = CountDownLatch(1)
+        val releaseRead = CountDownLatch(1)
+        val operations = RecordingLifecycleOperations(capabilities = false)
+        val session = JLineTerminalSession.fromTerminal(
+            terminal = terminal,
+            historyPath = Files.createTempDirectory("openeden-jline").resolve("history"),
+            enterRawMode = false,
+            richSupported = false,
+            readLine = {
+                readStarted.countDown()
+                releaseRead.await()
+                throw EndOfFileException()
+            },
+            lifecycleOperations = operations,
+        )
+        val events = async { session.events().toList() }
+        withContext(Dispatchers.IO) {
+            assertTrue(readStarted.await(2, TimeUnit.SECONDS))
+        }
+
+        terminal.raise(Terminal.Signal.WINCH)
+        releaseRead.countDown()
+
+        assertEquals(
+            listOf(CliTerminalEvent.Resized(111, 37), CliTerminalEvent.EndOfFile),
+            events.await(),
+        )
+        assertEquals(0, previousCalls.get())
+
+        session.close()
+        terminal.raise(Terminal.Signal.WINCH)
+        assertEquals(1, previousCalls.get())
+    }
+
+    @Test
     fun `history is persisted incrementally at the configured utf8 path`() {
         val historyPath = Files.createTempDirectory("openeden-jline").resolve("history")
         val first = JLineTerminalSession.createForTest(
