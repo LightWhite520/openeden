@@ -14,6 +14,7 @@ import io.openeden.persona.MapPersonaLoader
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
+import io.openeden.relationship.RelationshipRole
 import io.openeden.runtime.affect.OmegaState
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -40,6 +41,14 @@ class DefaultPromptBuilderTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
         assertContains(built.personaText, "identity from data")
+    }
+
+    @Test
+    fun `build injects authoritative relationship role and host gate`() = runTest {
+        val built = DefaultPromptBuilder().build(promptInput(relationshipRole = RelationshipRole.HOST))
+
+        assertContains(built.systemText, "\"relationship_role\": \"HOST\"")
+        assertContains(built.systemText, "Do not assume the current user is the host")
     }
 
     @Test
@@ -146,6 +155,7 @@ class DefaultPromptBuilderTest {
                 "bio_core_state",
                 "runtime_state",
                 "observed_user_state",
+                "relationship_role",
                 "relationship_context",
                 "memory_retrieval",
                 "required_output_schema",
@@ -160,6 +170,7 @@ class DefaultPromptBuilderTest {
         personaStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
         userInput: String = "hello",
         personaConfigOverride: PersonaConfig? = null,
+        relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
     ): PromptInput = PromptInput(
         personaConfig = personaConfigOverride ?: PersonaConfig(
             mode = personaMode,
@@ -207,5 +218,6 @@ class DefaultPromptBuilderTest {
         omegaState = OmegaState(0.1f),
         shockState = null,
         userInput = userInput,
+        relationshipRole = relationshipRole,
     )
 }

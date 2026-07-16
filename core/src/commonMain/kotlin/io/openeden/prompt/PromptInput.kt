@@ -5,6 +5,7 @@ import io.openeden.codebook.QuantizationResult
 import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
 import io.openeden.relationship.RelationshipState
+import io.openeden.relationship.RelationshipRole
 import io.openeden.relationship.UserAffectState
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.ShockState
@@ -20,5 +21,6 @@ data class PromptInput(
     val shockState: ShockState?,
     val userInput: String,
     val userAffect: UserAffectState = UserAffectState.Uncertain,
+    val relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
     val relationshipState: RelationshipState? = null,
 )

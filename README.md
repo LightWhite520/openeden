@@ -125,6 +125,8 @@ Common variables:
 | `OPENEDEN_LOCAL_MODEL_ARTIFACT` | Local model artifact path.                          |
 | `OPENEDEN_OWNER_PLATFORM`       | Optional heartbeat owner delivery platform.         |
 | `OPENEDEN_OWNER_USER_ID`        | Optional heartbeat owner user ID.                   |
+| `OPENEDEN_HOST_PLATFORM`        | Optional authoritative host identity platform.      |
+| `OPENEDEN_HOST_USER_ID`         | Optional authoritative host identity user ID.       |
 
 ## Quick Start
 
