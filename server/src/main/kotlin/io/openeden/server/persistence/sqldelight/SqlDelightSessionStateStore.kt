@@ -8,6 +8,8 @@ import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.affect.ShockState
+import io.openeden.transcript.AtomicTurnCommitStore
+import io.openeden.transcript.ConversationTurn
 import io.openeden.persona.PersonaSubState
 import io.openeden.persona.PersonaMode
 import kotlinx.coroutines.CoroutineDispatcher
@@ -35,8 +37,9 @@ class SqlDelightSessionStateStore(
     private val defaultStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
     private val json: Json = Json,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-) : SessionStateStore {
+) : SessionStateStore, AtomicTurnCommitStore {
     private val queries get() = database.sessionStateQueries
+    private val transcriptQueries get() = database.transcriptQueries
 
     override suspend fun read(sessionId: String): SessionState = readOrCreate(sessionId)
 
@@ -84,6 +87,47 @@ class SqlDelightSessionStateStore(
     }
 
     override suspend fun write(state: SessionState) = withContext(ioDispatcher) {
+        writeStateQueries(state)
+    }
+
+    override suspend fun writeCommittedTurn(state: SessionState, turn: ConversationTurn) = withContext(ioDispatcher) {
+        database.transaction {
+            require(turn.sessionId == state.sessionId) {
+                "Turn session '${turn.sessionId}' does not match state session '${state.sessionId}'"
+            }
+            val activeIncarnationId = transcriptQueries.selectActiveIncarnation { id, _ -> id }.executeAsOne()
+            require(turn.incarnationId == activeIncarnationId) {
+                "Turn incarnation '${turn.incarnationId}' does not match active incarnation '$activeIncarnationId'"
+            }
+            transcriptQueries.selectTurnById(turn.turnId, ::toConversationTurn)
+                .executeAsOneOrNull()
+                ?.let { existing ->
+                    require(existing.matchesRetry(turn)) {
+                        "Turn ID '${turn.turnId}' already exists with a different payload"
+                    }
+                    return@transaction
+                }
+
+            writeStateQueries(state)
+            transcriptQueries.insertTurnIfAbsent(
+                turn_id = turn.turnId,
+                incarnation_id = turn.incarnationId,
+                session_id = turn.sessionId,
+                platform = turn.platform,
+                scope_id = turn.scopeId,
+                user_id = turn.userId,
+                user_text = turn.userText,
+                assistant_text = turn.assistantText,
+                completed_at_ms = turn.completedAtMs,
+            )
+            val persisted = transcriptQueries.selectTurnById(turn.turnId, ::toConversationTurn).executeAsOne()
+            require(persisted == turn) {
+                "Turn ID '${turn.turnId}' was not committed with the expected payload"
+            }
+        }
+    }
+
+    private fun writeStateQueries(state: SessionState) {
         queries.selectPersonaSelectionById(state.sessionId) { mode, start -> mode to start }
             .executeAsOneOrNull()
             ?.let { (mode, start) ->
@@ -173,6 +217,32 @@ class SqlDelightSessionStateStore(
         val state: SessionState,
         val initialized: Boolean,
     )
+
+    @Suppress("LongParameterList")
+    private fun toConversationTurn(
+        turnId: String,
+        incarnationId: String,
+        sessionId: String,
+        platform: String,
+        scopeId: String,
+        userId: String,
+        userText: String,
+        assistantText: String,
+        completedAtMs: Long,
+    ) = ConversationTurn(
+        turnId = turnId,
+        incarnationId = incarnationId,
+        sessionId = sessionId,
+        platform = platform,
+        scopeId = scopeId,
+        userId = userId,
+        userText = userText,
+        assistantText = assistantText,
+        completedAtMs = completedAtMs,
+    )
+
+    private fun ConversationTurn.matchesRetry(other: ConversationTurn): Boolean =
+        copy(completedAtMs = other.completedAtMs) == other
 
     companion object {
         /** Open (creating the schema if absent) a file-backed store. The parent dir is created. */

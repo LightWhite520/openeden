@@ -94,6 +94,7 @@ fun Application.configureRouting() {
             try {
                 val result = developmentPipeline.handle(
                     DevelopmentMessageRequest(
+                        turnId = requestId,
                         platform = "CLI",
                         scopeId = request.userId,
                         userId = request.userId,
@@ -132,6 +133,7 @@ fun Application.configureRouting() {
                 try {
                     developmentPipeline.handleStreaming(
                         DevelopmentMessageRequest(
+                            turnId = requestId,
                             platform = "CLI",
                             scopeId = request.userId,
                             userId = request.userId,
@@ -183,8 +185,10 @@ fun Application.configureRouting() {
         }
         post("/dev/message") {
             val request = call.receive<DevMessageRequestDto>()
+            val turnId = "dev_${UUID.randomUUID().toString().replace("-", "")}"
             val result = developmentPipeline.handle(
                 DevelopmentMessageRequest(
+                    turnId = turnId,
                     platform = request.platform,
                     scopeId = request.scopeId,
                     userId = request.userId,

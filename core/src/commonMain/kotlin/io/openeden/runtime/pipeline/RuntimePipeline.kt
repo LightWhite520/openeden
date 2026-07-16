@@ -23,6 +23,7 @@ import io.openeden.persona.PersonaConfig
 import io.openeden.prompt.BuiltPrompt
 
 data class LocalRuntimeRequest(
+    val turnId: String,
     val userId: String,
     val text: String,
     val emotionConfidence: Float = 0.0f,
@@ -49,6 +50,7 @@ class OpenEdenRuntimePipeline private constructor(
     suspend fun handle(request: LocalRuntimeRequest): LocalRuntimeResult {
         val result = delegate.handle(
             DevelopmentMessageRequest(
+                turnId = request.turnId,
                 platform = LOCAL_PLATFORM,
                 scopeId = request.userId,
                 userId = request.userId,

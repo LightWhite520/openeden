@@ -5,6 +5,8 @@ import io.openeden.runtime.affect.ShockStateEngine
 import io.openeden.runtime.session.SessionMutexRegistry
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
+import io.openeden.transcript.AtomicTurnCommitStore
+import io.openeden.transcript.ConversationTurn
 
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
@@ -49,6 +51,7 @@ class VectorWriteService(
         delta: VectorDelta,
         shock: ShockState?,
         lastUserActivityMs: Long?,
+        turn: ConversationTurn? = null,
     ): VectorWriteResult {
         val latest = store.read(sessionId)
         val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
@@ -60,9 +63,17 @@ class VectorWriteService(
             omega = shock?.let { ShockStateEngine.omegaJump(latest.omega, it) } ?: latest.omega,
             lastUserActivityMs = lastUserActivityMs ?: latest.lastUserActivityMs,
         )
-        store.write(updated)
+        val committedState = if (turn != null) {
+            val atomicStore = store as? AtomicTurnCommitStore
+                ?: error("Public turns require an atomic turn commit store")
+            atomicStore.writeCommittedTurn(updated, turn)
+            store.read(sessionId)
+        } else {
+            store.write(updated)
+            updated
+        }
         return VectorWriteResult(
-            state = updated,
+            state = committedState,
             traceTags = buildSet {
                 add(TraceTag.VectorWriteSerialized)
                 if (shock != null) add(TraceTag.ShockStateTransition)

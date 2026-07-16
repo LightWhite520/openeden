@@ -51,6 +51,7 @@ class TurnCoordinatorConcurrencyTest {
             async {
                 pipeline.handle(
                     DevelopmentMessageRequest(
+                        turnId = "turn-$index",
                         platform = "TEST",
                         scopeId = "shared",
                         userId = "u$index",

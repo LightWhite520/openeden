@@ -34,6 +34,8 @@ import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.session.SessionTurnGate
 import io.openeden.runtime.state.*
 import io.openeden.trace.*
+import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.TranscriptStore
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterIsInstance
@@ -63,6 +65,7 @@ class DevelopmentMessagePipeline(
     private val relationshipStore: RelationshipStateStore,
     private val relationshipRoleResolver: RelationshipRoleResolver,
     private val affectInfluenceMapper: UserAffectInfluenceMapper,
+    private val transcriptStore: TranscriptStore?,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
 ) {
     suspend fun handle(request: DevelopmentMessageRequest): DevelopmentMessageResult =
@@ -87,7 +90,7 @@ class DevelopmentMessagePipeline(
     ): DevelopmentMessageResult {
         val traceContext = TraceContext(
             traceId = "$sessionId:${nowMs()}",
-            turnId = "$sessionId:${nowMs()}:turn",
+            turnId = request.turnId,
             sessionId = sessionId,
         )
         val initial = store.readOrCreate(
@@ -214,6 +217,27 @@ class DevelopmentMessagePipeline(
         )
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.FINALIZING))
         return withContext(NonCancellable) {
+        val publicTurn = if (
+            request.source == TurnSource.USER &&
+            validation.isValid &&
+            validation.output != null &&
+            validation.delta != null &&
+            transcriptStore != null
+        ) {
+            ConversationTurn(
+                turnId = request.turnId,
+                incarnationId = transcriptStore.activeIncarnation().id,
+                sessionId = sessionId,
+                platform = request.platform,
+                scopeId = request.scopeId,
+                userId = request.userId,
+                userText = request.text,
+                assistantText = validation.output.response,
+                completedAtMs = nowMs(),
+            )
+        } else {
+            null
+        }
         val write = if (validation.isValid && validation.delta != null) {
             val detectedShock = inferenceExecutor.run {
                 ShockStateEngine.detectFromLlmOutput(
@@ -229,6 +253,7 @@ class DevelopmentMessagePipeline(
                 shock = detectedShock,
                 // Heartbeat turns evolve state but must not silence future proactive turns.
                 lastUserActivityMs = nowMs().takeIf { request.source == TurnSource.USER },
+                turn = publicTurn,
             )
         } else {
             VectorWriteResult(state = current, traceTags = emptySet())
@@ -442,6 +467,8 @@ class DevelopmentMessagePipeline(
             relationshipStore: RelationshipStateStore = InMemoryRelationshipStateStore(),
             relationshipRoleResolver: RelationshipRoleResolver = RelationshipRoleResolver(host = null),
             affectInfluenceMapper: UserAffectInfluenceMapper = UserAffectInfluenceMapper.Default,
+            transcriptStore: TranscriptStore? = store as? TranscriptStore,
+            nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         ): DevelopmentMessagePipeline {
             return DevelopmentMessagePipeline(
                 personaConfig = personaConfig,
@@ -464,6 +491,8 @@ class DevelopmentMessagePipeline(
                 relationshipStore = relationshipStore,
                 relationshipRoleResolver = relationshipRoleResolver,
                 affectInfluenceMapper = affectInfluenceMapper,
+                transcriptStore = transcriptStore,
+                nowMs = nowMs,
             )
         }
     }

@@ -48,6 +48,7 @@ class HeartbeatScheduler(
             val scopeId = sessionId.substringAfter(':')
             val result = pipeline.handle(
                 DevelopmentMessageRequest(
+                    turnId = "$sessionId:heartbeat:$now:${decision.name}",
                     platform = platform,
                     scopeId = scopeId,
                     userId = HEARTBEAT_USER_ID,

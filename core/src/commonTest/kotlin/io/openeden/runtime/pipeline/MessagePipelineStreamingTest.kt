@@ -45,6 +45,7 @@ class MessagePipelineStreamingTest {
     }
 
     private fun request() = DevelopmentMessageRequest(
+        turnId = "stream-turn",
         platform = "CLI",
         scopeId = "local",
         userId = "local",

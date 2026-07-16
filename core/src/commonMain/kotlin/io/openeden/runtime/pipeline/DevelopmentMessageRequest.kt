@@ -3,6 +3,7 @@ package io.openeden.runtime.pipeline
 import io.openeden.bio.VectorDelta
 
 data class DevelopmentMessageRequest(
+    val turnId: String,
     val platform: String,
     val scopeId: String,
     val userId: String,

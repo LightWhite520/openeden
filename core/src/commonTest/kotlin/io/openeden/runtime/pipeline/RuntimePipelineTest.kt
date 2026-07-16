@@ -45,6 +45,7 @@ class RuntimePipelineTest {
 
         val result = pipeline.handle(
             LocalRuntimeRequest(
+                turnId = "runtime-turn-1",
                 userId = "owner",
                 text = "hello",
                 emotionConfidence = 0.49f,
@@ -75,8 +76,22 @@ class RuntimePipelineTest {
             },
         )
 
-        pipeline.handle(LocalRuntimeRequest(userId = "owner", text = "first question", emotionConfidence = 0.0f))
-        pipeline.handle(LocalRuntimeRequest(userId = "owner", text = "我刚刚说了什么", emotionConfidence = 0.0f))
+        pipeline.handle(
+            LocalRuntimeRequest(
+                turnId = "runtime-memory-1",
+                userId = "owner",
+                text = "first question",
+                emotionConfidence = 0.0f,
+            ),
+        )
+        pipeline.handle(
+            LocalRuntimeRequest(
+                turnId = "runtime-memory-2",
+                userId = "owner",
+                text = "我刚刚说了什么",
+                emotionConfidence = 0.0f,
+            ),
+        )
 
         assertEquals(2, prompts.size)
         assertTrue(prompts[1].systemText.contains("first question"))

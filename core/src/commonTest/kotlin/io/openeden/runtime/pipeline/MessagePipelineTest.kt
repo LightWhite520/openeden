@@ -34,6 +34,7 @@ class MessagePipelineTest {
 
         val result = pipeline.handle(
             DevelopmentMessageRequest(
+                turnId = "turn-1",
                 platform = "QQ",
                 scopeId = "100",
                 userId = "u1",
@@ -76,6 +77,7 @@ class MessagePipelineTest {
 
         val result = pipeline.handle(
             DevelopmentMessageRequest(
+                turnId = "turn-2",
                 platform = "QQ",
                 scopeId = "100",
                 userId = "u1",
@@ -114,6 +116,7 @@ class MessagePipelineTest {
 
         pipeline.handle(
             DevelopmentMessageRequest(
+                turnId = "turn-3",
                 platform = "QQ",
                 scopeId = "100",
                 userId = "u1",
@@ -139,6 +142,7 @@ class MessagePipelineTest {
 
         pipeline.handle(
             DevelopmentMessageRequest(
+                turnId = "turn-4",
                 platform = "QQ",
                 scopeId = "100",
                 userId = "u1",
@@ -160,6 +164,7 @@ class MessagePipelineTest {
 
         pipeline.handle(
             DevelopmentMessageRequest(
+                turnId = "turn-5",
                 platform = "QQ",
                 scopeId = "100",
                 userId = "u1",
@@ -228,6 +233,7 @@ class MessagePipelineTest {
     )
 
     private fun testRequest(userId: String = "u1") = DevelopmentMessageRequest(
+        turnId = "test-$userId",
         platform = "QQ",
         scopeId = "100",
         userId = userId,

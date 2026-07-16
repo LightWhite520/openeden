@@ -181,6 +181,7 @@ class SqlDelightSessionStateStoreTest {
     )
 
     private fun request() = DevelopmentMessageRequest(
+        turnId = "session-state-test-turn",
         platform = "QQ",
         scopeId = "42",
         userId = "u1",
