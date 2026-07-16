@@ -1,0 +1,54 @@
+CREATE TABLE incarnation_state (
+    singleton_id INTEGER NOT NULL PRIMARY KEY CHECK(singleton_id = 1),
+    active_incarnation_id TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE conversation_turns (
+    turn_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_text TEXT NOT NULL,
+    assistant_text TEXT NOT NULL,
+    completed_at_ms INTEGER NOT NULL
+);
+
+CREATE INDEX conversation_turns_page
+ON conversation_turns(incarnation_id, completed_at_ms DESC, turn_id DESC);
+
+insertIncarnationIfAbsent:
+INSERT OR IGNORE INTO incarnation_state(singleton_id, active_incarnation_id, created_at_ms)
+VALUES (1, ?, ?);
+
+selectActiveIncarnation:
+SELECT active_incarnation_id, created_at_ms
+FROM incarnation_state
+WHERE singleton_id = 1;
+
+insertTurnIfAbsent:
+INSERT OR IGNORE INTO conversation_turns(
+    turn_id, incarnation_id, session_id, platform, scope_id, user_id,
+    user_text, assistant_text, completed_at_ms
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectTurnById:
+SELECT turn_id, incarnation_id, session_id, platform, scope_id, user_id,
+       user_text, assistant_text, completed_at_ms
+FROM conversation_turns
+WHERE turn_id = ?;
+
+selectTurnPage:
+SELECT turn_id, incarnation_id, session_id, platform, scope_id, user_id,
+       user_text, assistant_text, completed_at_ms
+FROM conversation_turns
+WHERE incarnation_id = :incarnationId
+  AND (
+      :beforeCompletedAtMs IS NULL
+      OR completed_at_ms < :beforeCompletedAtMs
+      OR (completed_at_ms = :beforeCompletedAtMs AND turn_id < :beforeTurnId)
+  )
+ORDER BY completed_at_ms DESC, turn_id DESC
+LIMIT :pageLimit;

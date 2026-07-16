@@ -1,0 +1,20 @@
+CREATE TABLE incarnation_state (
+    singleton_id INTEGER NOT NULL PRIMARY KEY CHECK(singleton_id = 1),
+    active_incarnation_id TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE conversation_turns (
+    turn_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_text TEXT NOT NULL,
+    assistant_text TEXT NOT NULL,
+    completed_at_ms INTEGER NOT NULL
+);
+
+CREATE INDEX conversation_turns_page
+ON conversation_turns(incarnation_id, completed_at_ms DESC, turn_id DESC);
