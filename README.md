@@ -129,9 +129,6 @@ Common variables:
 | `OPENEDEN_HOST_USER_ID`         | Optional authoritative host identity user ID.       |
 | `OPENEDEN_ENABLE_CLI_DIAGNOSTICS` | Enable the token-gated diagnostic endpoint; default `false`. |
 | `OPENEDEN_CLI_DIAGNOSTICS_TOKEN` | Separate credential used only by the optional CLI diagnostic panel. |
-| `OPENEDEN_STDIN_ENCODING`       | Redirected stdin charset override; default `UTF-8`.  |
-| `OPENEDEN_STDOUT_ENCODING`      | Redirected stdout charset override; default `UTF-8`. |
-| `OPENEDEN_STDERR_ENCODING`      | Redirected stderr charset override; default `UTF-8`. |
 
 ## Quick Start
 

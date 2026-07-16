@@ -21,20 +21,31 @@ data class CliTextStreams(
             input: InputStream,
             output: OutputStream,
             error: OutputStream,
-            profile: TerminalEncodingProfile,
         ): CliTextStreams {
-            val decodedInput = if (profile.stdin == StandardCharsets.UTF_8) {
-                Utf8BomStrippingInputStream(input)
-            } else {
-                input
-            }
             return CliTextStreams(
-                reader = BufferedReader(InputStreamReader(decodedInput, profile.stdin)),
-                out = PrintWriter(OutputStreamWriter(output, profile.stdout), true),
-                err = PrintWriter(OutputStreamWriter(error, profile.stderr), true),
+                reader = BufferedReader(
+                    InputStreamReader(Utf8BomStrippingInputStream(input), StandardCharsets.UTF_8),
+                ),
+                out = utf8Writer(output),
+                err = utf8Writer(error),
             )
         }
+
+        private fun utf8Writer(output: OutputStream): PrintWriter = PrintWriter(
+            OutputStreamWriter(CloseShieldOutputStream(output), StandardCharsets.UTF_8),
+            true,
+        )
     }
+}
+
+private class CloseShieldOutputStream(private val delegate: OutputStream) : OutputStream() {
+    override fun write(value: Int) = delegate.write(value)
+
+    override fun write(buffer: ByteArray, offset: Int, length: Int) = delegate.write(buffer, offset, length)
+
+    override fun flush() = delegate.flush()
+
+    override fun close() = delegate.flush()
 }
 
 private class Utf8BomStrippingInputStream(input: InputStream) : InputStream() {

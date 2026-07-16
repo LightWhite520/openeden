@@ -1,7 +1,5 @@
 package io.openeden.cli.terminal
 
-import io.openeden.cli.render.Size
-
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -9,6 +7,7 @@ import java.nio.charset.StandardCharsets
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 
 class CliTextStreamsTest {
@@ -30,7 +29,6 @@ class CliTextStreamsTest {
             input = input,
             output = ByteArrayOutputStream(),
             error = ByteArrayOutputStream(),
-            profile = TerminalEncodingProfile.utf8(),
         )
 
         assertEquals("\u4E2D\u6587", streams.reader.readText())
@@ -42,7 +40,6 @@ class CliTextStreamsTest {
             input = ShortOpenInputStream("a\n".toByteArray(StandardCharsets.UTF_8)),
             output = ByteArrayOutputStream(),
             error = ByteArrayOutputStream(),
-            profile = TerminalEncodingProfile.utf8(),
         )
 
         assertEquals("a", streams.reader.buffered().readLine())
@@ -83,16 +80,10 @@ class CliTextStreamsTest {
     }
 
     @Test
-    fun `non UTF-8 stdin does not inspect or consume BOM bytes`() {
-        val profile = TerminalEncodingProfile(
-            stdin = StandardCharsets.ISO_8859_1,
-            stdout = StandardCharsets.UTF_8,
-            stderr = StandardCharsets.UTF_8,
-        )
+    fun `malformed stdin bytes use deterministic UTF-8 replacement`() {
+        val streams = createStreams(byteArrayOf(0xC3.toByte(), 0x28))
 
-        val streams = createStreams(UTF8_BOM, profile)
-
-        assertEquals("\u00EF\u00BB\u00BF", streams.reader.readText())
+        assertEquals("\uFFFD(", streams.reader.readText())
     }
 
     @Test
@@ -102,7 +93,6 @@ class CliTextStreamsTest {
             input = ByteArrayInputStream(ByteArray(0)),
             output = output,
             error = ByteArrayOutputStream(),
-            profile = TerminalEncodingProfile.utf8(),
         )
 
         streams.out.print("\u4F60\u597D")
@@ -111,14 +101,46 @@ class CliTextStreamsTest {
         assertContentEquals("\u4F60\u597D".toByteArray(StandardCharsets.UTF_8), output.toByteArray())
     }
 
-    private fun createStreams(
-        input: ByteArray,
-        profile: TerminalEncodingProfile = TerminalEncodingProfile.utf8(),
-    ): CliTextStreams = CliTextStreams.create(
+    @Test
+    fun `UTF-8 stderr contains exact payload bytes without BOM`() {
+        val error = ByteArrayOutputStream()
+        val streams = CliTextStreams.create(
+            input = ByteArrayInputStream(ByteArray(0)),
+            output = ByteArrayOutputStream(),
+            error = error,
+        )
+
+        streams.err.print("\u9519\u8BEF")
+        streams.err.flush()
+
+        assertContentEquals("\u9519\u8BEF".toByteArray(StandardCharsets.UTF_8), error.toByteArray())
+    }
+
+    @Test
+    fun `closing writers flushes without closing underlying output streams`() {
+        val output = CloseTrackingOutputStream()
+        val error = CloseTrackingOutputStream()
+        val streams = CliTextStreams.create(
+            input = ByteArrayInputStream(ByteArray(0)),
+            output = output,
+            error = error,
+        )
+
+        streams.out.print("out")
+        streams.err.print("err")
+        streams.out.close()
+        streams.err.close()
+
+        assertEquals("out", output.toString(StandardCharsets.UTF_8))
+        assertEquals("err", error.toString(StandardCharsets.UTF_8))
+        assertFalse(output.closed)
+        assertFalse(error.closed)
+    }
+
+    private fun createStreams(input: ByteArray): CliTextStreams = CliTextStreams.create(
         input = ByteArrayInputStream(input),
         output = ByteArrayOutputStream(),
         error = ByteArrayOutputStream(),
-        profile = profile,
     )
 
     private fun newUtf8BomStrippingInputStream(input: InputStream): InputStream =
@@ -160,5 +182,15 @@ class CliTextStreamsTest {
 
     private class FailOnReadInputStream : InputStream() {
         override fun read(): Int = error("BOM detection must not read the underlying stream")
+    }
+
+    private class CloseTrackingOutputStream : ByteArrayOutputStream() {
+        var closed = false
+            private set
+
+        override fun close() {
+            closed = true
+            super.close()
+        }
     }
 }

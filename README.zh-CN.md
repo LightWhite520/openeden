@@ -100,9 +100,6 @@ Copy-Item .env.example .env
 | `OPENEDEN_HOST_USER_ID`         | 可选，权威宿主身份用户 ID。                            |
 | `OPENEDEN_ENABLE_CLI_DIAGNOSTICS` | 是否启用需要 token 的 CLI 诊断接口，默认 `false`。   |
 | `OPENEDEN_CLI_DIAGNOSTICS_TOKEN` | CLI 诊断面板专用凭据，不写入本地配置。                |
-| `OPENEDEN_STDIN_ENCODING`       | 重定向 stdin 编码覆盖，默认 `UTF-8`。                  |
-| `OPENEDEN_STDOUT_ENCODING`      | 重定向 stdout 编码覆盖，默认 `UTF-8`。                 |
-| `OPENEDEN_STDERR_ENCODING`      | 重定向 stderr 编码覆盖，默认 `UTF-8`。                 |
 
 ## 快速开始
 

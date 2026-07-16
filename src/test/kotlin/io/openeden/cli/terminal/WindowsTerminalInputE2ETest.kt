@@ -1,7 +1,5 @@
 package io.openeden.cli.terminal
 
-import io.openeden.cli.render.Size
-
 import com.pty4j.PtyProcessBuilder
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
@@ -25,10 +23,10 @@ import kotlin.test.assertTrue
 
 class WindowsTerminalInputE2ETest {
     @Test
-    fun `Chinese text can be inserted at the cursor under code page 936`() {
+    fun `Chinese text can be inserted at the cursor under the current code page`() {
         if (!enabled()) return
 
-        val result = runInPowerShell(
+        val result = runInCurrentConsole(
             input = "\u4E2D\u6587AB\u001B[D\u001B[D\u6D4B\u8BD5\r",
         )
 
@@ -40,7 +38,7 @@ class WindowsTerminalInputE2ETest {
     fun `backspace removes an entire supplementary Unicode character`() {
         if (!enabled()) return
 
-        val result = runInPowerShell(
+        val result = runInCurrentConsole(
             input = "\u4E2D\u6587\uD83D\uDE00\b\r",
         )
 
@@ -48,7 +46,7 @@ class WindowsTerminalInputE2ETest {
         assertContains(result.output, "\u56DE\u590D\u6B63\u5E38")
     }
 
-    private fun runInPowerShell(input: String): TerminalResult {
+    private fun runInCurrentConsole(input: String): TerminalResult {
         val submitted = ArrayBlockingQueue<String>(1)
         val server = startServer(submitted)
         val home = Files.createTempDirectory("openeden-terminal-e2e")
@@ -63,8 +61,8 @@ class WindowsTerminalInputE2ETest {
             put("OPENEDEN_OPTS", "-Duser.home=\"$home\"")
         }
         val repository = Path.of("").toAbsolutePath().normalize()
-        val command = "chcp 936 | Out-Null; & '.\\build\\install\\openeden\\bin\\openeden.bat'"
-        val process = PtyProcessBuilder(arrayOf("pwsh.exe", "-NoLogo", "-NoProfile", "-Command", command))
+        val script = repository.resolve("build/install/openeden/bin/openeden.bat").toString()
+        val process = PtyProcessBuilder(arrayOf("cmd.exe", "/d", "/c", script))
             .setDirectory(repository.toString())
             .setEnvironment(environment)
             .setUseWinConPty(true)
@@ -100,20 +98,31 @@ class WindowsTerminalInputE2ETest {
             createContext("/health") { exchange ->
                 exchange.respond("""{"status":"ready"}""")
             }
-            createContext("/api/v1/chat") { exchange ->
+            createContext("/api/v1/chat/stream") { exchange ->
                 val body = exchange.requestBody.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
                 val text = Json.parseToJsonElement(body).jsonObject.getValue("text").jsonPrimitive.content
                 submitted.offer(text)
                 exchange.respond(
-                    """{"requestId":"terminal-test","status":"completed","response":"\u56DE\u590D\u6B63\u5E38","error":null}""",
+                    """
+                        event: accepted
+                        data: {"requestId":"terminal-test"}
+
+                        event: response.delta
+                        data: {"text":"\u56DE\u590D\u6B63\u5E38"}
+
+                        event: completed
+                        data: {"requestId":"terminal-test","status":"completed"}
+
+                    """.trimIndent(),
+                    contentType = "text/event-stream; charset=utf-8",
                 )
             }
             start()
         }
 
-    private fun HttpExchange.respond(body: String) {
+    private fun HttpExchange.respond(body: String, contentType: String = "application/json; charset=utf-8") {
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
-        responseHeaders.set("Content-Type", "application/json; charset=utf-8")
+        responseHeaders.set("Content-Type", contentType)
         sendResponseHeaders(200, bytes.size.toLong())
         responseBody.use { it.write(bytes) }
     }
