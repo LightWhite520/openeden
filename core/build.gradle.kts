@@ -25,7 +25,7 @@ kotlin {
         }
 
         jvmMain.dependencies {
-            implementation("com.github.LightWhite520:thymos:1.0.0")
+            implementation("com.github.LightWhite520:thymos:47e92f6c0f")
             implementation("com.knuddels:jtokkit:1.1.0")
             implementation(libs.djl.api)
             implementation(libs.djl.pytorch.engine)
@@ -33,9 +33,6 @@ kotlin {
             implementation(ktorLibs.client.core)
             implementation(ktorLibs.client.cio)
             implementation(ktorLibs.serialization.kotlinx.json)
-            if (System.getProperty("os.name").startsWith("Windows")) {
-                runtimeOnly("ai.djl.pytorch:pytorch-native-cpu:${libs.versions.pytorch.native.get()}:win-x86_64")
-            }
         }
 
         commonTest.dependencies {
