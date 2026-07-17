@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.withContext
 import kotlin.math.log
 import kotlin.time.Clock
+import kotlin.time.TimeSource
 
 class DevelopmentMessagePipeline(
     private val personaConfig: PersonaConfig,
@@ -121,10 +122,15 @@ class DevelopmentMessagePipeline(
             tags = setOf(if (relationshipDegraded) TraceTag.RelationshipDegraded else TraceTag.RelationshipLoaded),
         )
         val observedAffect = if (request.source == TurnSource.USER) {
-            val start = nowMs()
-            val result = inferenceExecutor.run { userAffectAnalyzer.analyze(request.text) }
-            println("Thymos inference has spent ${nowMs() - start}ms")
-            result
+            inferenceExecutor.run {
+                val thymosMark = TimeSource.Monotonic.markNow()
+                val result = userAffectAnalyzer.analyze(request.text)
+                val engine = (userAffectAnalyzer as? InferenceEngineReporter)
+                    ?.inferenceEngineDescription
+                    ?: userAffectAnalyzer::class.simpleName.orEmpty().ifBlank { "unknown" }
+                println("Thymos inference engine: $engine; spent ${thymosMark.elapsedNow()}")
+                result
+            }
         } else {
             UserAffectState.Uncertain
         }

@@ -25,7 +25,7 @@ kotlin {
         }
 
         jvmMain.dependencies {
-            implementation("com.github.LightWhite520:thymos:47e92f6c0f")
+            implementation("com.github.LightWhite520:thymos:802bad1b2679c7f392e2d8497712ea8a56acb0c5")
             implementation("com.knuddels:jtokkit:1.1.0")
             implementation(libs.djl.api)
             implementation(libs.djl.pytorch.engine)

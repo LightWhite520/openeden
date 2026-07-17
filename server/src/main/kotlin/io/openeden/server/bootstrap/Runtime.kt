@@ -263,7 +263,7 @@ private fun loadRuntimeModels(config: ServerRuntimeConfig): RuntimeModels {
     }
     return when (config.modelBackend.lowercase()) {
         "artifact" -> RuntimeModels(artifact.codebookQuantizer(), artifact.memoryEmbeddingModel(), artifact.userAffectAnalyzer())
-        "djl" -> {
+        "djl" -> withPreparedThymosRuntime {
             val runner = DjlVqVaeCodebookModelRunner.fromModelPath(
                 modelPath = config.djlVqVaeModelPath,
                 modelName = config.djlModelName,
