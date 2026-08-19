@@ -13,7 +13,7 @@ import io.openeden.persona.PersonaConfig
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
 
-class LlmDiaryNarrativeGenerator(
+class LlmDiaryNarrativeGenerator private constructor(
     private val personaConfig: PersonaConfig,
     private val sessionStateStore: SessionStateStore,
     private val dataSource: DiaryDataSource,
@@ -21,8 +21,9 @@ class LlmDiaryNarrativeGenerator(
     private val inferenceExecutor: InferenceExecutor,
     private val llmClient: LlmClient,
     private val embeddingModel: MemoryEmbeddingModel,
-    private val rawLimit: Int = 32,
-    private val generationSettings: LlmGenerationSettings = LlmGenerationSettings.Default,
+    private val rawLimit: Int,
+    private val generationSettings: LlmGenerationSettings,
+    constructorMarker: Unit,
 ) {
     constructor(
         personaConfig: PersonaConfig,
@@ -32,7 +33,7 @@ class LlmDiaryNarrativeGenerator(
         inferenceExecutor: InferenceExecutor,
         llmClient: LlmClient,
         embeddingModel: MemoryEmbeddingModel,
-        rawLimit: Int,
+        rawLimit: Int = 32,
     ) : this(
         personaConfig = personaConfig,
         sessionStateStore = sessionStateStore,
@@ -43,6 +44,30 @@ class LlmDiaryNarrativeGenerator(
         embeddingModel = embeddingModel,
         rawLimit = rawLimit,
         generationSettings = LlmGenerationSettings.Default,
+        constructorMarker = Unit,
+    )
+
+    constructor(
+        personaConfig: PersonaConfig,
+        sessionStateStore: SessionStateStore,
+        dataSource: DiaryDataSource,
+        quantizer: CodebookQuantizer,
+        inferenceExecutor: InferenceExecutor,
+        llmClient: LlmClient,
+        embeddingModel: MemoryEmbeddingModel,
+        rawLimit: Int = 32,
+        generationSettings: LlmGenerationSettings,
+    ) : this(
+        personaConfig = personaConfig,
+        sessionStateStore = sessionStateStore,
+        dataSource = dataSource,
+        quantizer = quantizer,
+        inferenceExecutor = inferenceExecutor,
+        llmClient = llmClient,
+        embeddingModel = embeddingModel,
+        rawLimit = rawLimit,
+        generationSettings = generationSettings,
+        constructorMarker = Unit,
     )
 
     suspend fun generate(task: DiaryTask): DiaryNarrativeResult {

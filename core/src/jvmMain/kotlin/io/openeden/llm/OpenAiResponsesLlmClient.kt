@@ -20,22 +20,23 @@ import kotlinx.serialization.json.*
 
 private val log = KtorSimpleLogger("io.openeden.llm.OpenAiResponsesLlmClient")
 
-class OpenAiResponsesLlmClient(
+class OpenAiResponsesLlmClient private constructor(
     private val apiKey: String,
     private val model: String,
-    private val reasoningEffort: ReasoningEffort = ReasoningEffort.MEDIUM,
-    private val baseUrl: String = "https://api.openai.com/v1",
-    private val httpClient: HttpClient = httpClient(CIO.create()),
-    private val json: Json = Json { ignoreUnknownKeys = true },
-    private val defaultGenerationSettings: LlmGenerationSettings = LlmGenerationSettings.Default,
+    private val reasoningEffort: ReasoningEffort,
+    private val baseUrl: String,
+    private val httpClient: HttpClient,
+    private val json: Json,
+    private val defaultGenerationSettings: LlmGenerationSettings,
+    constructorMarker: Unit,
 ) : StreamingLlmClient, AutoCloseable {
     constructor(
         apiKey: String,
         model: String,
-        reasoningEffort: ReasoningEffort,
-        baseUrl: String,
-        httpClient: HttpClient,
-        json: Json,
+        reasoningEffort: ReasoningEffort = ReasoningEffort.MEDIUM,
+        baseUrl: String = "https://api.openai.com/v1",
+        httpClient: HttpClient = httpClient(CIO.create()),
+        json: Json = Json { ignoreUnknownKeys = true },
     ) : this(
         apiKey = apiKey,
         model = model,
@@ -44,6 +45,26 @@ class OpenAiResponsesLlmClient(
         httpClient = httpClient,
         json = json,
         defaultGenerationSettings = LlmGenerationSettings.Default,
+        constructorMarker = Unit,
+    )
+
+    constructor(
+        apiKey: String,
+        model: String,
+        reasoningEffort: ReasoningEffort = ReasoningEffort.MEDIUM,
+        baseUrl: String = "https://api.openai.com/v1",
+        httpClient: HttpClient = httpClient(CIO.create()),
+        json: Json = Json { ignoreUnknownKeys = true },
+        defaultGenerationSettings: LlmGenerationSettings,
+    ) : this(
+        apiKey = apiKey,
+        model = model,
+        reasoningEffort = reasoningEffort,
+        baseUrl = baseUrl,
+        httpClient = httpClient,
+        json = json,
+        defaultGenerationSettings = defaultGenerationSettings,
+        constructorMarker = Unit,
     )
 
     override val supportsStrictStructuredStreaming: Boolean = true
