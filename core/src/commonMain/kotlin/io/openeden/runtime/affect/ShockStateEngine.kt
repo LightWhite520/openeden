@@ -9,24 +9,42 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 object ShockStateEngine {
+    fun merge(current: ShockState?, signal: ShockSignal): ShockMergeResult {
+        val currentIntensity = current?.intensity?.coerceIn(0.0f, 1.0f) ?: 0.0f
+        val nextIntensity = (
+            currentIntensity * (1.0f - SHOCK_EMA_ALPHA) +
+                signal.intensity.coerceIn(0.0f, 1.0f) * SHOCK_EMA_ALPHA
+            ).coerceIn(0.0f, 1.0f)
+        val active = nextIntensity >= 0.05f
+        val activated = current?.active != true && active
+        return ShockMergeResult(
+            state = ShockState(
+                active = active,
+                intensity = nextIntensity,
+                description = signal.description,
+                triggeredAt = if (current?.active == true) current.triggeredAt else signal.triggeredAt,
+                decayLambda = signal.decayLambda,
+                shockHeartbeatFired = if (activated) false else current?.shockHeartbeatFired ?: false,
+            ),
+            activated = activated,
+        )
+    }
+
     fun update(
         current: ShockState?,
         signal: Float,
         description: String,
         decayLambda: Float,
         now: Instant = Clock.System.now(),
-    ): ShockState {
-        val currentIntensity = current?.intensity ?: 0.0f
-        val nextIntensity = currentIntensity * (1.0f - SHOCK_EMA_ALPHA) + signal * SHOCK_EMA_ALPHA
-        return ShockState(
-            active = nextIntensity >= 0.05f,
-            intensity = nextIntensity.coerceIn(0.0f, 1.0f),
+    ): ShockState = merge(
+        current = current,
+        signal = ShockSignal(
             description = description,
-            triggeredAt = current?.triggeredAt ?: now,
+            intensity = signal,
             decayLambda = decayLambda,
-            shockHeartbeatFired = current?.shockHeartbeatFired ?: false,
-        )
-    }
+            triggeredAt = now,
+        ),
+    ).state
 
     fun decay(current: ShockState, elapsedMillis: Long): ShockState {
         val elapsedSeconds = elapsedMillis.coerceAtLeast(0).toDouble() / 1000.0
@@ -45,15 +63,14 @@ object ShockStateEngine {
         emotionConfidence: Float,
         internalLogic: String,
         now: Instant = Clock.System.now(),
-    ): ShockState? {
+    ): ShockSignal? {
         if (emotionConfidence < SHOCK_CONFIDENCE_GATE) return null
         if (vectorDelta.p >= -0.4f || vectorDelta.f <= 0.3f) return null
-        return update(
-            current = null,
-            signal = 1.0f,
+        return ShockSignal(
             description = internalLogic.take(100),
+            intensity = 1.0f,
             decayLambda = 0.001f,
-            now = now,
+            triggeredAt = now,
         )
     }
 }

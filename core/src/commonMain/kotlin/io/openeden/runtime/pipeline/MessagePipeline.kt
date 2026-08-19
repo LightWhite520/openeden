@@ -339,7 +339,8 @@ class DevelopmentMessagePipeline(
                 preTickedSnapshot = preTick.preTicked,
                 originSnapshot = current.origin,
                 delta = validation.delta,
-                shock = detectedShock,
+                shock = null,
+                shockSignal = detectedShock,
                 // Heartbeat turns evolve state but must not silence future proactive turns.
                 lastUserActivityMs = nowMs().takeIf { request.source == TurnSource.USER },
                 turn = publicTurn,
@@ -622,7 +623,8 @@ class DevelopmentMessagePipeline(
                 is InMemoryTranscriptStore -> MutableSessionStateStore(transcriptStore = transcriptStore)
                 else -> error("A non-memory transcript store requires an explicitly co-backed session state store")
             }
-            val effectiveVectorWriteService = vectorWriteService ?: VectorWriteService(effectiveStore)
+            val effectiveVectorWriteService = vectorWriteService
+                ?: VectorWriteService(effectiveStore, inferenceExecutor = inferenceExecutor)
             require(effectiveVectorWriteService.isBackedBy(effectiveStore)) {
                 "vectorWriteService must use the same session state store as the pipeline"
             }

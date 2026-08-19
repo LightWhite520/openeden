@@ -2,6 +2,9 @@ package io.openeden.runtime.state
 
 import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.affect.ShockStateEngine
+import io.openeden.runtime.affect.ShockSignal
+import io.openeden.runtime.inference.DirectInferenceExecutor
+import io.openeden.runtime.inference.InferenceExecutor
 import io.openeden.runtime.session.SessionMutexRegistry
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
@@ -17,6 +20,7 @@ import kotlinx.coroutines.sync.withLock
 class VectorWriteService(
     private val store: SessionStateStore,
     val mutexRegistry: SessionMutexRegistry = SessionMutexRegistry(),
+    private val inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
 ) {
     internal fun isBackedBy(candidate: SessionStateStore): Boolean = store === candidate
 
@@ -54,18 +58,30 @@ class VectorWriteService(
         originSnapshot: BioVector,
         delta: VectorDelta,
         shock: ShockState?,
+        shockSignal: ShockSignal? = null,
         lastUserActivityMs: Long?,
         turn: ConversationTurn? = null,
     ): VectorWriteResult {
         val latest = store.read(sessionId)
         val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
         val updatedVector = latest.vector.apply(relativePreTickDelta).apply(delta)
+        val shockMerge = shockSignal?.let { signal ->
+            inferenceExecutor.run { ShockStateEngine.merge(latest.shockState, signal) }
+        }
+        val mergedShock = shockMerge?.state ?: shock ?: latest.shockState
+        val updatedOmega = when {
+            shockMerge?.activated == true -> inferenceExecutor.run {
+                latest.omega.increase(shockMerge.state.intensity * 0.15f)
+            }
+            shock != null -> inferenceExecutor.run { ShockStateEngine.omegaJump(latest.omega, shock) }
+            else -> latest.omega
+        }
         val updated = latest.copy(
             vector = updatedVector,
             origin = originSnapshot,
             evolutionIndex = latest.evolutionIndex + 1,
-            shockState = shock ?: latest.shockState,
-            omega = shock?.let { ShockStateEngine.omegaJump(latest.omega, it) } ?: latest.omega,
+            shockState = mergedShock,
+            omega = updatedOmega,
             lastUserActivityMs = lastUserActivityMs ?: latest.lastUserActivityMs,
         )
         val turnCommitOutcome = if (turn != null) {
@@ -84,7 +100,7 @@ class VectorWriteService(
             } else {
                 buildSet {
                     add(TraceTag.VectorWriteSerialized)
-                    if (shock != null) add(TraceTag.ShockStateTransition)
+                    if (shock != null || shockSignal != null) add(TraceTag.ShockStateTransition)
                 }
             },
             turnCommitOutcome = turnCommitOutcome,
@@ -123,16 +139,25 @@ class VectorWriteService(
             state.copy(shockState = state.shockState?.copy(shockHeartbeatFired = true))
         }
 
-    suspend fun applyShock(sessionId: String, signal: ShockState): VectorWriteResult {
+    suspend fun applyShock(sessionId: String, signal: ShockSignal): VectorWriteResult {
         val mutex = mutexRegistry.forSession(sessionId)
-        return mutex.withLock { applyShockLocked(sessionId, signal) }
+        return mutex.withLock { applyShockSignalLocked(sessionId, signal) }
     }
 
-    suspend fun applyShockLocked(sessionId: String, signal: ShockState): VectorWriteResult {
+    suspend fun applyShockSignalLocked(sessionId: String, signal: ShockSignal): VectorWriteResult {
         val latest = store.read(sessionId)
+        val (merge, updatedOmega) = inferenceExecutor.run {
+            val result = ShockStateEngine.merge(latest.shockState, signal)
+            val omega = if (result.activated) {
+                latest.omega.increase(result.state.intensity * 0.15f)
+            } else {
+                latest.omega
+            }
+            result to omega
+        }
         val updated = latest.copy(
-            shockState = signal,
-            omega = ShockStateEngine.omegaJump(latest.omega, signal),
+            shockState = merge.state,
+            omega = updatedOmega,
         )
         store.write(updated)
         return VectorWriteResult(

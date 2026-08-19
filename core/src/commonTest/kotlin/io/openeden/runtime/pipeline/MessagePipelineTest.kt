@@ -150,6 +150,39 @@ class MessagePipelineTest {
     }
 
     @Test
+    fun `repeated shock detections merge without repeating activation omega jump`() = runTest {
+        val store = MutableSessionStateStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = store,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "a severe discontinuity was inferred from the response",
+                    vectorDelta = mapOf(
+                        "L" to 0.0f,
+                        "P" to -0.5f,
+                        "E" to 0.0f,
+                        "S" to 0.0f,
+                        "tau" to 0.0f,
+                        "V" to 0.0f,
+                        "M" to 0.0f,
+                        "F" to 0.4f,
+                    ),
+                    response = "response",
+                )
+            },
+        )
+
+        pipeline.handle(testRequest().copy(turnId = "shock-1", emotionConfidence = 0.65f))
+        pipeline.handle(testRequest().copy(turnId = "shock-2", emotionConfidence = 0.65f))
+
+        val state = store.read("QQ:100")
+        assertEquals(0.64f, assertNotNull(state.shockState).intensity, absoluteTolerance = 0.0001f)
+        assertEquals(0.06f, state.omega.value, absoluteTolerance = 0.0001f)
+        assertEquals(2, state.evolutionIndex)
+    }
+
+    @Test
     fun `pipeline runs runtime math through inference executor`() = runTest {
         val executor = RecordingInferenceExecutor()
         val pipeline = DevelopmentMessagePipeline.create(

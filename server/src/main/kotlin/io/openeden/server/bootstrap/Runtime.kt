@@ -122,11 +122,11 @@ private suspend fun Application.startRuntime(
         SqlDelightTraceStore.open(serverConfig.runtimeDbPath)
     }
     startupClosers.addFirst { traceStore.close() }
+    val inferenceExecutor = JvmInferenceExecutor()
     // One VectorWriteService shared by the pipeline and the scheduler so all per-session writes
     // (user deltas + shock-heartbeat latch) serialize on the same Mutex registry (§14.2).
-    val writer = VectorWriteService(store)
+    val writer = VectorWriteService(store, inferenceExecutor = inferenceExecutor)
     val runtimeConfig = RuntimeConfig.Default.copy(owner = serverConfig.heartbeatOwner)
-    val inferenceExecutor = JvmInferenceExecutor()
     val models = loadRuntimeModels(serverConfig)
     startupClosers.addFirst { models.close() }
     val memoryStore = persistenceIo.open {

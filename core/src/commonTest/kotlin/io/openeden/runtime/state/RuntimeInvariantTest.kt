@@ -5,6 +5,7 @@ import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.PreTickEngine
 import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.affect.ShockStateEngine
+import io.openeden.runtime.affect.ShockSignal
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
@@ -20,6 +21,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -70,30 +72,69 @@ class RuntimeInvariantTest {
         )
 
         assertNull(lowConfidence)
-        assertEquals(0.4f, highConfidence?.intensity)
+        assertEquals(1.0f, highConfidence?.intensity)
     }
 
     @Test
-    fun `shock update uses EMA and omega jump is monotonic`() {
-        val first = ShockStateEngine.update(
-            current = null,
-            signal = 1.0f,
-            description = "first",
-            decayLambda = 0.001f,
-            now = Instant.fromEpochMilliseconds(0),
+    fun `active shock signal uses EMA and does not jump omega again`() = runTest {
+        val store = InMemorySessionStateStore(
+            SessionStateStore.neutral("QQ:active").copy(
+                omega = OmegaState(0.2f),
+                shockState = ShockState(
+                    active = true,
+                    intensity = 0.8f,
+                    description = "old",
+                    triggeredAt = Instant.fromEpochMilliseconds(10L),
+                    decayLambda = 0.001f,
+                    shockHeartbeatFired = true,
+                ),
+            ),
         )
-        val second = ShockStateEngine.update(
-            current = first,
-            signal = 1.0f,
-            description = "second",
-            decayLambda = 0.001f,
-            now = Instant.fromEpochMilliseconds(1000),
+        val result = VectorWriteService(store).applyShock(
+            sessionId = "QQ:active",
+            signal = ShockSignal(
+                description = "new",
+                intensity = 0.2f,
+                decayLambda = 0.002f,
+                triggeredAt = Instant.fromEpochMilliseconds(20L),
+            ),
         )
-        val omega = ShockStateEngine.omegaJump(OmegaState(0.5f), second)
 
-        assertEquals(0.4f, first.intensity, absoluteTolerance = 0.0001f)
-        assertEquals(0.64f, second.intensity, absoluteTolerance = 0.0001f)
-        assertEquals(0.596f, omega.value, absoluteTolerance = 0.0001f)
+        assertEquals(0.56f, assertNotNull(result.state.shockState).intensity, absoluteTolerance = 0.0001f)
+        assertEquals(true, result.state.shockState?.shockHeartbeatFired)
+        assertEquals(0.2f, result.state.omega.value, absoluteTolerance = 0.0001f)
+        assertEquals(Instant.fromEpochMilliseconds(10L), result.state.shockState?.triggeredAt)
+    }
+
+    @Test
+    fun `inactive shock signal activates once and jumps omega`() = runTest {
+        val store = InMemorySessionStateStore(
+            SessionStateStore.neutral("QQ:inactive").copy(
+                omega = OmegaState(0.1f),
+                shockState = ShockState(
+                    active = false,
+                    intensity = 0.0f,
+                    description = "quiet",
+                    triggeredAt = Instant.fromEpochMilliseconds(10L),
+                    decayLambda = 0.001f,
+                    shockHeartbeatFired = true,
+                ),
+            ),
+        )
+        val result = VectorWriteService(store).applyShock(
+            sessionId = "QQ:inactive",
+            signal = ShockSignal(
+                description = "activation",
+                intensity = 1.0f,
+                decayLambda = 0.002f,
+                triggeredAt = Instant.fromEpochMilliseconds(20L),
+            ),
+        )
+
+        assertEquals(0.4f, assertNotNull(result.state.shockState).intensity, absoluteTolerance = 0.0001f)
+        assertEquals(true, result.state.shockState?.active)
+        assertEquals(false, result.state.shockState?.shockHeartbeatFired)
+        assertEquals(0.16f, result.state.omega.value, absoluteTolerance = 0.0001f)
     }
 
     @Test
