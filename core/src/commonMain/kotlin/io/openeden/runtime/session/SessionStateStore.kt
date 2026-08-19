@@ -37,6 +37,7 @@ interface SessionStateStore {
             personaMode = personaMode,
             personaStartSubState = personaStartSubState,
             lastUserActivityMs = null,
+            lastRuntimeTickAtMs = null,
         )
     }
 }

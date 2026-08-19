@@ -19,6 +19,8 @@ data class SessionState(
     // Epoch-millis of the last USER-initiated turn. Drives the heartbeat silence gates (§9.3).
     // Null = no user turn observed yet. Heartbeat turns MUST NOT update it.
     val lastUserActivityMs: Long? = null,
+    // Epoch-millis of the last committed background tick. Null establishes the first baseline.
+    val lastRuntimeTickAtMs: Long? = null,
 ) {
     init {
         require(personaMode != PersonaMode.LEGACY || personaStartSubState == PersonaSubState.AWAKENED) {

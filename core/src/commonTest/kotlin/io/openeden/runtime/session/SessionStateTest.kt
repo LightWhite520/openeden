@@ -3,10 +3,16 @@ package io.openeden.runtime.session
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import kotlin.test.Test
+import kotlin.test.assertNull
 import kotlin.test.assertFailsWith
 import kotlinx.coroutines.test.runTest
 
 class SessionStateTest {
+    @Test
+    fun `neutral session starts without a runtime tick anchor`() {
+        assertNull(SessionStateStore.neutral("CLI:test").lastRuntimeTickAtMs)
+    }
+
     @Test
     fun `legacy session rejects a non-awakened starting point`() {
         assertFailsWith<IllegalArgumentException> {
