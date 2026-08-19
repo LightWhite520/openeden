@@ -8,6 +8,8 @@ import io.openeden.trace.TraceSpan
 import io.openeden.trace.TraceStatus
 import io.openeden.trace.TraceStore
 import io.openeden.trace.TraceSanitizer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,7 +22,7 @@ class SqlDelightTraceStore(
 ) : TraceStore {
     private val queries get() = database.memoryQueries
 
-    override suspend fun append(span: TraceSpan) {
+    override suspend fun append(span: TraceSpan) = withContext(Dispatchers.IO) {
         val safe = TraceSanitizer.sanitize(span)
         queries.insertTraceSpan(
             span_id = safe.spanId,

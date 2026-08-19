@@ -10,6 +10,8 @@ import io.openeden.bio.VectorDelta
 import io.openeden.codebook.CodebookQuantizer
 import io.openeden.codebook.QuantizationResult
 import io.openeden.llm.LlmClient
+import io.openeden.llm.LlmGenerationSettings
+import io.openeden.llm.LlmVerbosity
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.DeterministicMemoryEmbeddingModel
 import io.openeden.memory.MemoryMetadata
@@ -63,7 +65,27 @@ class LlmDiaryNarrativeGeneratorTest {
         assertContains(error.message.orEmpty(), "Diary vector_delta must be zero")
     }
 
-    private fun fixture(state: SessionState, capture: (BuiltPrompt) -> Unit, client: FakeClient = FakeClient(), rawContent: String = "raw fact"): LlmDiaryNarrativeGenerator {
+    @Test
+    fun forwardsExplicitGenerationSettingsToDiaryClient() = runTest {
+        val client = FakeClient()
+        val settings = LlmGenerationSettings(
+            temperature = 0.7f,
+            verbosity = LlmVerbosity.MEDIUM,
+            maxOutputTokens = 24000,
+        )
+        val generator = fixture(
+            state = SessionStateStore.neutral("S"),
+            capture = {},
+            client = client,
+            generationSettings = settings,
+        )
+
+        generator.generate(DiaryTask("t", "S", null, "vector_delta"))
+
+        assertEquals(settings, client.capturedGenerationSettings)
+    }
+
+    private fun fixture(state: SessionState, capture: (BuiltPrompt) -> Unit, client: FakeClient = FakeClient(), rawContent: String = "raw fact", generationSettings: LlmGenerationSettings = LlmGenerationSettings.Default): LlmDiaryNarrativeGenerator {
         val persona = MapPersonaLoader.load(mapOf("mode" to "legacy", "start_sub_state" to "awakened", "persona.base" to "base", "output.layer.rules" to "rules", "persona.patch.pre_command" to "pre", "persona.patch.true_self" to "true", "persona.patch.awakened" to "awake", "heartbeat.base" to "hb", "heartbeat.shock" to "shock", "diary.narrative" to "【叙事日记】 write facts"))
         val store = object : SessionStateStore {
             override suspend fun read(sessionId: String) = state
@@ -74,10 +96,23 @@ class LlmDiaryNarrativeGeneratorTest {
             override suspend fun uncoveredRawSlice(sessionId: String, throughMemoryId: String?, limit: Int) = DiaryRawSlice(listOf(MemorySnippet("raw-1", rawContent, MemoryMetadata(BioVector.Neutral, 0f, VectorDelta.Zero, BioVector.Neutral, "u"))), "raw-1")
         }
         client.capture = capture
-        return LlmDiaryNarrativeGenerator(persona, store, source, object : CodebookQuantizer { override suspend fun quantize(vector: BioVector, dissonance: Float) = QuantizationResult(listOf("NODE_1"), listOf("NODE_1 definition"), 1f) }, DirectInferenceExecutor, client, DeterministicMemoryEmbeddingModel)
+        return LlmDiaryNarrativeGenerator(persona, store, source, object : CodebookQuantizer { override suspend fun quantize(vector: BioVector, dissonance: Float) = QuantizationResult(listOf("NODE_1"), listOf("NODE_1 definition"), 1f) }, DirectInferenceExecutor, client, DeterministicMemoryEmbeddingModel, generationSettings = generationSettings)
     }
 
-    private class FakeClient(var capture: (BuiltPrompt) -> Unit = {}, var output: LlmOutput = LlmOutput("logic", diaryZeroDelta(), "narrative")) : LlmClient { override suspend fun complete(prompt: BuiltPrompt): LlmOutput { capture(prompt); return output } }
+    private class FakeClient(var capture: (BuiltPrompt) -> Unit = {}, var output: LlmOutput = LlmOutput("logic", diaryZeroDelta(), "narrative")) : LlmClient {
+        var capturedGenerationSettings: LlmGenerationSettings? = null
+
+        override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+            capture(prompt)
+            return output
+        }
+
+        override suspend fun complete(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): LlmOutput {
+            capturedGenerationSettings = generationSettings
+            capture(prompt)
+            return output
+        }
+    }
 }
 
 private fun diaryZeroDelta() = mapOf("L" to 0f, "P" to 0f, "E" to 0f, "S" to 0f, "tau" to 0f, "V" to 0f, "M" to 0f, "F" to 0f)

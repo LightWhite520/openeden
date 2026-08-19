@@ -1,6 +1,7 @@
 package io.openeden.runtime.pipeline
 
 import io.openeden.bio.BioVector
+import io.openeden.bio.InternalBioVector
 import io.openeden.bio.VectorDelta
 import io.openeden.bio.VectorMapping
 import io.openeden.codebook.CodebookQuantizer
@@ -8,6 +9,9 @@ import io.openeden.codebook.HeuristicCodebookFallback
 import io.openeden.codebook.QuantizationResult
 import io.openeden.llm.DevelopmentLlmStub
 import io.openeden.llm.LlmClient
+import io.openeden.llm.LlmGenerationPolicy
+import io.openeden.llm.LlmGenerationPolicyConfig
+import io.openeden.llm.LlmGenerationSettings
 import io.openeden.llm.LlmOutput
 import io.openeden.llm.LlmOutputValidator
 import io.openeden.llm.LlmStreamEvent
@@ -59,6 +63,7 @@ class DevelopmentMessagePipeline(
     private val vectorWriteService: VectorWriteService,
     private val diaryQueue: SessionDiaryQueue,
     private val inferenceExecutor: InferenceExecutor,
+    private val llmGenerationPolicyConfig: LlmGenerationPolicyConfig = LlmGenerationPolicyConfig.Default,
     private val memoryStore: MemoryStore?,
     private val memoryEmbeddingModel: MemoryEmbeddingModel,
     private val centroidProvider: HomeostasisCentroidProvider,
@@ -163,6 +168,7 @@ class DevelopmentMessagePipeline(
             val dissonance = preTick.preTicked.derivedDissonance()
             val quantization = quantizer.quantize(preTick.preTicked, dissonance)
             val internalVector = VectorMapping.toInternal(preTick.preTicked, current.origin)
+            val generationSettings = LlmGenerationPolicy.resolve(internalVector, llmGenerationPolicyConfig)
             val retrievalMode = RetrievalModeSelector.select(
                 internalVector = internalVector,
                 omegaState = current.omega,
@@ -172,6 +178,8 @@ class DevelopmentMessagePipeline(
                 dissonance = dissonance,
                 quantization = quantization,
                 retrievalMode = retrievalMode,
+                internalVector = internalVector,
+                generationSettings = generationSettings,
             )
         }
         trace(traceContext, "quantization", tags = inference.quantization.traceTags)
@@ -213,8 +221,30 @@ class DevelopmentMessagePipeline(
             ),
         )
         trace(traceContext, "prompt_construction")
+        inferenceExecutor.run {
+            trace(
+                traceContext,
+                "llm_generation_policy",
+                attributes = inference.generationSettings.maxOutputTokens?.let { maxOutputTokens ->
+                    mapOf(
+                        "internal_l" to inference.internalVector.l.toString(),
+                        "internal_s" to inference.internalVector.s.toString(),
+                        "internal_v" to inference.internalVector.v.toString(),
+                        "temperature" to inference.generationSettings.temperature.toString(),
+                        "verbosity" to inference.generationSettings.verbosity.name.lowercase(),
+                        "max_output_tokens" to maxOutputTokens.toString(),
+                    )
+                } ?: mapOf(
+                    "internal_l" to inference.internalVector.l.toString(),
+                    "internal_s" to inference.internalVector.s.toString(),
+                    "internal_v" to inference.internalVector.v.toString(),
+                    "temperature" to inference.generationSettings.temperature.toString(),
+                    "verbosity" to inference.generationSettings.verbosity.name.lowercase(),
+                ),
+            )
+        }
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.GENERATING))
-        val llmOutput = collectLlmOutput(prompt, emitEvent)
+        val llmOutput = collectLlmOutput(prompt, inference.generationSettings, emitEvent)
         trace(traceContext, "llm_inference")
         val validation = LlmOutputValidator.validate(llmOutput)
         trace(
@@ -370,11 +400,12 @@ class DevelopmentMessagePipeline(
 
     private suspend fun collectLlmOutput(
         prompt: BuiltPrompt,
+        generationSettings: LlmGenerationSettings,
         emitEvent: suspend (DevelopmentMessageEvent) -> Unit,
     ): LlmOutput {
         val streaming = llmClient as? StreamingLlmClient
         if (streaming == null || !streaming.supportsStrictStructuredStreaming) {
-            return llmClient.complete(prompt).also { output ->
+            return llmClient.complete(prompt, generationSettings).also { output ->
                 if (LlmOutputValidator.validate(output).isValid) {
                     emitEvent(DevelopmentMessageEvent.ResponseDelta(output.response))
                 }
@@ -382,7 +413,7 @@ class DevelopmentMessagePipeline(
         }
 
         var completed: LlmOutput? = null
-        streaming.stream(prompt).collect { event ->
+        streaming.stream(prompt, generationSettings).collect { event ->
             when (event) {
                 is LlmStreamEvent.ResponseDelta -> emitEvent(DevelopmentMessageEvent.ResponseDelta(event.text))
                 is LlmStreamEvent.Completed -> {
@@ -472,6 +503,7 @@ class DevelopmentMessagePipeline(
         fun create(
             personaConfig: PersonaConfig,
             llmClient: LlmClient = DevelopmentLlmStub(),
+            llmGenerationPolicyConfig: LlmGenerationPolicyConfig = LlmGenerationPolicyConfig.Default,
             store: SessionStateStore? = null,
             vectorWriteService: VectorWriteService? = null,
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
@@ -522,6 +554,7 @@ class DevelopmentMessagePipeline(
                 vectorWriteService = effectiveVectorWriteService,
                 diaryQueue = diaryQueue,
                 inferenceExecutor = inferenceExecutor,
+                llmGenerationPolicyConfig = llmGenerationPolicyConfig,
                 memoryStore = memoryStore,
                 memoryEmbeddingModel = memoryEmbeddingModel,
                 centroidProvider = effectiveCentroidProvider,
@@ -558,4 +591,6 @@ private data class PipelineInferenceResult(
     val dissonance: Float,
     val quantization: QuantizationResult,
     val retrievalMode: RetrievalMode,
+    val internalVector: InternalBioVector,
+    val generationSettings: LlmGenerationSettings,
 )
