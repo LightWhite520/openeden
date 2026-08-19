@@ -27,20 +27,25 @@ class OpenAiResponsesLlmClient(
     private val baseUrl: String = "https://api.openai.com/v1",
     private val httpClient: HttpClient = httpClient(CIO.create()),
     private val json: Json = Json { ignoreUnknownKeys = true },
+    private val defaultGenerationSettings: LlmGenerationSettings = LlmGenerationSettings.Default,
 ) : StreamingLlmClient, AutoCloseable {
     override val supportsStrictStructuredStreaming: Boolean = true
 
-    override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+    override suspend fun complete(prompt: BuiltPrompt): LlmOutput = complete(prompt, defaultGenerationSettings)
+
+    override suspend fun complete(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): LlmOutput {
         log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
-        val response = execute(prompt, stream = false)
+        val response = execute(prompt, generationSettings, stream = false)
         requireSuccess(response)
         val llmOutput = parseBufferedResponse(response.bodyAsText())
         return llmOutput
     }
 
-    override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = flow {
+    override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = stream(prompt, defaultGenerationSettings)
+
+    override fun stream(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): Flow<LlmStreamEvent> = flow {
         log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
-        val response = execute(prompt, stream = true)
+        val response = execute(prompt, generationSettings, stream = true)
         requireSuccess(response)
         if (response.contentType()?.withoutParameters() != ContentType.Text.EventStream) {
             emit(LlmStreamEvent.Completed(parseBufferedResponse(response.bodyAsText())))
@@ -102,13 +107,19 @@ class OpenAiResponsesLlmClient(
         check(completed) { "OpenAI response stream ended without response.completed" }
     }
 
-    private suspend fun execute(prompt: BuiltPrompt, stream: Boolean): HttpResponse =
+    private suspend fun execute(
+        prompt: BuiltPrompt,
+        generationSettings: LlmGenerationSettings,
+        stream: Boolean,
+    ): HttpResponse =
         httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             bearerAuth(apiKey)
             contentType(ContentType.Application.Json)
             setBody(
                 ResponsesRequest(
                     model = model,
+                    temperature = generationSettings.temperature,
+                    maxOutputTokens = generationSettings.maxOutputTokens,
                     reasoning = ResponsesReasoning(reasoningEffort.value),
                     input = listOf(
                         ResponsesInputMessage(role = "system", content = prompt.systemText),
@@ -122,6 +133,7 @@ class OpenAiResponsesLlmClient(
                             schema = llmOutputSchema,
                             strict = true,
                         ),
+                        verbosity = generationSettings.verbosity.apiValue,
                     ),
                     stream = stream,
                 ),
@@ -158,7 +170,7 @@ class OpenAiResponsesLlmClient(
                 socketTimeoutMillis = 120_000
             }
             install(ContentNegotiation) {
-                json(Json { ignoreUnknownKeys = true; encodeDefaults = true })
+                json(Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false })
             }
         }
     }
@@ -167,6 +179,8 @@ class OpenAiResponsesLlmClient(
 @Serializable
 private data class ResponsesRequest(
     val model: String,
+    val temperature: Float,
+    @SerialName("max_output_tokens") val maxOutputTokens: Int? = null,
     val reasoning: ResponsesReasoning,
     val input: List<ResponsesInputMessage>,
     val text: TextFormat,
@@ -180,7 +194,7 @@ private data class ResponsesReasoning(val effort: String)
 private data class ResponsesInputMessage(val role: String, val content: String)
 
 @Serializable
-private data class TextFormat(val format: JsonSchemaFormat)
+private data class TextFormat(val format: JsonSchemaFormat, val verbosity: String)
 
 @Serializable
 private data class JsonSchemaFormat(val type: String, val name: String, val schema: JsonElement, val strict: Boolean)

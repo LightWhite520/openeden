@@ -12,6 +12,8 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.float
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.jsonArray
@@ -43,12 +45,20 @@ class OpenAiResponsesLlmClientTest {
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
 
-        val events = client.stream(BuiltPrompt("system", "persona", "user")).toList()
+        val events = client.stream(
+            prompt = BuiltPrompt("system", "persona", "user"),
+            generationSettings = LlmGenerationSettings(
+                temperature = 0.85f,
+                verbosity = LlmVerbosity.LOW,
+            ),
+        ).toList()
 
         assertEquals(listOf("你", "好"), events.filterIsInstance<LlmStreamEvent.ResponseDelta>().map { it.text })
         assertEquals("你好", assertIs<LlmStreamEvent.Completed>(events.last()).output.response)
         val body = Json.parseToJsonElement(requestBody).jsonObject
         assertEquals(true, body.getValue("stream").jsonPrimitive.content.toBoolean())
+        assertEquals(0.85f, body.getValue("temperature").jsonPrimitive.float)
+        assertEquals("low", body.getValue("text").jsonObject.getValue("verbosity").jsonPrimitive.content)
         val schemaProperties = body.getValue("text").jsonObject
             .getValue("format").jsonObject
             .getValue("schema").jsonObject
@@ -105,7 +115,14 @@ class OpenAiResponsesLlmClientTest {
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
 
-        val output = client.complete(BuiltPrompt("system", "persona", "user"))
+        val output = client.complete(
+            prompt = BuiltPrompt("system", "persona", "user"),
+            generationSettings = LlmGenerationSettings(
+                temperature = 0.85f,
+                verbosity = LlmVerbosity.LOW,
+                maxOutputTokens = 32_000,
+            ),
+        )
 
         assertEquals("logic", output.internalLogic)
         assertEquals(0.1f, output.vectorDelta.getValue("P"))
@@ -123,7 +140,39 @@ class OpenAiResponsesLlmClientTest {
         assertEquals("user", input[2].jsonObject.getValue("content").jsonPrimitive.content)
         val format = body.getValue("text").jsonObject.getValue("format").jsonObject
         assertEquals("json_schema", format.getValue("type").jsonPrimitive.content)
+        assertEquals(0.85f, body.getValue("temperature").jsonPrimitive.float)
+        assertEquals("low", body.getValue("text").jsonObject.getValue("verbosity").jsonPrimitive.content)
+        assertEquals(32_000, body.getValue("max_output_tokens").jsonPrimitive.int)
         assertEquals("medium", body.getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `omits unset max output tokens from responses request`() = runTest {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = "{\"output_text\":\"{\\\"internal_logic\\\":\\\"logic\\\",\\\"vector_delta\\\":{\\\"L\\\":0.0,\\\"P\\\":0.0,\\\"E\\\":0.0,\\\"S\\\":0.0,\\\"tau\\\":0.0,\\\"V\\\":0.0,\\\"M\\\":0.0,\\\"F\\\":0.0},\\\"response\\\":\\\"ok\\\"}\"}",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.5",
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        client.complete(
+            prompt = BuiltPrompt("system", "persona", "user"),
+            generationSettings = LlmGenerationSettings(
+                temperature = 0.65f,
+                verbosity = LlmVerbosity.HIGH,
+            ),
+        )
+
+        val body = Json.parseToJsonElement(requestBody).jsonObject
+        assertEquals("high", body.getValue("text").jsonObject.getValue("verbosity").jsonPrimitive.content)
+        assertEquals(null, body["max_output_tokens"])
     }
 
     @Test
