@@ -42,13 +42,37 @@ class SineWaveFluctuationEngine(
         )
     }
 
+    fun deltaBetween(previousElapsedMillis: Long, currentElapsedMillis: Long): VectorDelta {
+        val previousSeconds = previousElapsedMillis.coerceAtLeast(0).toDouble() / 1000.0
+        val currentSeconds = currentElapsedMillis.coerceAtLeast(0).toDouble() / 1000.0
+        if (currentSeconds <= previousSeconds) return VectorDelta.Zero
+
+        val values = profile.dimensions.map { dimension ->
+            val difference = dimension.waveformAt(currentSeconds) - dimension.waveformAt(previousSeconds)
+            difference.toFloat().coerceIn(-profile.maxMagnitude, profile.maxMagnitude)
+        }
+        return VectorDelta(
+            l = values[0],
+            p = values[1],
+            e = values[2],
+            s = values[3],
+            tau = values[4],
+            v = values[5],
+            m = values[6],
+            f = values[7],
+        )
+    }
+
     private fun SineWaveDimension.valueAt(seconds: Double, maxMagnitude: Float): Float {
+        return waveformAt(seconds).toFloat().coerceIn(-maxMagnitude, maxMagnitude)
+    }
+
+    private fun SineWaveDimension.waveformAt(seconds: Double): Double {
         val primary = sin(2.0 * PI * frequencyHz * seconds + phaseRadians)
         val secondary = sin(
             2.0 * PI * frequencyHz * secondaryFrequencyMultiplier * seconds +
                 phaseRadians * 1.61803398875,
         )
-        val value = amplitude * (primary + secondary * secondaryAmplitudeRatio)
-        return value.toFloat().coerceIn(-maxMagnitude, maxMagnitude)
+        return amplitude * (primary + secondary * secondaryAmplitudeRatio)
     }
 }

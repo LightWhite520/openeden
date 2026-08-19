@@ -156,7 +156,7 @@ class VectorWriteService(
 
     suspend fun applyRuntimeTick(
         sessionId: String,
-        transform: (SessionState) -> Pair<SessionState, Set<String>>,
+        transform: suspend (SessionState) -> Pair<SessionState, Set<String>>,
     ): VectorWriteResult {
         val mutex = mutexRegistry.forSession(sessionId)
         return mutex.withLock {

@@ -53,4 +53,27 @@ class SineWaveFluctuationEngineTest {
             assertTrue(abs(a - b) < 0.05f)
         }
     }
+
+    @Test
+    fun `interval delta is waveform difference rather than an absolute sample`() {
+        val engine = SineWaveFluctuationEngine(
+            SineWaveFluctuationProfile(
+                dimensions = List(8) {
+                    SineWaveDimension(
+                        amplitude = 0.04f,
+                        frequencyHz = 0.002f,
+                        phaseRadians = 0.1f,
+                    )
+                },
+            ),
+        )
+
+        val interval = engine.deltaBetween(previousElapsedMillis = 1_000L, currentElapsedMillis = 2_000L)
+
+        assertEquals(
+            engine.deltaAt(2_000L).p - engine.deltaAt(1_000L).p,
+            interval.p,
+            absoluteTolerance = 0.0001f,
+        )
+    }
 }

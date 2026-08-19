@@ -13,6 +13,7 @@ object TraceTag {
     const val ShockStateDecayed = "shock=DECAYED"
     const val OmegaAccumulated = "omega=ACCUMULATED"
     const val RuntimeTickSessionFailed = "tick=SESSION_FAILED"
+    const val RuntimeTickBaseline = "tick=BASELINE"
     const val MemoryWritten = "memory=WRITTEN"
     const val MemoryRetrieved = "memory=RETRIEVED"
     const val CentroidUpdated = "centroid=UPDATED"

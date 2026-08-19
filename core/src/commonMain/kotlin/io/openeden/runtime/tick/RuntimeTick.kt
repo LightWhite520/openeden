@@ -37,27 +37,34 @@ class RuntimeTickScheduler(
         val results = mutableListOf<RuntimeTickResult>()
         for (sessionId in store.sessionIds()) {
             val result = runCatching {
-                val elapsed = nowMs - startedAtMs
-                val tickMath = inferenceExecutor.run {
-                    val latest = store.read(sessionId)
-                    val driftDelta = fluctuation.deltaAt(elapsed)
-                    val driftedVector = latest.vector.apply(driftDelta)
-                    val decayedShock = latest.shockState?.let { ShockStateEngine.decay(it, elapsed) }
-                    val omega = OmegaAccumulationEngine.accumulate(
-                        omega = latest.omega,
-                        vector = driftedVector,
-                        elapsedMillis = elapsed,
-                        config = config.omega,
-                    )
-                    TickMath(
-                        vector = driftedVector,
-                        shockState = decayedShock,
-                        omega = omega,
-                        shockDecayed = decayedShock != latest.shockState,
-                        omegaChanged = omega != latest.omega,
-                    )
-                }
                 writer.applyRuntimeTick(sessionId) { latest ->
+                    val previousTickAtMs = latest.lastRuntimeTickAtMs
+                    if (previousTickAtMs == null) {
+                        return@applyRuntimeTick latest.copy(lastRuntimeTickAtMs = nowMs) to
+                            setOf(TraceTag.RuntimeTickBaseline)
+                    }
+
+                    val elapsed = (nowMs - previousTickAtMs).coerceAtLeast(0L)
+                    val previousElapsed = (previousTickAtMs - startedAtMs).coerceAtLeast(0L)
+                    val currentElapsed = (nowMs - startedAtMs).coerceAtLeast(previousElapsed)
+                    val tickMath = inferenceExecutor.run {
+                        val driftDelta = fluctuation.deltaBetween(previousElapsed, currentElapsed)
+                        val driftedVector = latest.vector.apply(driftDelta)
+                        val decayedShock = latest.shockState?.let { ShockStateEngine.decay(it, elapsed) }
+                        val omega = OmegaAccumulationEngine.accumulate(
+                            omega = latest.omega,
+                            vector = driftedVector,
+                            elapsedMillis = elapsed,
+                            config = config.omega,
+                        )
+                        TickMath(
+                            vector = driftedVector,
+                            shockState = decayedShock,
+                            omega = omega,
+                            shockDecayed = decayedShock != latest.shockState,
+                            omegaChanged = omega != latest.omega,
+                        )
+                    }
                     val traceTags = buildSet {
                         add(TraceTag.BackgroundDrift)
                         if (tickMath.shockDecayed) add(TraceTag.ShockStateDecayed)
@@ -67,6 +74,7 @@ class RuntimeTickScheduler(
                         vector = tickMath.vector,
                         shockState = tickMath.shockState,
                         omega = tickMath.omega,
+                        lastRuntimeTickAtMs = nowMs,
                     ) to traceTags
                 }
             }.getOrElse {
