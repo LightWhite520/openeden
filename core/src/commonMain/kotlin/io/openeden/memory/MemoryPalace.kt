@@ -9,9 +9,10 @@ import kotlin.math.sqrt
 
 class InMemoryMemoryPalace(
     private val inferenceExecutor: InferenceExecutor,
-    private val maxResults: Int = 6,
+    private val maxResults: Int = 10,
     private val embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
     private val index: VectorIndex = RebuildableInMemoryVectorIndex(inferenceExecutor),
+    private val utilityFilterConfig: MemoryUtilityFilterConfig = MemoryUtilityFilterConfig(),
 ) : MemoryStore {
     private val entries = mutableListOf<MemoryEntry>()
 
@@ -31,24 +32,68 @@ class InMemoryMemoryPalace(
                     limit = entries.count { it.sessionId == request.sessionId },
                 ),
             ).map { it.entry }
+            val querySemantic = embeddingModel.embed(request.userInput)
+            val queryEmotion = embeddingModel.embed(request.currentVector)
+            val baselineEntropy = entries.asSequence()
+                .filter { it.sessionId == request.sessionId && "daily" in it.tags && "stable" in it.tags }
+                .toList()
+                .takeLast(utilityFilterConfig.baselineWindow)
+                .map { MemoryUtilityFilter.meanEmbeddingEntropy(it) }
+                .toList()
+                .let { values ->
+                    when {
+                        values.isEmpty() -> null
+                        values.any { !it.isFinite() } -> Float.NaN
+                        else -> values.average().toFloat()
+                    }
+                }
+            val filtered = MemoryUtilityFilter.filter(
+                candidates = candidates,
+                querySemantic = querySemantic,
+                queryEmotion = queryEmotion,
+                baselineEntropy = baselineEntropy,
+                config = utilityFilterConfig,
+            )
+            var congruentCount = 0
+            var positiveSkewCount = 0
             val selected = when (request.mode) {
-                RetrievalMode.CONGRUENT -> rank(candidates, request, request.currentVector, maxResults)
+                RetrievalMode.CONGRUENT -> rank(filtered.candidates, request, request.currentVector, maxResults).also {
+                    congruentCount = it.size
+                }
                 RetrievalMode.MIXED -> {
                     val positiveSkew = request.currentVector.copy(
                         p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
                         v = (request.currentVector.v + 0.2f).coerceAtMost(1.0f),
                     )
-                    val congruent = rank(candidates, request, request.currentVector, (maxResults * 0.6f).toInt().coerceAtLeast(1))
+                    val congruent = rank(
+                        filtered.candidates,
+                        request,
+                        request.currentVector,
+                        (maxResults * 0.6f).toInt().coerceAtLeast(1),
+                    )
+                    congruentCount = congruent.size
                     val skewed = rank(
-                        candidates.filterNot { candidate -> congruent.any { it.id == candidate.id } },
+                        filtered.candidates.filterNot { candidate -> congruent.any { it.id == candidate.id } },
                         request,
                         positiveSkew,
                         maxResults - congruent.size,
                     )
-                    congruent + skewed
+                    positiveSkewCount = skewed.size
+                    val selectedIds = (congruent + skewed).mapTo(hashSetOf()) { it.id }
+                    val fill = if (congruent.size + skewed.size < maxResults) {
+                        rank(
+                            filtered.candidates.filterNot { it.id in selectedIds },
+                            request,
+                            request.currentVector,
+                            maxResults - congruent.size - skewed.size,
+                        )
+                    } else {
+                        emptyList()
+                    }
+                    congruent + skewed + fill
                 }
                 RetrievalMode.CONTRAST -> rank(
-                    candidates = candidates,
+                    candidates = filtered.candidates,
                     request = request,
                     emotionalTarget = VectorMapping.centerSymmetricTarget(request.currentVector, request.origin),
                     limit = maxResults,
@@ -70,7 +115,14 @@ class InMemoryMemoryPalace(
                 traceTags = buildSet {
                     if (selected.isNotEmpty()) add(TraceTag.MemoryRetrieved)
                     if (selected.any { it.metadata.userId == request.userId }) add(TraceTag.IdentityAffinityApplied)
+                    if (filtered.rejectedCount > 0) add(TraceTag.MemoryUtilityRejected)
+                    if (filtered.degraded) add(TraceTag.MemoryUtilityDegraded)
                 },
+                congruentCount = congruentCount,
+                positiveSkewCount = positiveSkewCount,
+                filterAcceptedCount = filtered.acceptedCount,
+                filterRejectedCount = filtered.rejectedCount,
+                filterDegraded = filtered.degraded,
             )
         }
 

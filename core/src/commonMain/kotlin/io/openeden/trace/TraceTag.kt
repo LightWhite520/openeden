@@ -20,6 +20,8 @@ object TraceTag {
     const val RuntimeTickBaseline = "tick=BASELINE"
     const val MemoryWritten = "memory=WRITTEN"
     const val MemoryRetrieved = "memory=RETRIEVED"
+    const val MemoryUtilityRejected = "memory=UTILITY_REJECTED"
+    const val MemoryUtilityDegraded = "memory=UTILITY_DEGRADED"
     const val CentroidUpdated = "centroid=UPDATED"
     const val UserAffectInferred = "user_affect=INFERRED"
     const val UserAffectFallback = "user_affect=FALLBACK"

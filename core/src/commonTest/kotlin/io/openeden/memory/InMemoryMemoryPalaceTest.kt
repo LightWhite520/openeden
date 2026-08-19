@@ -55,6 +55,29 @@ class InMemoryMemoryPalaceTest {
     }
 
     @Test
+    fun `mixed retrieval uses six congruent and four positive skew memories when available`() = runTest {
+        val palace = InMemoryMemoryPalace(DirectInferenceExecutor)
+        repeat(10) { index ->
+            palace.write(entry(id = "mixed-$index", content = "same text"))
+        }
+
+        val result = palace.retrieve(
+            RetrievalRequest(
+                sessionId = "CLI:u1",
+                userInput = "same",
+                currentVector = BioVector.Neutral.copy(p = 0.1f, v = 0.1f),
+                origin = BioVector.Neutral,
+                mode = RetrievalMode.MIXED,
+            ),
+        )
+
+        assertEquals(10, result.memories.size)
+        assertEquals(10, result.memories.map { it.id }.toSet().size)
+        assertEquals(6, result.congruentCount)
+        assertEquals(4, result.positiveSkewCount)
+    }
+
+    @Test
     fun `contrast retrieval uses center symmetric emotional target`() = runTest {
         val palace = InMemoryMemoryPalace(DirectInferenceExecutor, maxResults = 1)
         palace.write(entry(id = "collapse", content = "same", vector = BioVector.Neutral.copy(p = 0.1f, v = 0.1f)))
