@@ -22,6 +22,7 @@ import kotlin.time.Clock
 data class RuntimeTickResult(
     val sessionId: String,
     val traceTags: Set<String>,
+    val critical: Boolean = false,
 )
 
 class RuntimeTickScheduler(
@@ -32,6 +33,7 @@ class RuntimeTickScheduler(
     private val config: RuntimeConfig = RuntimeConfig.Default,
     private val startedAtMs: Long = Clock.System.now().toEpochMilliseconds(),
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val onOmegaCritical: suspend (sessionId: String) -> Unit = {},
 ) {
     suspend fun evaluateOnce(nowMs: Long = this.nowMs()): List<RuntimeTickResult> {
         val results = mutableListOf<RuntimeTickResult>()
@@ -83,7 +85,10 @@ class RuntimeTickScheduler(
                     traceTags = setOf(TraceTag.RuntimeTickSessionFailed),
                 )
             }
-            results += RuntimeTickResult(sessionId, result.traceTags)
+            val critical = result.state.omega.value >= config.omegaCriticalThreshold
+            if (critical) runCatching { onOmegaCritical(sessionId) }
+            val traceTags = if (critical) result.traceTags + TraceTag.OmegaCritical else result.traceTags
+            results += RuntimeTickResult(sessionId, traceTags, critical)
         }
         return results
     }

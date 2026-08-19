@@ -16,6 +16,7 @@ object TraceTag {
     const val BackgroundDrift = "source=BACKGROUND_DRIFT"
     const val ShockStateDecayed = "shock=DECAYED"
     const val OmegaAccumulated = "omega=ACCUMULATED"
+    const val OmegaCritical = "omega=CRITICAL"
     const val RuntimeTickSessionFailed = "tick=SESSION_FAILED"
     const val RuntimeTickBaseline = "tick=BASELINE"
     const val MemoryWritten = "memory=WRITTEN"

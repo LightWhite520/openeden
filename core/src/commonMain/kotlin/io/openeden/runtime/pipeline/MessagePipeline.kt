@@ -34,6 +34,7 @@ import io.openeden.runtime.diary.DiaryTriggerCoordinator
 import io.openeden.runtime.diary.SessionDiaryQueue
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.inference.InferenceExecutor
+import io.openeden.runtime.lifecycle.IncarnationLifecycleGate
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.session.SessionTurnGate
@@ -78,6 +79,7 @@ class DevelopmentMessagePipeline(
     private val transcriptStore: TranscriptStore?,
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     private val llmGenerationPolicyConfig: LlmGenerationPolicyConfig,
+    private val lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
 ) {
     constructor(
         personaConfig: PersonaConfig,
@@ -135,11 +137,13 @@ class DevelopmentMessagePipeline(
             .result
 
     fun handleStreaming(request: DevelopmentMessageRequest): Flow<DevelopmentMessageEvent> = flow {
-        val sessionId = "${request.platform}:${request.scopeId}"
-        turnGate.withSession(sessionId) {
-            emit(DevelopmentMessageEvent.Stage(DevelopmentStage.PREPARING))
-            val result = handleLocked(request, sessionId, ::emit)
-            emit(DevelopmentMessageEvent.Completed(result))
+        lifecycleGate.withActiveTurn {
+            val sessionId = "${request.platform}:${request.scopeId}"
+            turnGate.withSession(sessionId) {
+                emit(DevelopmentMessageEvent.Stage(DevelopmentStage.PREPARING))
+                val result = handleLocked(request, sessionId, ::emit)
+                emit(DevelopmentMessageEvent.Completed(result))
+            }
         }
     }
 
@@ -624,6 +628,7 @@ class DevelopmentMessagePipeline(
             affectInfluenceMapper: UserAffectInfluenceMapper = UserAffectInfluenceMapper.Default,
             transcriptStore: TranscriptStore? = store as? TranscriptStore,
             nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+            lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
         ): DevelopmentMessagePipeline = create(
             personaConfig = personaConfig,
             llmClient = llmClient,
@@ -646,6 +651,7 @@ class DevelopmentMessagePipeline(
             transcriptStore = transcriptStore,
             nowMs = nowMs,
             llmGenerationPolicyConfig = LlmGenerationPolicyConfig.Default,
+            lifecycleGate = lifecycleGate,
         )
 
         fun create(
@@ -670,6 +676,7 @@ class DevelopmentMessagePipeline(
             transcriptStore: TranscriptStore? = store as? TranscriptStore,
             nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
             llmGenerationPolicyConfig: LlmGenerationPolicyConfig,
+            lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
         ): DevelopmentMessagePipeline {
             val effectiveStore = store ?: when (transcriptStore) {
                 null -> MutableSessionStateStore()
@@ -717,6 +724,7 @@ class DevelopmentMessagePipeline(
                 affectInfluenceMapper = affectInfluenceMapper,
                 transcriptStore = effectiveTranscriptStore,
                 nowMs = nowMs,
+                lifecycleGate = lifecycleGate,
             )
         }
     }
