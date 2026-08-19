@@ -119,6 +119,9 @@ Common variables:
 | `OPENEDEN_OPENAI_MODEL`         | LLM model name.                                     |
 | `OPENEDEN_OPENAI_BASE_URL`      | OpenAI-compatible endpoint.                         |
 | `OPENEDEN_LLM_REASONING_EFFORT` | Reasoning effort: `low`, `medium`, or `high`.       |
+| `OPENEDEN_LLM_TEMPERATURE_MIN`  | Lower bound for the dynamic per-turn temperature; default `0.2`. |
+| `OPENEDEN_LLM_TEMPERATURE_MAX`  | Upper bound for the dynamic per-turn temperature; default `1.0`. |
+| `OPENEDEN_LLM_MAX_OUTPUT_TOKENS` | Optional static token ceiling, including reasoning and visible output tokens. |
 | `OPENEDEN_SERVER_URL`           | Server URL used by the CLI.                         |
 | `OPENEDEN_RUNTIME_DB_PATH`      | SQLite runtime database path.                       |
 | `OPENEDEN_PERSONA_PATH`         | Persona YAML path.                                  |
@@ -130,6 +133,18 @@ Common variables:
 | `OPENEDEN_HOST_ADDRESS`         | Optional preferred address used only for the exact configured host. |
 | `OPENEDEN_ENABLE_CLI_DIAGNOSTICS` | Enable the token-gated diagnostic endpoint; default `false`. |
 | `OPENEDEN_CLI_DIAGNOSTICS_TOKEN` | Separate credential used only by the optional CLI diagnostic panel. |
+
+DeepSeek Responses-compatible endpoint example:
+
+```powershell
+$env:OPENEDEN_OPENAI_API_KEY="sk-..."
+$env:OPENEDEN_OPENAI_MODEL="deepseek-v4-flash"
+$env:OPENEDEN_OPENAI_BASE_URL="https://api.deepseek.com"
+```
+
+This uses the same OpenAI Responses adapter; OpenEden has no provider-specific
+branching. DeepSeek thinking mode may ignore `temperature`. DeepSeek accepts the
+Responses `verbosity` field, but may not apply it.
 
 ## Quick Start
 

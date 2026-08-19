@@ -50,6 +50,26 @@ OpenAI-compatible relay providers are configured by overriding the base URL:
 $env:OPENEDEN_OPENAI_BASE_URL="https://your-relay.example.com/v1"
 ```
 
+Generation settings are configured through bounds rather than a fixed
+per-turn temperature. Before each turn, the runtime pre-ticks the vector and
+computes temperature from the centroid-relative Entropy and Logos values. The
+configured `OPENEDEN_LLM_TEMPERATURE_MIN` and `OPENEDEN_LLM_TEMPERATURE_MAX`
+environment variables define the dynamic temperature bounds. Vitality selects
+the Responses API text verbosity. `OPENEDEN_LLM_MAX_OUTPUT_TOKENS` is an
+optional static ceiling that includes reasoning and visible output tokens.
+
+DeepSeek Responses-compatible endpoint example:
+
+```powershell
+$env:OPENEDEN_OPENAI_API_KEY="sk-..."
+$env:OPENEDEN_OPENAI_MODEL="deepseek-v4-flash"
+$env:OPENEDEN_OPENAI_BASE_URL="https://api.deepseek.com"
+```
+
+This uses the same OpenAI Responses adapter; OpenEden has no provider-specific
+branching. DeepSeek thinking mode may ignore `temperature`. DeepSeek accepts the
+Responses `verbosity` field, but may not apply it.
+
 Run:
 
 ```powershell

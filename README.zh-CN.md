@@ -88,6 +88,9 @@ Copy-Item .env.example .env
 | `OPENEDEN_OPENAI_MODEL`         | LLM 模型名。                                           |
 | `OPENEDEN_OPENAI_BASE_URL`      | OpenAI 兼容 endpoint。                                 |
 | `OPENEDEN_LLM_REASONING_EFFORT` | 推理强度：`low`、`medium`、`high`。                    |
+| `OPENEDEN_LLM_TEMPERATURE_MIN`  | 动态每轮 temperature 下限，默认 `0.2`。                |
+| `OPENEDEN_LLM_TEMPERATURE_MAX`  | 动态每轮 temperature 上限，默认 `1.0`。                |
+| `OPENEDEN_LLM_MAX_OUTPUT_TOKENS` | 可选的静态 token ceiling，包含 reasoning 和可见输出 token。 |
 | `OPENEDEN_SERVER_URL`           | CLI 连接的 server 地址，默认 `http://127.0.0.1:8080`。 |
 | `OPENEDEN_RUNTIME_DB_PATH`      | SQLite 运行时数据库路径。                              |
 | `OPENEDEN_PERSONA_PATH`         | persona YAML 路径，默认 `persona/default.yaml`。       |
@@ -101,6 +104,18 @@ Copy-Item .env.example .env
 | `OPENEDEN_HOST_ADDRESS`         | 可选，仅用于精确匹配宿主的偏好称呼。                   |
 | `OPENEDEN_ENABLE_CLI_DIAGNOSTICS` | 是否启用需要 token 的 CLI 诊断接口，默认 `false`。   |
 | `OPENEDEN_CLI_DIAGNOSTICS_TOKEN` | CLI 诊断面板专用凭据，不写入本地配置。                |
+
+DeepSeek Responses-compatible endpoint 示例：
+
+```powershell
+$env:OPENEDEN_OPENAI_API_KEY="sk-..."
+$env:OPENEDEN_OPENAI_MODEL="deepseek-v4-flash"
+$env:OPENEDEN_OPENAI_BASE_URL="https://api.deepseek.com"
+```
+
+此配置使用同一个 OpenAI Responses adapter，OpenEden 没有 provider-specific
+分支。DeepSeek thinking mode 可能忽略 `temperature`；它接受 Responses 的
+`verbosity` 字段，但可能不应用该字段。
 
 ## 快速开始
 
