@@ -15,7 +15,7 @@ import java.util.UUID
 class SqlDelightIncarnationLifecycleStore(
     private val database: Database,
     private val driver: JdbcSqliteDriver,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
 ) : IncarnationLifecycleStore {
     private val queries get() = database.incarnationQueries
 
@@ -111,7 +111,7 @@ class SqlDelightIncarnationLifecycleStore(
     companion object {
         fun open(
             dbPath: Path,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            ioDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
         ): SqlDelightIncarnationLifecycleStore {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)

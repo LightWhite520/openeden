@@ -23,7 +23,7 @@ class DiaryArchiveVerificationException(message: String) : IllegalStateException
 class SqlDelightIncarnationLifecycleRepository(
     private val database: Database,
     private val driver: SqlDriver,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
 ) : IncarnationTerminationStore, DiaryArchiveReader {
     override suspend fun read(): IncarnationLifecycle = withContext(ioDispatcher) {
         current().status
@@ -230,7 +230,7 @@ class SqlDelightIncarnationLifecycleRepository(
 
         fun open(
             dbPath: Path,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            ioDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
         ): SqlDelightIncarnationLifecycleRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
