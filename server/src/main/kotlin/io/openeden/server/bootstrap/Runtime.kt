@@ -41,6 +41,7 @@ import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
 import io.openeden.bio.BioVector
+import io.openeden.llm.LlmGenerationPolicyConfig
 import io.openeden.llm.OpenAiResponsesLlmClient
 import io.openeden.llm.ReasoningEffort
 import io.openeden.server.persistence.sqldelight.SqlDelightDiaryTaskStore
@@ -95,6 +96,7 @@ private suspend fun Application.startRuntime(
     startupClosers: ArrayDeque<suspend () -> Unit>,
 ) {
     val serverConfig = loadServerRuntimeConfig(environment.config)
+    val staticGenerationSettings = serverConfig.llmGenerationPolicy.staticSettings()
     val persona = PersonaFileLoader.load(serverConfig.personaPath)
     val persistenceIo = PersistenceStartupIo()
     val transcriptStore = SqlDelightTranscriptStore.open(serverConfig.runtimeDbPath)
@@ -134,6 +136,7 @@ private suspend fun Application.startRuntime(
     val llmClient = OpenAiResponsesLlmClient(
         apiKey = serverConfig.apiKey, model = serverConfig.model,
         reasoningEffort = serverConfig.reasoningEffort, baseUrl = serverConfig.baseUrl,
+        defaultGenerationSettings = staticGenerationSettings,
     )
     startupClosers.addFirst { llmClient.close() }
     val diaryCoordinator = DiaryTriggerCoordinator(
@@ -142,6 +145,7 @@ private suspend fun Application.startRuntime(
     )
     val pipeline = DevelopmentMessagePipeline.create(
         personaConfig = persona, llmClient = llmClient,
+        llmGenerationPolicyConfig = serverConfig.llmGenerationPolicy,
         store = store,
         vectorWriteService = writer,
         inferenceExecutor = inferenceExecutor,
@@ -178,6 +182,7 @@ private suspend fun Application.startRuntime(
                     io.openeden.memory.MemorySnippet(entry.id, entry.content, entry.metadata)
                 }
             }, models.quantizer, inferenceExecutor, llmClient, models.embeddingModel, serverConfig.diaryMaxRawMemories,
+            generationSettings = staticGenerationSettings,
         )::generate),
     )
     DiaryWorkerScheduler(
@@ -315,6 +320,7 @@ private data class ServerRuntimeConfig(
     val model: String,
     val reasoningEffort: ReasoningEffort,
     val baseUrl: String,
+    val llmGenerationPolicy: LlmGenerationPolicyConfig,
     val personaPath: Path,
     val runtimeDbPath: Path,
     val localModelArtifactPath: Path,
@@ -354,6 +360,7 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         model = required("openeden.llm.model"),
         reasoningEffort = ReasoningEffort.parse(optional("openeden.llm.reasoningEffort", "medium")),
         baseUrl = required("openeden.llm.baseUrl"),
+        llmGenerationPolicy = loadLlmGenerationPolicyConfig(config),
         personaPath = rootPath("openeden.runtime.personaPath", "persona/atri.yaml"),
         runtimeDbPath = rootPath("openeden.runtime.databasePath", "data/runtime/openeden.db"),
         localModelArtifactPath = rootPath("openeden.runtime.localModelArtifact", "data/models/local-model-artifact.json"),

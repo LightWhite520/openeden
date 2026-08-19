@@ -15,6 +15,9 @@ openeden:
     model: "$OPENEDEN_OPENAI_MODEL:gpt-5.5"
     baseUrl: "$OPENEDEN_OPENAI_BASE_URL:https://api.openai.com/v1"
     reasoningEffort: "$OPENEDEN_LLM_REASONING_EFFORT:medium"
+    temperatureMin: "$OPENEDEN_LLM_TEMPERATURE_MIN:0.2"
+    temperatureMax: "$OPENEDEN_LLM_TEMPERATURE_MAX:1.0"
+    maxOutputTokens: "$?OPENEDEN_LLM_MAX_OUTPUT_TOKENS"
   runtime:
     personaPath: "$OPENEDEN_PERSONA_PATH:persona/default.yaml"
     databasePath: "$OPENEDEN_RUNTIME_DB_PATH:data/runtime/openeden.db"
