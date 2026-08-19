@@ -24,6 +24,27 @@ class LlmDiaryNarrativeGenerator(
     private val rawLimit: Int = 32,
     private val generationSettings: LlmGenerationSettings = LlmGenerationSettings.Default,
 ) {
+    constructor(
+        personaConfig: PersonaConfig,
+        sessionStateStore: SessionStateStore,
+        dataSource: DiaryDataSource,
+        quantizer: CodebookQuantizer,
+        inferenceExecutor: InferenceExecutor,
+        llmClient: LlmClient,
+        embeddingModel: MemoryEmbeddingModel,
+        rawLimit: Int,
+    ) : this(
+        personaConfig = personaConfig,
+        sessionStateStore = sessionStateStore,
+        dataSource = dataSource,
+        quantizer = quantizer,
+        inferenceExecutor = inferenceExecutor,
+        llmClient = llmClient,
+        embeddingModel = embeddingModel,
+        rawLimit = rawLimit,
+        generationSettings = LlmGenerationSettings.Default,
+    )
+
     suspend fun generate(task: DiaryTask): DiaryNarrativeResult {
         require(rawLimit > 0) { "rawLimit must be positive" }
         val state = sessionStateStore.read(task.sessionId)

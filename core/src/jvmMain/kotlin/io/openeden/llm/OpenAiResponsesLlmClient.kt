@@ -29,6 +29,23 @@ class OpenAiResponsesLlmClient(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val defaultGenerationSettings: LlmGenerationSettings = LlmGenerationSettings.Default,
 ) : StreamingLlmClient, AutoCloseable {
+    constructor(
+        apiKey: String,
+        model: String,
+        reasoningEffort: ReasoningEffort,
+        baseUrl: String,
+        httpClient: HttpClient,
+        json: Json,
+    ) : this(
+        apiKey = apiKey,
+        model = model,
+        reasoningEffort = reasoningEffort,
+        baseUrl = baseUrl,
+        httpClient = httpClient,
+        json = json,
+        defaultGenerationSettings = LlmGenerationSettings.Default,
+    )
+
     override val supportsStrictStructuredStreaming: Boolean = true
 
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput = complete(prompt, defaultGenerationSettings)
