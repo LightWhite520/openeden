@@ -46,3 +46,6 @@ WHERE incarnation_id = :incarnationId
   )
 ORDER BY completed_at_ms DESC, turn_id DESC
 LIMIT :pageLimit;
+
+deleteAllConversationTurns:
+DELETE FROM conversation_turns;

@@ -55,3 +55,6 @@ INSERT OR REPLACE INTO session_state(
     shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
     shock_heartbeat_fired
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteAllSessionStates:
+DELETE FROM session_state;

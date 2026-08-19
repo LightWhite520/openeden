@@ -1,0 +1,14 @@
+CREATE TABLE diary_archive (
+    archive_entry_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    source_diary_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    original_created_at_ms INTEGER NOT NULL,
+    archived_at_ms INTEGER NOT NULL,
+    archive_reason TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL,
+    UNIQUE(incarnation_id, source_diary_id)
+);
+
+CREATE INDEX diary_archive_page
+ON diary_archive(incarnation_id, original_created_at_ms DESC, archive_entry_id DESC);

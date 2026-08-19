@@ -1,0 +1,49 @@
+CREATE TABLE diary_archive (
+    archive_entry_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    source_diary_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    original_created_at_ms INTEGER NOT NULL,
+    archived_at_ms INTEGER NOT NULL,
+    archive_reason TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL,
+    UNIQUE(incarnation_id, source_diary_id)
+);
+
+CREATE INDEX diary_archive_page
+ON diary_archive(incarnation_id, original_created_at_ms DESC, archive_entry_id DESC);
+
+insertArchive:
+INSERT OR IGNORE INTO diary_archive(
+    archive_entry_id, incarnation_id, source_diary_id, content,
+    original_created_at_ms, archived_at_ms, archive_reason, content_sha256
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectArchivePage:
+SELECT archive_entry_id, incarnation_id, source_diary_id, content,
+       original_created_at_ms, archived_at_ms, archive_reason, content_sha256
+FROM diary_archive
+WHERE incarnation_id = :incarnationId
+  AND (
+      :beforeArchiveEntryId IS NULL
+      OR original_created_at_ms < (
+          SELECT original_created_at_ms FROM diary_archive WHERE archive_entry_id = :beforeArchiveEntryId
+      )
+      OR (
+          original_created_at_ms = (
+              SELECT original_created_at_ms FROM diary_archive WHERE archive_entry_id = :beforeArchiveEntryId
+          )
+          AND archive_entry_id < :beforeArchiveEntryId
+      )
+  )
+ORDER BY original_created_at_ms DESC, archive_entry_id DESC
+LIMIT :pageLimit;
+
+countArchive:
+SELECT COUNT(*) FROM diary_archive WHERE incarnation_id = ?;
+
+selectArchiveBySource:
+SELECT archive_entry_id, incarnation_id, source_diary_id, content,
+       original_created_at_ms, archived_at_ms, archive_reason, content_sha256
+FROM diary_archive
+WHERE incarnation_id = ? AND source_diary_id = ?;

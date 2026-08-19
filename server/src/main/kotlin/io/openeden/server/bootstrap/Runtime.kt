@@ -50,6 +50,11 @@ import io.openeden.server.persistence.sqldelight.SqlDelightTraceStore
 import io.openeden.server.persistence.sqldelight.SqlDelightSessionStateStore
 import io.openeden.server.persistence.sqldelight.SqlDelightRelationshipStateStore
 import io.openeden.server.persistence.sqldelight.SqlDelightTranscriptStore
+import io.openeden.server.persistence.sqldelight.SqlDelightIncarnationLifecycleRepository
+import io.openeden.server.runtime.IncarnationTerminationCoordinator
+import io.openeden.runtime.lifecycle.IncarnationLifecycle
+import io.openeden.runtime.lifecycle.IncarnationLifecycleGate
+import io.openeden.runtime.lifecycle.TerminationReason
 import io.openeden.transcript.TranscriptStore
 import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
@@ -68,6 +73,7 @@ import java.nio.file.Path
 val PipelineKey = AttributeKey<DevelopmentMessagePipeline>("openeden.pipeline")
 val SessionStateStoreKey = AttributeKey<SessionStateStore>("openeden.session-state-store")
 val TranscriptStoreKey = AttributeKey<TranscriptStore>("openeden.transcript-store")
+val IncarnationTerminationCoordinatorKey = AttributeKey<IncarnationTerminationCoordinator>("openeden.incarnation-termination-coordinator")
 
 /**
  * Boots the persona runtime: durable SQLite store → pipeline → heartbeat scheduler. Runs before
@@ -101,6 +107,19 @@ private suspend fun Application.startRuntime(
     val persistenceIo = PersistenceStartupIo()
     val transcriptStore = SqlDelightTranscriptStore.open(serverConfig.runtimeDbPath)
     startupClosers.addFirst { transcriptStore.close() }
+    val lifecycleRepository = persistenceIo.open {
+        SqlDelightIncarnationLifecycleRepository.open(serverConfig.runtimeDbPath)
+    }
+    startupClosers.addFirst { lifecycleRepository.close() }
+    val lifecycleGate = IncarnationLifecycleGate()
+    if (lifecycleRepository.read() == IncarnationLifecycle.TERMINATING) {
+        IncarnationTerminationCoordinator(lifecycleGate, lifecycleRepository).terminate(
+            TerminationReason("startup-recovery", System.currentTimeMillis()),
+        )
+    } else if (lifecycleRepository.read() == IncarnationLifecycle.TERMINATED) {
+        lifecycleGate.beginTermination()
+        lifecycleGate.markTerminated()
+    }
     val store = persistenceIo.open {
         SqlDelightSessionStateStore.open(
             serverConfig.runtimeDbPath,
@@ -162,6 +181,7 @@ private suspend fun Application.startRuntime(
         userAffectAnalyzer = models.userAffectAnalyzer,
         diaryTriggerCoordinator = diaryCoordinator,
         transcriptStore = transcriptStore,
+        lifecycleGate = lifecycleGate,
     )
     attributes.put(PipelineKey, pipeline)
     attributes.put(SessionStateStoreKey, store)
@@ -185,13 +205,13 @@ private suspend fun Application.startRuntime(
             generationSettings = staticGenerationSettings,
         )::generate),
     )
-    DiaryWorkerScheduler(
+    val diaryWorkerJob = DiaryWorkerScheduler(
         taskStore = diaryTaskStore,
         worker = diaryWorker,
         sessionIds = { store.sessionIds() },
         nowMs = { System.currentTimeMillis() },
     ).start(scope)
-    scope.launch {
+    val elapsedDiaryJob = scope.launch {
         while (true) {
             diaryCoordinator.flushElapsedSessions(System.currentTimeMillis())
             kotlinx.coroutines.delay(serverConfig.diaryScanIntervalMs)
@@ -205,19 +225,27 @@ private suspend fun Application.startRuntime(
         interval = SecureRandomHeartbeatInterval(),
         routeResolver = OwnerHeartbeatRouteResolver(runtimeConfig.owner),
     )
-    scheduler.start(scope)
-    RuntimeTickScheduler(
+    val heartbeatJob = scheduler.start(scope)
+    val tickJob = RuntimeTickScheduler(
         store = store,
         writer = writer,
         fluctuation = SineWaveFluctuationEngine(SecureRandomSineWaveFluctuation.profile()),
         inferenceExecutor = inferenceExecutor,
         config = runtimeConfig,
+        onOmegaCritical = { lifecycleRepository.markCritical() },
     ).start(scope)
+    val terminationCoordinator = IncarnationTerminationCoordinator(
+        gate = lifecycleGate,
+        store = lifecycleRepository,
+        runtimeJobs = listOf(diaryWorkerJob, elapsedDiaryJob, heartbeatJob, tickJob),
+    )
+    attributes.put(IncarnationTerminationCoordinatorKey, terminationCoordinator)
     log.info("OpenEden heartbeat scheduler started")
 
     val shutdown = RuntimeShutdownCoordinator(
         runtimeJob = runtimeJob,
         closers = listOf(
+            { lifecycleRepository.close() },
             { transcriptStore.close() },
             { store.close() },
             { memoryStore.close(); Unit },

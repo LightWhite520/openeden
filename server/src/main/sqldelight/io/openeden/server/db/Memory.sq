@@ -98,6 +98,30 @@ LIMIT 1;
 selectRawSessions:
 SELECT DISTINCT session_id FROM memory_entries WHERE kind = 'RAW';
 
+selectNarrativeMemories:
+SELECT id, content, created_at_ms
+FROM memory_entries
+WHERE kind = 'NARRATIVE'
+ORDER BY created_at_ms ASC, id ASC;
+
+countMemoryEntries:
+SELECT COUNT(*) FROM memory_entries;
+
+deleteAllMemoryEmbeddings:
+DELETE FROM memory_embeddings;
+
+deleteAllMemoryEntries:
+DELETE FROM memory_entries;
+
+deleteAllDiaryTasks:
+DELETE FROM diary_tasks;
+
+deleteAllDiaryCheckpoints:
+DELETE FROM diary_checkpoints;
+
+deleteAllTraceSpans:
+DELETE FROM trace_spans;
+
 insertEntry:
 INSERT OR REPLACE INTO memory_entries(
     id, session_id, user_id, platform, room, kind, content, tags_json, created_at_ms,

@@ -92,7 +92,7 @@ class ServerApiTest {
     @Test
     fun `chat stream emits only safe public events`() = testApplication {
         val output = LlmOutput(
-            internalLogic = "private",
+            internalLogic = "logic references HEURISTIC_FALLBACK",
             vectorDelta = listOf("L", "P", "E", "S", "tau", "V", "M", "F").associateWith { 0.0f },
             response = "你好",
         )

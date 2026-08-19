@@ -197,7 +197,7 @@ class ConversationHistoryApiTest {
         val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
         val clientRequestId = "id_" + "a".repeat(125)
         val output = LlmOutput(
-            internalLogic = "private",
+            internalLogic = "logic references HEURISTIC_FALLBACK",
             vectorDelta = listOf("L", "P", "E", "S", "tau", "V", "M", "F")
                 .associateWith { 0.0f },
             response = "hello",

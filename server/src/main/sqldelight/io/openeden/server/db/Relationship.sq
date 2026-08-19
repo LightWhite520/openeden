@@ -25,3 +25,6 @@ INSERT OR REPLACE INTO relationship_state(
 
 deleteByKey:
 DELETE FROM relationship_state WHERE session_id = ? AND user_id = ?;
+
+deleteAllRelationships:
+DELETE FROM relationship_state;
