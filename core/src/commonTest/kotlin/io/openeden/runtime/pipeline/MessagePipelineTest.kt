@@ -318,27 +318,38 @@ class MessagePipelineTest {
         )
 
         val pipeline = DevelopmentMessagePipeline(
-            personaConfig = testPersonaConfig(),
-            store = store,
-            quantizer = io.openeden.codebook.HeuristicCodebookFallback(),
-            memoryRetriever = memoryStore,
-            promptBuilder = DefaultPromptBuilder(),
-            llmClient = DevelopmentLlmStub(),
-            vectorWriteService = vectorWriter,
-            diaryQueue = SessionDiaryQueue(),
-            inferenceExecutor = DirectInferenceExecutor,
-            memoryStore = memoryStore,
-            memoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
-            centroidProvider = StoredOriginCentroidProvider(store),
-            turnGate = SessionTurnGate(vectorWriter.mutexRegistry),
-            diaryTaskStore = null,
-            diaryTriggerCoordinator = null,
-            traceStore = null,
-            userAffectAnalyzer = DeterministicUserAffectAnalyzer(),
-            relationshipStore = InMemoryRelationshipStateStore(),
-            relationshipRoleResolver = RelationshipRoleResolver(host = null),
-            affectInfluenceMapper = UserAffectInfluenceMapper.Default,
-            transcriptStore = null,
+            testPersonaConfig(),
+            store,
+            io.openeden.codebook.HeuristicCodebookFallback(),
+            memoryStore,
+            DefaultPromptBuilder(),
+            DevelopmentLlmStub(),
+            vectorWriter,
+            SessionDiaryQueue(),
+            DirectInferenceExecutor,
+            memoryStore,
+            DeterministicMemoryEmbeddingModel,
+            StoredOriginCentroidProvider(store),
+            SessionTurnGate(vectorWriter.mutexRegistry),
+            null,
+            null,
+            null,
+            DeterministicUserAffectAnalyzer(),
+            InMemoryRelationshipStateStore(),
+            RelationshipRoleResolver(host = null),
+            UserAffectInfluenceMapper.Default,
+            null,
+        )
+
+        assertNotNull(pipeline)
+    }
+
+    @Test
+    fun `legacy positional create call remains source compatible`() {
+        val pipeline = DevelopmentMessagePipeline.create(
+            testPersonaConfig(),
+            DevelopmentLlmStub(),
+            MutableSessionStateStore(),
         )
 
         assertNotNull(pipeline)

@@ -1,5 +1,9 @@
 package io.openeden.runtime.pipeline
 
+import io.openeden.bio.VectorDelta
+import io.openeden.llm.LlmGenerationPolicyConfig
+import io.openeden.llm.LlmGenerationSettings
+import io.openeden.llm.LlmVerbosity
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -42,6 +46,34 @@ class MessagePipelineStreamingTest {
 
         assertEquals(0L, store.readOrCreate("CLI:local").evolutionIndex)
         assertEquals(0, store.writeCount)
+    }
+
+    @Test
+    fun `strict streaming receives dynamic generation settings`() = runTest {
+        val store = CountingSessionStateStore()
+        val streaming = SettingsAwareStreamingStub(listOf("你"), validStreamingOutput("你"))
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = streamingTestPersona(),
+            store = store,
+            llmClient = streaming,
+            llmGenerationPolicyConfig = LlmGenerationPolicyConfig(
+                temperatureMin = 0.7f,
+                temperatureMax = 0.7f,
+                maxOutputTokens = 24000,
+            ),
+        )
+
+        pipeline.handleStreaming(
+            request().copy(
+                emotionConfidence = 0.49f,
+                emotionDelta = VectorDelta.Zero,
+            ),
+        ).toList()
+
+        assertEquals(
+            LlmGenerationSettings(0.7f, LlmVerbosity.MEDIUM, 24000),
+            streaming.capturedGenerationSettings,
+        )
     }
 
     private fun request() = DevelopmentMessageRequest(

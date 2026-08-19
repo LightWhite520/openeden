@@ -1,6 +1,7 @@
 package io.openeden.runtime.pipeline
 
 import io.openeden.llm.LlmOutput
+import io.openeden.llm.LlmGenerationSettings
 import io.openeden.llm.LlmStreamEvent
 import io.openeden.llm.StreamingLlmClient
 import io.openeden.persona.PersonaConfig
@@ -35,6 +36,32 @@ internal class SuspendedStreamingStub : StreamingLlmClient {
     override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = flow { awaitCancellation() }
 
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput = awaitCancellation()
+}
+
+internal class SettingsAwareStreamingStub(
+    private val deltas: List<String>,
+    private val output: LlmOutput,
+) : StreamingLlmClient {
+    override val supportsStrictStructuredStreaming: Boolean = true
+
+    var capturedGenerationSettings: LlmGenerationSettings? = null
+
+    override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = events()
+
+    override fun stream(
+        prompt: BuiltPrompt,
+        generationSettings: LlmGenerationSettings,
+    ): Flow<LlmStreamEvent> {
+        capturedGenerationSettings = generationSettings
+        return events()
+    }
+
+    override suspend fun complete(prompt: BuiltPrompt): LlmOutput = output
+
+    private fun events(): Flow<LlmStreamEvent> = flow {
+        deltas.forEach { emit(LlmStreamEvent.ResponseDelta(it)) }
+        emit(LlmStreamEvent.Completed(output))
+    }
 }
 
 internal class CountingSessionStateStore : SessionStateStore {
