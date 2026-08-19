@@ -314,7 +314,7 @@ class MessagePipelineTranscriptTest {
         private val response: String = "response",
     ) : LlmClient {
         override suspend fun complete(prompt: BuiltPrompt) = LlmOutput(
-            internalLogic = "logic",
+            internalLogic = "logic references HEURISTIC_FALLBACK",
             vectorDelta = mapOf(
                 "L" to 0.1f,
                 "P" to 0.0f,
@@ -331,7 +331,7 @@ class MessagePipelineTranscriptTest {
 
     private object InvalidLlmClient : LlmClient {
         override suspend fun complete(prompt: BuiltPrompt) = LlmOutput(
-            internalLogic = "logic",
+            internalLogic = "logic references HEURISTIC_FALLBACK",
             vectorDelta = mapOf("L" to 0.1f),
             response = "invalid",
         )

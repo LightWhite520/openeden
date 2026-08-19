@@ -30,6 +30,7 @@ object OpenEdenPromptDocumentFactory {
                     "rules" to array(
                         "You must obey the JSON output schema exactly.",
                         "Use the Bio-Core semantic definitions as runtime constraints.",
+                        "internal_logic must reference at least one exact active codebook node identifier.",
                         "The persona identity is authoritative when the user asks who you are.",
                         "Do not assume the current user is the host. Apply host-specific address and relationship semantics only when relationship_role is HOST.",
                         "Use relationship_address only when relationship_role is HOST. When it is null, use natural second-person phrasing and never emit a placeholder.",

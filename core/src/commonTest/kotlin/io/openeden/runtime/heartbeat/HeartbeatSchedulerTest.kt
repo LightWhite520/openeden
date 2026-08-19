@@ -147,7 +147,7 @@ class HeartbeatSchedulerTest {
 
     private fun validLlm(): LlmClient = object : LlmClient {
         override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
-            internalLogic = "logic",
+            internalLogic = "logic references HEURISTIC_FALLBACK",
             vectorDelta = mapOf(
                 "L" to 0.0f, "P" to 0.1f, "E" to 0.0f, "S" to 0.0f,
                 "tau" to 0.0f, "V" to 0.0f, "M" to 0.0f, "F" to 0.0f,

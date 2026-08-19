@@ -87,7 +87,7 @@ internal class CountingSessionStateStore : SessionStateStore {
 }
 
 internal fun validStreamingOutput(response: String): LlmOutput = LlmOutput(
-    internalLogic = "logic",
+    internalLogic = "logic references HEURISTIC_FALLBACK",
     vectorDelta = listOf("L", "P", "E", "S", "tau", "V", "M", "F").associateWith { 0.0f },
     response = response,
 )

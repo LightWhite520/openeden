@@ -30,7 +30,7 @@ class TurnCoordinatorConcurrencyTest {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
                     delay(1)
                     return LlmOutput(
-                        internalLogic = "serialized test turn",
+                        internalLogic = "serialized test turn references HEURISTIC_FALLBACK",
                         vectorDelta = mapOf(
                             "L" to 0.0f,
                             "P" to 0.01f,

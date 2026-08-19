@@ -4,7 +4,7 @@ import io.openeden.prompt.BuiltPrompt
 
 class DevelopmentLlmStub : LlmClient {
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
-        internalLogic = "Development stub response based on injected codebook state.",
+        internalLogic = "Development stub response based on HEURISTIC_FALLBACK codebook state.",
         vectorDelta = mapOf(
             "L" to 0.0f,
             "P" to 0.0f,

@@ -1,6 +1,8 @@
 package io.openeden.runtime.pipeline
 
 import io.openeden.runtime.affect.ShockState
+import io.openeden.codebook.CodebookQuantizer
+import io.openeden.codebook.QuantizationResult
 import io.openeden.runtime.diary.SessionDiaryQueue
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.inference.InferenceExecutor
@@ -44,6 +46,62 @@ import kotlinx.coroutines.test.runTest
 
 class MessagePipelineTest {
     @Test
+    fun `ungrounded schema-valid output gets one repair attempt`() = runTest {
+        var calls = 0
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            quantizer = object : CodebookQuantizer {
+                override suspend fun quantize(vector: BioVector, dissonance: Float): QuantizationResult =
+                    QuantizationResult(listOf("NODE_12"), listOf("node definition"), 0.9f)
+            },
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    calls += 1
+                    return LlmOutput(
+                        internalLogic = if (calls == 1) "logic" else "repair uses NODE_12",
+                        vectorDelta = validDelta(),
+                        response = "response",
+                    )
+                }
+            },
+        )
+
+        val result = pipeline.handle(testRequest())
+
+        assertEquals(2, calls)
+        assertEquals(1, result.evolutionIndex)
+        assertContains(result.traceTags, TraceTag.LlmGroundingRegenerated)
+        assertContains(result.traceTags, TraceTag.LlmGroundingRepaired)
+    }
+
+    @Test
+    fun `ungrounded repair is rejected without state evolution`() = runTest {
+        var calls = 0
+        val store = MutableSessionStateStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = store,
+            quantizer = object : CodebookQuantizer {
+                override suspend fun quantize(vector: BioVector, dissonance: Float): QuantizationResult =
+                    QuantizationResult(listOf("NODE_12"), listOf("node definition"), 0.9f)
+            },
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    calls += 1
+                    return LlmOutput("logic", validDelta(), "response")
+                }
+            },
+        )
+
+        val result = pipeline.handle(testRequest())
+
+        assertEquals(2, calls)
+        assertEquals(0, store.read("QQ:100").evolutionIndex)
+        assertEquals(null, result.response)
+        assertContains(result.traceTags, TraceTag.LlmGroundingRejected)
+    }
+
+    @Test
     fun `runs one development message turn`() = runTest {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(),
@@ -76,7 +134,7 @@ class MessagePipelineTest {
             personaConfig = testPersonaConfig(),
             llmClient = object : io.openeden.llm.LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
-                    internalLogic = "logic",
+                    internalLogic = "logic references HEURISTIC_FALLBACK",
                     vectorDelta = mapOf(
                         "L" to 0.0f,
                         "P" to 0.2f,
@@ -115,7 +173,7 @@ class MessagePipelineTest {
             store = store,
             llmClient = object : io.openeden.llm.LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
-                    internalLogic = "a severe discontinuity was inferred from the response",
+                    internalLogic = "a severe discontinuity was inferred from HEURISTIC_FALLBACK",
                     vectorDelta = mapOf(
                         "L" to 0.0f,
                         "P" to -0.5f,
@@ -157,7 +215,7 @@ class MessagePipelineTest {
             store = store,
             llmClient = object : io.openeden.llm.LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
-                    internalLogic = "a severe discontinuity was inferred from the response",
+                    internalLogic = "a severe discontinuity was inferred from HEURISTIC_FALLBACK",
                     vectorDelta = mapOf(
                         "L" to 0.0f,
                         "P" to -0.5f,
@@ -425,14 +483,25 @@ class MessagePipelineTest {
         ),
     )
 
-    private fun testRequest(userId: String = "u1") = DevelopmentMessageRequest(
+private fun testRequest(userId: String = "u1") = DevelopmentMessageRequest(
         turnId = "test-$userId",
         platform = "QQ",
         scopeId = "100",
         userId = userId,
         text = "hello",
         emotionConfidence = 0.49f,
-    )
+)
+
+private fun validDelta(): Map<String, Float> = mapOf(
+    "L" to 0.0f,
+    "P" to 0.0f,
+    "E" to 0.0f,
+    "S" to 0.0f,
+    "tau" to 0.0f,
+    "V" to 0.0f,
+    "M" to 0.0f,
+    "F" to 0.0f,
+)
 
     private class BoundaryRecordingInferenceExecutor : InferenceExecutor {
         var inferenceRunning = false

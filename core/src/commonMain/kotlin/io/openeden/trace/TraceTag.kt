@@ -3,6 +3,10 @@ package io.openeden.trace
 object TraceTag {
     const val CodebookHeuristicFallback = "codebook=HEURISTIC_FALLBACK"
     const val CodebookQuantized = "codebook=VQVAE_QUANTIZED"
+    const val LlmGroundingFailed = "llm=GROUNDING_FAILED"
+    const val LlmGroundingRegenerated = "llm=REGENERATED"
+    const val LlmGroundingRepaired = "llm=GROUNDING_REPAIRED"
+    const val LlmGroundingRejected = "llm=GROUNDING_REJECTED"
     const val DiaryQueueOverflow = "diary=QUEUE_OVERFLOW"
     const val DiaryWritten = "diary=WRITTEN"
     const val VectorWriteSerialized = "vector=WRITE_SERIALIZED"

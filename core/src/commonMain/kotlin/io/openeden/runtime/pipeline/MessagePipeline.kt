@@ -12,6 +12,7 @@ import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmGenerationPolicy
 import io.openeden.llm.LlmGenerationPolicyConfig
 import io.openeden.llm.LlmGenerationSettings
+import io.openeden.llm.LlmGroundingValidation
 import io.openeden.llm.LlmOutput
 import io.openeden.llm.LlmOutputValidator
 import io.openeden.llm.LlmStreamEvent
@@ -215,7 +216,13 @@ class DevelopmentMessagePipeline(
         )
         val inference = inferenceExecutor.run {
             val dissonance = preTick.preTicked.derivedDissonance()
-            val quantization = quantizer.quantize(preTick.preTicked, dissonance)
+            val quantization = quantizer.quantize(preTick.preTicked, dissonance).let { result ->
+                if (result.activeNodes.isEmpty()) {
+                    HeuristicCodebookFallback().quantize(preTick.preTicked, dissonance)
+                } else {
+                    result
+                }
+            }
             val internalVector = VectorMapping.toInternal(preTick.preTicked, current.origin)
             val generationSettings = LlmGenerationPolicy.resolve(internalVector, llmGenerationPolicyConfig)
             val retrievalMode = RetrievalModeSelector.select(
@@ -293,13 +300,58 @@ class DevelopmentMessagePipeline(
             )
         }
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.GENERATING))
-        val llmOutput = collectLlmOutput(prompt, inference.generationSettings, emitEvent)
+        val firstOutput = collectLlmOutput(prompt, inference.generationSettings, emitEvent)
         trace(traceContext, "llm_inference")
-        val validation = LlmOutputValidator.validate(llmOutput)
+        val firstValidation = LlmOutputValidator.validate(firstOutput)
+        var validation = firstValidation
+        var groundingTraceTags = emptySet<String>()
+        if (firstValidation.isValid) {
+            val firstGrounding = LlmGroundingValidation.validate(firstOutput, inference.quantization)
+            if (!firstGrounding.isGrounded) {
+                groundingTraceTags = setOf(
+                    TraceTag.LlmGroundingFailed,
+                    TraceTag.LlmGroundingRegenerated,
+                )
+                val repairPrompt = prompt.copy(
+                    systemText = prompt.systemText +
+                        "\n\n[Codebook Grounding Repair]\n" +
+                        "The previous JSON was schema-valid but did not reference an active codebook node. " +
+                        "Regenerate the complete JSON. In internal_logic, include one exact identifier from: " +
+                        inference.quantization.activeNodes.joinToString(", ") + ".",
+                )
+                val repairedOutput = collectLlmOutput(repairPrompt, inference.generationSettings, emitEvent)
+                trace(traceContext, "llm_regeneration", tags = setOf(TraceTag.LlmGroundingRegenerated))
+                val repairedValidation = LlmOutputValidator.validate(repairedOutput)
+                if (!repairedValidation.isValid) {
+                    validation = repairedValidation.copy(
+                        errors = repairedValidation.errors + firstGrounding.errors,
+                    )
+                    groundingTraceTags += TraceTag.LlmGroundingRejected
+                } else {
+                    val repairedGrounding = LlmGroundingValidation.validate(
+                        repairedOutput,
+                        inference.quantization,
+                    )
+                    validation = if (repairedGrounding.isGrounded) {
+                        groundingTraceTags += TraceTag.LlmGroundingRepaired
+                        repairedValidation
+                    } else {
+                        groundingTraceTags += TraceTag.LlmGroundingRejected
+                        repairedValidation.copy(
+                            isValid = false,
+                            output = null,
+                            delta = null,
+                            errors = repairedValidation.errors + repairedGrounding.errors,
+                        )
+                    }
+                }
+            }
+        }
         trace(
             traceContext,
             "validation",
             status = if (validation.isValid) TraceStatus.OK else TraceStatus.FAILED,
+            tags = groundingTraceTags,
             errorCode = if (validation.isValid) null else "TURN_REJECTED",
             errorSummary = validation.errors.joinToString("; "),
         )
@@ -431,6 +483,7 @@ class DevelopmentMessagePipeline(
             retrievalMode = retrievalResult.mode,
             traceTags = inference.quantization.traceTags +
                 retrievalResult.traceTags +
+                groundingTraceTags +
                 write.traceTags +
                 diaryOutcome.traceTags +
                 memoryTraceTags.traceTags +

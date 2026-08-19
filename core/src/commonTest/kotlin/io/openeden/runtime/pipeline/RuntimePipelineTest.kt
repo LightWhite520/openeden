@@ -27,7 +27,7 @@ class RuntimePipelineTest {
             store = store,
             llmClient = object : LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
-                    internalLogic = "local runtime contract test",
+                    internalLogic = "local runtime contract test references HEURISTIC_FALLBACK",
                     vectorDelta = mapOf(
                         "L" to 0.0f,
                         "P" to 0.1f,
@@ -68,7 +68,7 @@ class RuntimePipelineTest {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
                     prompts += prompt
                     return LlmOutput(
-                        internalLogic = "history test",
+                        internalLogic = "history test references HEURISTIC_FALLBACK",
                         vectorDelta = zeroDelta(),
                         response = "first response",
                     )
