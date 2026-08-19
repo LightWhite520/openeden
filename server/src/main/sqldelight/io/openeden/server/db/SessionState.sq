@@ -12,6 +12,7 @@ CREATE TABLE session_state (
     persona_mode TEXT,
     persona_start_sub_state TEXT,
     last_user_activity_ms INTEGER,
+    last_runtime_tick_at_ms INTEGER,
     shock_active INTEGER,
     shock_intensity REAL,
     shock_description TEXT,
@@ -22,6 +23,7 @@ CREATE TABLE session_state (
 
 selectById:
 SELECT session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state, last_user_activity_ms,
+       last_runtime_tick_at_ms,
        shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
        shock_heartbeat_fired
 FROM session_state
@@ -42,12 +44,14 @@ WHERE session_id = ? AND persona_mode IS NULL AND persona_start_sub_state IS NUL
 
 insertNeutralIfAbsent:
 INSERT OR IGNORE INTO session_state(
-    session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+    session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state,
+    last_runtime_tick_at_ms
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 upsert:
 INSERT OR REPLACE INTO session_state(
     session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state, last_user_activity_ms,
+    last_runtime_tick_at_ms,
     shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
     shock_heartbeat_fired
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

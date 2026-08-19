@@ -54,7 +54,7 @@ class SqlDelightSessionStateStore(
         val configuredMode = personaMode ?: defaultPersonaMode
         val configuredStart = personaStartSubState ?: defaultStartSubState
         val loaded = queries.selectById(sessionId) { id, vector, origin, omega, evolution, mode, start,
-                                                  lastActivity, shockActive, shockIntensity, shockDescription,
+                                                  lastActivity, lastRuntimeTickAt, shockActive, shockIntensity, shockDescription,
                                                   shockAt, shockLambda, shockHeartbeat ->
             val bothPresent = mode != null && start != null
             require(bothPresent || (mode == null && start == null)) {
@@ -65,7 +65,7 @@ class SqlDelightSessionStateStore(
                     id, vector, origin, omega, evolution,
                     mode ?: configuredMode.name.lowercase(),
                     start ?: configuredStart.name.lowercase(),
-                    lastActivity, shockActive, shockIntensity, shockDescription,
+                    lastActivity, lastRuntimeTickAt, shockActive, shockIntensity, shockDescription,
                     shockAt, shockLambda, shockHeartbeat,
                 ),
                 initialized = bothPresent,
@@ -85,6 +85,7 @@ class SqlDelightSessionStateStore(
             evolution_index = neutral.evolutionIndex,
             persona_mode = persistedMode,
             persona_start_sub_state = persistedStart,
+            last_runtime_tick_at_ms = neutral.lastRuntimeTickAtMs,
         )
         queries.selectById(sessionId, ::toSessionState).executeAsOne()
     }
@@ -158,6 +159,7 @@ class SqlDelightSessionStateStore(
             persona_mode = state.personaMode.name.lowercase(),
             persona_start_sub_state = state.personaStartSubState.name.lowercase(),
             last_user_activity_ms = state.lastUserActivityMs,
+            last_runtime_tick_at_ms = state.lastRuntimeTickAtMs,
             shock_active = shock?.let { if (it.active) 1L else 0L },
             shock_intensity = shock?.intensity?.toDouble(),
             shock_description = shock?.description,
@@ -183,6 +185,7 @@ class SqlDelightSessionStateStore(
         persistedPersonaMode: String?,
         persistedStartSubState: String?,
         lastUserActivityMs: Long?,
+        lastRuntimeTickAtMs: Long?,
         shockActive: Long?,
         shockIntensity: Double?,
         shockDescription: String?,
@@ -198,6 +201,7 @@ class SqlDelightSessionStateStore(
         personaMode = checkNotNull(persistedPersonaMode).toPersonaMode(),
         personaStartSubState = checkNotNull(persistedStartSubState).toPersonaSubState(),
         lastUserActivityMs = lastUserActivityMs,
+        lastRuntimeTickAtMs = lastRuntimeTickAtMs,
         shockState = if (shockActive == null) {
             null
         } else {

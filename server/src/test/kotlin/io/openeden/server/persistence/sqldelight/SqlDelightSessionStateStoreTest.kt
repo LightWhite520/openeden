@@ -48,6 +48,7 @@ class SqlDelightSessionStateStoreTest {
         ),
         evolutionIndex = 17,
         lastUserActivityMs = 1_700_000_123_456L,
+        lastRuntimeTickAtMs = 1_700_000_223_456L,
     )
 
     @Test
@@ -70,6 +71,7 @@ class SqlDelightSessionStateStoreTest {
             assertEquals(0, state.evolutionIndex)
             assertNull(state.shockState)
             assertNull(state.lastUserActivityMs)
+            assertNull(state.lastRuntimeTickAtMs)
         } finally {
             store.close()
         }
