@@ -31,7 +31,7 @@ class InMemoryMemoryPalace(
                     emotionalEmbedding = embeddingModel.embed(request.currentVector),
                     limit = entries.count { it.sessionId == request.sessionId },
                 ),
-            ).map { it.entry }
+            ).mapNotNull { it.entry }
             val querySemantic = embeddingModel.embed(request.userInput)
             val queryEmotion = embeddingModel.embed(request.currentVector)
             val baselineEntropy = entries.asSequence()

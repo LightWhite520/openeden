@@ -40,16 +40,27 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
+import io.openeden.memory.RebuildableInMemoryVectorIndex
 import io.openeden.bio.BioVector
 import io.openeden.llm.LlmGenerationPolicyConfig
 import io.openeden.llm.OpenAiResponsesLlmClient
 import io.openeden.llm.ReasoningEffort
 import io.openeden.server.persistence.sqldelight.SqlDelightDiaryTaskStore
 import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
+import io.openeden.server.persistence.sqldelight.MemoryVectorProjectionStore
 import io.openeden.server.persistence.sqldelight.SqlDelightTraceStore
 import io.openeden.server.persistence.sqldelight.SqlDelightSessionStateStore
 import io.openeden.server.persistence.sqldelight.SqlDelightRelationshipStateStore
 import io.openeden.server.persistence.sqldelight.SqlDelightTranscriptStore
+import io.openeden.server.vector.QdrantCircuitBreaker
+import io.openeden.server.vector.QdrantProjectionSynchronizer
+import io.openeden.server.vector.ResilientVectorIndex
+import io.openeden.server.vector.asProjectionWorkStore
+import io.openeden.server.vector.qdrant.QdrantClient
+import io.openeden.server.vector.qdrant.QdrantCollectionNaming
+import io.openeden.server.vector.qdrant.QdrantVectorIndex
+import io.openeden.server.vector.VectorDatabaseStatusProvider
+import io.openeden.server.vector.VectorDatabaseStatus
 import io.openeden.server.persistence.sqldelight.SqlDelightIncarnationLifecycleRepository
 import io.openeden.server.runtime.IncarnationTerminationCoordinator
 import io.openeden.runtime.lifecycle.IncarnationLifecycle
@@ -59,6 +70,7 @@ import io.openeden.transcript.TranscriptStore
 import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -73,6 +85,7 @@ import java.nio.file.Path
 val PipelineKey = AttributeKey<DevelopmentMessagePipeline>("openeden.pipeline")
 val SessionStateStoreKey = AttributeKey<SessionStateStore>("openeden.session-state-store")
 val TranscriptStoreKey = AttributeKey<TranscriptStore>("openeden.transcript-store")
+val VectorDatabaseStatusKey = AttributeKey<VectorDatabaseStatusProvider>("openeden.vector-database-status")
 val IncarnationTerminationCoordinatorKey = AttributeKey<IncarnationTerminationCoordinator>("openeden.incarnation-termination-coordinator")
 
 /**
@@ -148,8 +161,57 @@ private suspend fun Application.startRuntime(
     val runtimeConfig = RuntimeConfig.Default.copy(owner = serverConfig.heartbeatOwner)
     val models = loadRuntimeModels(serverConfig)
     startupClosers.addFirst { models.close() }
+    val projectionStore = persistenceIo.open {
+        MemoryVectorProjectionStore.open(serverConfig.runtimeDbPath)
+    }
+    startupClosers.addFirst { projectionStore.close() }
+    val fallbackIndex = RebuildableInMemoryVectorIndex(inferenceExecutor)
+    var projectionWake: () -> Unit = {}
+    val qdrantRuntime = if (serverConfig.vectorDatabase.enabled) {
+        val qdrantClient = QdrantClient(
+            baseUrl = serverConfig.vectorDatabase.url,
+            apiKey = serverConfig.vectorDatabase.apiKey,
+            timeoutMillis = serverConfig.vectorDatabase.requestTimeoutMs,
+        )
+        startupClosers.addFirst { qdrantClient.close() }
+        val naming = QdrantCollectionNaming(serverConfig.vectorDatabase.collectionPrefix)
+        val circuit = QdrantCircuitBreaker(
+            failureThreshold = serverConfig.vectorDatabase.failureThreshold,
+            probeIntervalMs = serverConfig.vectorDatabase.syncIntervalMs,
+        )
+        val primary = QdrantVectorIndex(
+            client = qdrantClient,
+            naming = naming,
+            modelId = serverConfig.vectorDatabase.modelId,
+            onCollectionRecreated = {
+                while (projectionStore.requeueReady(
+                    serverConfig.vectorDatabase.modelId,
+                    System.currentTimeMillis(),
+                    serverConfig.vectorDatabase.syncBatchSize,
+                ).isNotEmpty()) Unit
+            },
+            onTrace = { tag -> log.info("Qdrant trace tag: $tag") },
+        )
+        QdrantRuntime(
+            client = qdrantClient,
+            primary = primary,
+            circuit = circuit,
+            collection = naming.collectionName(serverConfig.vectorDatabase.modelId),
+        )
+    } else {
+        null
+    }
+    val resilientIndex = qdrantRuntime?.resilientIndex(fallbackIndex)
+    lateinit var projectionSynchronizer: QdrantProjectionSynchronizer
     val memoryStore = persistenceIo.open {
-        SqlDelightMemoryRepository.open(serverConfig.runtimeDbPath, models.embeddingModel)
+        SqlDelightMemoryRepository.open(
+            dbPath = serverConfig.runtimeDbPath,
+            embeddingModel = models.embeddingModel,
+            activeModelId = serverConfig.vectorDatabase.modelId,
+            projectionWake = { projectionWake() },
+            index = resilientIndex,
+            fallbackIndex = fallbackIndex,
+        )
     }
     startupClosers.addFirst { memoryStore.close() }
     val llmClient = OpenAiResponsesLlmClient(
@@ -192,6 +254,55 @@ private suspend fun Application.startRuntime(
     val runtimeJob = SupervisorJob(requireNotNull(applicationContext[Job]))
     val scope = CoroutineScope(applicationContext + runtimeJob + Dispatchers.IO)
     startupClosers.addFirst { runtimeJob.cancelAndJoin() }
+    val projectionJob = qdrantRuntime?.let { runtime ->
+        projectionSynchronizer = QdrantProjectionSynchronizer(
+            store = projectionStore.asProjectionWorkStore(),
+            index = runtime.primary,
+            loadEntry = { id -> memoryStore.readById(id)?.takeIf { it.modelId == serverConfig.vectorDatabase.modelId }?.entry },
+            modelId = serverConfig.vectorDatabase.modelId,
+            intervalMs = serverConfig.vectorDatabase.syncIntervalMs,
+            batchSize = serverConfig.vectorDatabase.syncBatchSize,
+            circuit = runtime.circuit,
+            onCollectionLoss = { runtime.primary.markDirty() },
+            onTrace = { tag -> log.info("Qdrant projection trace tag: $tag") },
+        )
+        projectionWake = projectionSynchronizer::signal
+        projectionSynchronizer.start(scope)
+    }
+    attributes.put(
+        VectorDatabaseStatusKey,
+        VectorDatabaseStatusProvider {
+            val counts = projectionStore.projectionCounts(System.currentTimeMillis())
+            val status = resilientIndex?.status() ?: VectorDatabaseStatus(
+                backend = "IN_MEMORY",
+                circuit = QdrantCircuitBreaker.Snapshot(
+                    state = QdrantCircuitBreaker.State.CLOSED,
+                    consecutiveFailures = 0,
+                    openedAtMs = null,
+                    lastSuccessAtMs = null,
+                    lastFailure = null,
+                ),
+                fallbackActive = true,
+                lastTraceTag = "vector_db=IN_MEMORY",
+            )
+            status.copy(
+                pendingProjectionCount = counts.duePending,
+                totalNonReadyProjectionCount = counts.nonReady,
+            )
+        },
+    )
+    val modelRefreshJob = scope.launch {
+        try {
+            memoryStore.refreshOutdatedEmbeddings(
+                inferenceExecutor = inferenceExecutor,
+                batchSize = serverConfig.vectorDatabase.syncBatchSize,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            log.error("Unable to refresh outdated memory embeddings", failure)
+        }
+    }
     val diaryWorker = DurableDiaryWorker(
         taskStore = diaryTaskStore,
         memoryStore = memoryStore,
@@ -237,7 +348,7 @@ private suspend fun Application.startRuntime(
     val terminationCoordinator = IncarnationTerminationCoordinator(
         gate = lifecycleGate,
         store = lifecycleRepository,
-        runtimeJobs = listOf(diaryWorkerJob, elapsedDiaryJob, heartbeatJob, tickJob),
+        runtimeJobs = listOfNotNull(diaryWorkerJob, elapsedDiaryJob, heartbeatJob, tickJob, projectionJob, modelRefreshJob),
     )
     attributes.put(IncarnationTerminationCoordinatorKey, terminationCoordinator)
     log.info("OpenEden heartbeat scheduler started")
@@ -249,6 +360,8 @@ private suspend fun Application.startRuntime(
             { transcriptStore.close() },
             { store.close() },
             { memoryStore.close(); Unit },
+            { qdrantRuntime?.client?.close() },
+            { projectionStore.close() },
             { diaryTaskStore.close() },
             { traceStore.close() },
             { relationshipStore.close() },
@@ -288,6 +401,21 @@ private data class RuntimeModels(
         closeBestEffort(closers.asReversed().map { closeable -> closeable::close })
             ?.let { throw it }
     }
+}
+
+private data class QdrantRuntime(
+    val client: QdrantClient,
+    val primary: QdrantVectorIndex,
+    val circuit: QdrantCircuitBreaker,
+    val collection: String,
+) {
+    fun resilientIndex(fallback: RebuildableInMemoryVectorIndex): ResilientVectorIndex =
+        ResilientVectorIndex(
+            primary = primary,
+            fallback = fallback,
+            circuit = circuit,
+            collection = collection,
+        )
 }
 
 private fun loadRuntimeModels(config: ServerRuntimeConfig): RuntimeModels {
@@ -367,6 +495,7 @@ private data class ServerRuntimeConfig(
     val diaryScanIntervalMs: Long,
     val diaryMaxRawMemories: Int,
     val diagnosticsAccess: DiagnosticsAccess,
+    val vectorDatabase: VectorDatabaseConfig,
 )
 
 private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationConfig): ServerRuntimeConfig {
@@ -415,5 +544,6 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         } else {
             DiagnosticsAccess.disabled()
         },
+        vectorDatabase = loadVectorDatabaseConfig(config),
     )
 }

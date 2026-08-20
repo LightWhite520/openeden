@@ -31,4 +31,11 @@ object TraceTag {
     const val RelationshipUpdated = "relationship=UPDATED"
     const val RelationshipDegraded = "relationship=DEGRADED"
     const val IdentityAffinityApplied = "memory=IDENTITY_AFFINITY"
+    const val VectorDatabaseQdrant = "vector_db=QDRANT"
+    const val VectorDatabaseFallback = "vector_db=QDRANT_FALLBACK"
+    const val VectorDatabaseRecovered = "vector_db=QDRANT_RECOVERED"
+    const val VectorProjectionSucceeded = "vector_projection=SUCCEEDED"
+    const val VectorProjectionRetry = "vector_projection=RETRY"
+    const val VectorCollectionCreated = "vector_collection=CREATED"
+    const val VectorCollectionRebuilt = "vector_collection=REBUILT"
 }

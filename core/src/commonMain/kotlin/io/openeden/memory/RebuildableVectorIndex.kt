@@ -49,6 +49,8 @@ class RebuildableInMemoryVectorIndex(
         mutex.withLock { isDirty = true }
     }
 
+    suspend fun entriesViewForRebuild(): Iterable<MemoryEntry> = mutex.withLock { entries.values }
+
     override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> =
         inferenceExecutor.run {
             val snapshot = mutex.withLock {
@@ -61,6 +63,7 @@ class RebuildableInMemoryVectorIndex(
             snapshot.asSequence()
                 .map { entry ->
                     VectorSearchHit(
+                        memoryId = entry.id,
                         entry = entry,
                         semanticSimilarity = cosine(request.semanticEmbedding, entry.semanticEmbedding),
                         emotionalSimilarity = request.emotionalEmbedding?.let {

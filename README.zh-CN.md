@@ -235,6 +235,33 @@ Chat 响应包含：
 
 ## 构建与测试
 
+## Qdrant 向量数据库
+
+Qdrant 是可选的、可重建的候选检索索引。SQLite 仍是记忆正文、元数据、嵌入、
+运行时状态和投影状态的唯一权威来源。服务端先提交 SQLite，再异步投影向量；
+Qdrant 不可用时会自动使用内存索引，`/health` 仍保持 `ready`。
+
+使用固定版本镜像和持久化命名卷启动本地 Qdrant：
+
+```powershell
+docker compose up -d qdrant
+```
+
+默认地址是 `http://localhost:6333`。使用远程服务时设置
+`OPENEDEN_QDRANT_URL`；只有远程服务要求认证时才设置
+`OPENEDEN_QDRANT_API_KEY`。API key 不会写入诊断信息或日志。
+
+当前集合名由 `OPENEDEN_QDRANT_COLLECTION` 和
+`OPENEDEN_EMBEDDING_MODEL_ID`（默认 `local-v1`）共同决定。切换嵌入模型会创建
+独立集合，并在后台刷新已存嵌入；旧集合不会自动删除。
+
+如果需要完整重建投影，只删除当前使用的 Qdrant 集合。同步器会从 SQLite
+重新创建集合并重建索引。请备份 `data/runtime/openeden.db`：SQLite 是恢复所需
+的权威数据，Qdrant 只保存可丢弃的检索投影。
+
+Qdrant 降级时，带 token 的 `/api/v1/diagnostics` 会报告后端、集合、电路状态、
+投影计数、最近一次远程成功时间和已清理的错误类别；不会返回记忆正文、嵌入或凭据。
+
 ```powershell
 .\gradlew.bat :server:test
 .\gradlew.bat :server:build

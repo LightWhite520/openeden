@@ -18,14 +18,19 @@ import io.openeden.memory.MemoryStore
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
 import io.openeden.memory.RebuildableInMemoryVectorIndex
+import io.openeden.memory.VectorIndex
+import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
 import io.openeden.runtime.inference.DirectInferenceExecutor
+import io.openeden.runtime.inference.InferenceExecutor
 import io.openeden.runtime.diary.DiaryRawMemoryCursor
 import io.openeden.runtime.diary.DiaryRawMemorySource
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
@@ -41,25 +46,104 @@ class SqlDelightMemoryRepository(
     private val driver: SqlDriver,
     private val embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
     private val json: Json = Json,
+    private val activeModelId: String = "local-v1",
+    private val projectionWake: () -> Unit = {},
+    private val transactionFailureHook: (() -> Unit)? = null,
+    private val index: VectorIndex? = null,
+    private val candidateLimit: Int = 128,
+    private val fallbackIndex: RebuildableInMemoryVectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
-    private val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
+    private val localFallbackIndex = fallbackIndex
+    private val retrievalIndex = index ?: localFallbackIndex
     private val loadedSessions = mutableSetOf<String>()
     private val loadMutex = Mutex()
 
     suspend fun write(entry: MemoryEntry, modelId: String): Set<String> {
         return withContext(Dispatchers.IO) {
-            writeEntry(entry)
-            queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
-            try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
+            require(modelId.isNotBlank()) { "modelId must not be blank" }
+            database.transaction {
+                writeEntry(entry)
+                queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
+                val nowMs = createdAtMsFromId(entry.id)
+                queries.upsertVectorSync(entry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
+                transactionFailureHook?.invoke()
+            }
+            if (modelId == activeModelId) {
+                try { localFallbackIndex.insert(entry) } catch (_: Throwable) { localFallbackIndex.markDirty() }
+            } else {
+                try { localFallbackIndex.remove(entry.id) } catch (_: Throwable) { localFallbackIndex.markDirty() }
+            }
+            try {
+                projectionWake()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Wake delivery is best effort after the durable write and fallback update.
+            }
             setOf(io.openeden.trace.TraceTag.MemoryWritten)
         }
     }
 
-    override suspend fun write(entry: MemoryEntry): Set<String> = write(entry, "unknown")
+    override suspend fun write(entry: MemoryEntry): Set<String> = write(entry, activeModelId)
 
     suspend fun readById(id: String): StoredMemory? = withContext(Dispatchers.IO) {
         queries.selectById(id, ::mapRow).executeAsOneOrNull()
+    }
+
+    /** Rebuilds local embeddings whose model differs from [activeModelId], in bounded batches. */
+    suspend fun refreshOutdatedEmbeddings(
+        inferenceExecutor: InferenceExecutor,
+        batchSize: Int = 128,
+    ): Int = withContext(Dispatchers.IO) {
+        require(batchSize > 0) { "batchSize must be positive" }
+        var refreshedCount = 0
+        while (true) {
+            val candidates = queries.selectVectorSyncForModelRefresh(
+                activeModelId,
+                batchSize.toLong(),
+                ::mapRefreshCandidate,
+            ).executeAsList()
+            if (candidates.isEmpty()) break
+
+            val ids = candidates.map { it.memoryId }
+            val entries = queries.selectByIds(ids, ::mapRow).executeAsList()
+            val refreshed = inferenceExecutor.run {
+                entries.map { stored ->
+                    RefreshedEmbedding(
+                        memoryId = stored.entry.id,
+                        semantic = embeddingModel.embed(stored.entry.content),
+                        emotional = embeddingModel.embed(stored.entry.metadata.snapshot8D),
+                    )
+                }
+            }
+            val nowMs = System.currentTimeMillis()
+            database.transaction {
+                refreshed.forEach { embedding ->
+                    queries.upsertEmbedding(
+                        embedding.memoryId,
+                        activeModelId,
+                        json.encodeToString(embedding.semantic),
+                        json.encodeToString(embedding.emotional),
+                        "READY",
+                    )
+                    queries.upsertVectorSync(
+                        embedding.memoryId,
+                        activeModelId,
+                        MemoryVectorProjectionStore.ProjectionStatus.PENDING.name,
+                        0,
+                        nowMs,
+                        null,
+                        nowMs,
+                    )
+                }
+            }
+            refreshedCount += refreshed.size
+            loadMutex.withLock { loadedSessions.clear() }
+            localFallbackIndex.markDirty()
+            if (refreshed.size >= batchSize) yield()
+        }
+        refreshedCount
     }
 
     /** Ordered RAW-only cursor range, with an exclusive lower and inclusive upper bound. */
@@ -105,17 +189,45 @@ class SqlDelightMemoryRepository(
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
         ensureIndexed(request.sessionId)
-        val candidates = index.search(
+        val hits = retrievalIndex.search(
             VectorSearchRequest(
                 sessionId = request.sessionId,
                 semanticEmbedding = embeddingModel.embed(request.userInput),
                 emotionalEmbedding = embeddingModel.embed(request.currentVector),
-                limit = 128,
+                limit = candidateLimit.coerceAtLeast(0),
             ),
-        ).map { it.entry }
+        ).take(candidateLimit.coerceAtLeast(0))
+        val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
+        val candidates = hits.mapNotNull { hit ->
+            if (retrievalIndex === localFallbackIndex) {
+                hit.entry?.takeIf { it.sessionId == request.sessionId } ?: hydrated[hit.memoryId]
+            } else {
+                hydrated[hit.memoryId]
+            }
+        }
         val palace = InMemoryMemoryPalace(DirectInferenceExecutor, embeddingModel = embeddingModel)
         candidates.forEach { palace.write(it) }
         return palace.retrieve(request)
+    }
+
+    private suspend fun hydrateRemoteCandidates(
+        sessionId: String,
+        hits: List<VectorSearchHit>,
+    ): Map<String, MemoryEntry> {
+        val validateAllHits = retrievalIndex !== localFallbackIndex
+        val ids = hits.asSequence()
+            .filter { validateAllHits || it.entry == null }
+            .map { it.memoryId }
+            .distinct()
+            .take(candidateLimit.coerceAtLeast(0))
+            .toList()
+        if (ids.isEmpty()) return emptyMap()
+        return withContext(Dispatchers.IO) {
+            queries.selectByIds(ids, ::mapRow).executeAsList()
+                .asSequence()
+                .filter { it.entry.sessionId == sessionId && it.modelId == activeModelId }
+                .associate { it.entry.id to it.entry }
+        }
     }
 
     fun close() = driver.close()
@@ -123,12 +235,16 @@ class SqlDelightMemoryRepository(
     private suspend fun ensureIndexed(sessionId: String) {
         loadMutex.withLock {
             if (sessionId in loadedSessions) return
-            val entries = withContext(Dispatchers.IO) { queries.selectBySession(sessionId, ::mapRow).executeAsList().map { it.entry } }
+            val entries = withContext(Dispatchers.IO) {
+                queries.selectBySession(sessionId, ::mapRow).executeAsList()
+                    .filter { it.modelId == activeModelId }
+                    .map { it.entry }
+            }
             var indexed = true
             try {
-                index.rebuild(entries)
+                localFallbackIndex.rebuild(entries)
             } catch (_: Throwable) {
-                index.markDirty()
+                localFallbackIndex.markDirty()
                 indexed = false
             }
             if (indexed) loadedSessions += sessionId
@@ -198,14 +314,46 @@ class SqlDelightMemoryRepository(
         l: Double, p: Double, e: Double, s: Double, tau: Double, v: Double, m: Double, f: Double,
     ): BioVector = BioVector(l.toFloat(), p.toFloat(), e.toFloat(), s.toFloat(), tau.toFloat(), v.toFloat(), m.toFloat(), f.toFloat())
 
+    private fun mapRefreshCandidate(
+        memoryId: String,
+        modelId: String,
+        status: String,
+        attempts: Long,
+        availableAtMs: Long,
+        lastError: String?,
+        updatedAtMs: Long,
+    ) = RefreshCandidate(memoryId, modelId, status, attempts, availableAtMs, lastError, updatedAtMs)
+
+    private data class RefreshCandidate(
+        val memoryId: String,
+        val modelId: String,
+        val status: String,
+        val attempts: Long,
+        val availableAtMs: Long,
+        val lastError: String?,
+        val updatedAtMs: Long,
+    )
+
+    private data class RefreshedEmbedding(
+        val memoryId: String,
+        val semantic: List<Float>,
+        val emotional: List<Float>,
+    )
+
     companion object {
         fun open(
             dbPath: Path,
             embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
+            activeModelId: String = "local-v1",
+            projectionWake: () -> Unit = {},
+            transactionFailureHook: (() -> Unit)? = null,
+            index: VectorIndex? = null,
+            candidateLimit: Int = 128,
+            fallbackIndex: RebuildableInMemoryVectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel)
+            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake, transactionFailureHook, index, candidateLimit, fallbackIndex)
         }
     }
 }

@@ -263,6 +263,37 @@ Internal vectors, `evolutionIndex`, prompts, traces, retrieval modes, and diary 
 
 ## Build And Test
 
+## Qdrant Vector Database
+
+Qdrant is an optional, rebuildable candidate index. SQLite remains the authoritative
+store for memory text, metadata, embeddings, runtime state, and projection status.
+The server writes SQLite first and projects vectors asynchronously; an unavailable
+Qdrant automatically uses the in-memory index and `/health` remains `ready`.
+
+Start the local Qdrant service with the pinned image and persistent named volume:
+
+```powershell
+docker compose up -d qdrant
+```
+
+The default endpoint is `http://localhost:6333`. For a remote service, set
+`OPENEDEN_QDRANT_URL`; set `OPENEDEN_QDRANT_API_KEY` only when the remote service
+requires it. The API key is never included in diagnostics or logs.
+
+The active collection is derived from `OPENEDEN_QDRANT_COLLECTION` and
+`OPENEDEN_EMBEDDING_MODEL_ID` (default `local-v1`). Changing the embedding model
+creates a separate collection and refreshes stored embeddings in the background;
+old collections are not deleted automatically.
+
+To force a complete projection rebuild, stop writes if appropriate and delete only
+the active Qdrant collection. The synchronizer recreates it from SQLite. Back up
+`data/runtime/openeden.db`: it is the recovery artifact, while Qdrant contains only
+the disposable search projection.
+
+When Qdrant is degraded, token-gated `/api/v1/diagnostics` reports the backend,
+collection, circuit state, projection counts, last remote success, and a sanitized
+error category. It never returns memory content, embeddings, or credentials.
+
 ```powershell
 .\gradlew.bat :server:test
 .\gradlew.bat :server:build

@@ -7,6 +7,7 @@ import io.openeden.server.api.dto.ChatStreamRequestDto
 import io.openeden.server.api.dto.ConversationHistoryPageDto
 import io.openeden.server.api.dto.ConversationTurnDto
 import io.openeden.server.api.dto.DiagnosticStateDto
+import io.openeden.server.api.dto.VectorDatabaseStatusDto
 import io.openeden.server.api.dto.DevMessageRequestDto
 import io.openeden.server.api.dto.DevMessageResponseDto
 import io.openeden.server.api.dto.HealthResponseDto
@@ -14,6 +15,8 @@ import io.openeden.server.api.dto.PublicStateDto
 import io.openeden.server.bootstrap.PipelineKey
 import io.openeden.server.bootstrap.SessionStateStoreKey
 import io.openeden.server.bootstrap.TranscriptStoreKey
+import io.openeden.server.bootstrap.VectorDatabaseStatusKey
+import io.openeden.server.vector.VectorDatabaseStatus
 import io.openeden.server.bootstrap.loadDefaultPersonaConfig
 import io.openeden.bio.VectorDelta
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
@@ -40,6 +43,7 @@ fun Application.configureRouting() {
     val sessionStateStore = attributes.getOrNull(SessionStateStoreKey)
     val transcriptStore = attributes.getOrNull(TranscriptStoreKey)
     val diagnosticsAccess = attributes.getOrNull(DiagnosticsAccessKey) ?: DiagnosticsAccess.disabled()
+    val vectorDatabaseStatus = attributes.getOrNull(VectorDatabaseStatusKey)
     routing {
         get("/") {
             call.respondText("OpenEden runtime skeleton")
@@ -126,6 +130,15 @@ fun Application.configureRouting() {
                     shockIntensity = state.shockState?.intensity,
                     evolutionIndex = state.evolutionIndex,
                     derivedDissonance = state.vector.derivedDissonance(),
+                    vectorDatabase = vectorDatabaseStatus?.let { provider ->
+                        try {
+                            provider.snapshot().toDto()
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (_: Throwable) {
+                            null
+                        }
+                    },
                 ),
             )
         }
@@ -295,3 +308,15 @@ private fun String.isValidClientRequestId(): Boolean =
             character == '_' ||
             character == '-'
     }
+
+private fun VectorDatabaseStatus.toDto() = VectorDatabaseStatusDto(
+    backend = backend,
+    collection = collection,
+    circuit = circuit.state.name,
+    fallbackActive = fallbackActive,
+    pendingProjectionCount = pendingProjectionCount.coerceAtLeast(0L),
+    totalNonReadyProjectionCount = totalNonReadyProjectionCount.coerceAtLeast(0L),
+    lastSuccessAtMs = circuit.lastSuccessAtMs,
+    lastErrorCategory = lastErrorCategory,
+    lastErrorAtMs = lastErrorAtMs,
+)
