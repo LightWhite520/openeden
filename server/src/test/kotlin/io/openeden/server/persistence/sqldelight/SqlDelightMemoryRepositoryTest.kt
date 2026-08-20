@@ -217,6 +217,24 @@ class SqlDelightMemoryRepositoryTest {
         }
     }
 
+    @Test
+    fun `overwriting an indexed memory with an old model removes the stale fallback entry`() = runTest {
+        val active = memoryEntry("QQ:42:1000:raw", "QQ:42", "active")
+        val old = active.copy(content = "old")
+        SqlDelightMemoryRepository.open(dbPath, activeModelId = "local-v2").use { repository ->
+            repository.write(active, modelId = "local-v2")
+            assertEquals(listOf(active.id), repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+            ).memories.map { it.id })
+
+            repository.write(old, modelId = "local-v1")
+
+            assertEquals(emptyList(), repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+            ).memories)
+        }
+    }
+
     private fun memoryEntry(id: String, sessionId: String, content: String) = MemoryEntry(
         id = id,
         sessionId = sessionId,

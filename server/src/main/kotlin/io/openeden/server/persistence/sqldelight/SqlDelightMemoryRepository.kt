@@ -66,6 +66,8 @@ class SqlDelightMemoryRepository(
             }
             if (modelId == activeModelId) {
                 try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
+            } else {
+                try { index.remove(entry.id) } catch (_: Throwable) { index.markDirty() }
             }
             try {
                 projectionWake()
