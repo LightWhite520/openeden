@@ -38,21 +38,34 @@ class QdrantVectorIndex(
 
     override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
         require(batchSize > 0) { "batchSize must be positive" }
-        val points = entries.map { entry ->
-            validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, dimensions)
-            entry.toPoint(modelId)
+        var expectedDimensions = dimensions
+        var entryCount = 0
+        for (entry in entries) {
+            validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, expectedDimensions)
+            val entryDimensions = Dimensions(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
+            expectedDimensions = expectedDimensions ?: entryDimensions
+            require(expectedDimensions == entryDimensions) {
+                incompatibleMessage(expectedDimensions, entryDimensions)
+            }
+            entryCount += 1
         }
-        if (points.isEmpty()) return
-        val firstDimensions = Dimensions(
-            points.first().vectors.getValue(SEMANTIC).size,
-            points.first().vectors.getValue(EMOTIONAL).size,
-        )
-        points.drop(1).forEach { point ->
-            val pointDimensions = Dimensions(point.vectors.getValue(SEMANTIC).size, point.vectors.getValue(EMOTIONAL).size)
-            require(pointDimensions == firstDimensions) { incompatibleMessage(firstDimensions, pointDimensions) }
+        if (entryCount == 0) {
+            if (ensureExistingCollection()) client.deletePoints(collection, activeModelFilter())
+            return
         }
-        ensureCollection(firstDimensions.semantic, firstDimensions.emotional)
-        for (batch in points.chunked(batchSize)) client.upsertPoints(collection, batch)
+        val establishedDimensions = requireNotNull(expectedDimensions)
+        ensureCollection(establishedDimensions.semantic, establishedDimensions.emotional)
+        client.deletePoints(collection, activeModelFilter())
+
+        val batch = ArrayList<QdrantPoint>(batchSize)
+        for (entry in entries) {
+            batch += entry.toPoint(modelId)
+            if (batch.size == batchSize) {
+                client.upsertPoints(collection, batch.toList())
+                batch.clear()
+            }
+        }
+        if (batch.isNotEmpty()) client.upsertPoints(collection, batch.toList())
     }
 
     override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
@@ -90,13 +103,25 @@ class QdrantVectorIndex(
             val inspected = client.inspectCollection(collection)
             if (inspected == null) {
                 client.createCollection(collection, expected.asSpecs())
-                PAYLOAD_INDEXES.forEach { field -> client.ensurePayloadIndex(collection, field) }
             } else {
                 validateCollection(inspected, expected)
             }
+            ensurePayloadIndexes()
             dimensions = expected
             collectionReady = true
         }
+    }
+
+    private suspend fun ensureExistingCollection(): Boolean = stateMutex.withLock {
+        if (collectionReady) return@withLock true
+        val inspected = client.inspectCollection(collection) ?: return@withLock false
+        val inspectedDimensions = inspected.vectors.toDimensions()
+        require(inspectedDimensions != null) { "Qdrant collection is missing named vectors" }
+        validateCollection(inspected, inspectedDimensions)
+        ensurePayloadIndexes()
+        dimensions = inspectedDimensions
+        collectionReady = true
+        true
     }
 
     private suspend fun ensureSearchCollection(semanticSize: Int): String? {
@@ -107,6 +132,7 @@ class QdrantVectorIndex(
                 val inspectedDimensions = inspected.vectors.toDimensions()
                 require(inspectedDimensions != null) { "Qdrant collection is missing named vectors" }
                 validateCollection(inspected, inspectedDimensions)
+                ensurePayloadIndexes()
                 dimensions = inspectedDimensions
                 collectionReady = true
             }
@@ -133,6 +159,14 @@ class QdrantVectorIndex(
         val emotional = this[EMOTIONAL] ?: return null
         return Dimensions(semantic.size, emotional.size)
     }
+
+    private suspend fun ensurePayloadIndexes() {
+        PAYLOAD_INDEXES.forEach { field -> client.ensurePayloadIndex(collection, field) }
+    }
+
+    private fun activeModelFilter() = QdrantFilter(
+        must = listOf(QdrantFieldCondition("model_id", modelId)),
+    )
 
     private fun validateVectors(semantic: List<Float>, emotional: List<Float>, known: Dimensions?) {
         validateVector(semantic, SEMANTIC, known?.semantic)

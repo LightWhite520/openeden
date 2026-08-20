@@ -85,7 +85,16 @@ class QdrantClient(
         request {
             http.post("${collectionPath(collection)}/points/delete") {
                 contentType(ContentType.Application.Json)
-                setBody(QdrantDeletePointsRequest(pointIds))
+                setBody(QdrantDeletePointsRequest(points = pointIds))
+            }.requireSuccess()
+        }
+    }
+
+    suspend fun deletePoints(collection: String, filter: QdrantFilter) {
+        request {
+            http.post("${collectionPath(collection)}/points/delete") {
+                contentType(ContentType.Application.Json)
+                setBody(QdrantDeletePointsRequest(filter = filter.toWire()))
             }.requireSuccess()
         }
     }
@@ -139,7 +148,10 @@ class QdrantClient(
 @Serializable private data class QdrantPayloadIndexRequest(val field_name: String, val field_schema: String)
 @Serializable private data class QdrantWirePoint(val id: String, val vector: Map<String, List<Float>>, val payload: Map<String, String>)
 @Serializable private data class QdrantUpsertRequest(val points: List<QdrantWirePoint>)
-@Serializable private data class QdrantDeletePointsRequest(val points: List<String>)
+@Serializable private data class QdrantDeletePointsRequest(
+    val points: List<String>? = null,
+    val filter: QdrantWireFilter? = null,
+)
 @Serializable private data class QdrantNamedVector(val name: String, val vector: List<Float>)
 @Serializable private data class QdrantSearchRequest(val vector: QdrantNamedVector, val limit: Int, val filter: QdrantWireFilter? = null)
 @Serializable private data class QdrantWireFilter(val must: List<QdrantWireCondition>)

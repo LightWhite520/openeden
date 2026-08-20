@@ -52,6 +52,64 @@ class QdrantVectorIndexTest {
     }
 
     @Test
+    fun `compatible existing collection ensures all payload indexes before upsert`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") {
+                response("""{"result":{"config":{"params":{"vectors":{"semantic":{"size":2,"distance":"Cosine"},"emotional":{"size":3,"distance":"Cosine"}}}}}}""")
+            } else response("{}")
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+
+        index.insert(entry("memory-1", semantic = listOf(.1f, .2f), emotional = listOf(.3f, .4f, .5f)))
+
+        val collectionPath = "/collections/${QdrantCollectionNaming("eden").collectionName("local-v1")}"
+        assertEquals(listOf(collectionPath, "$collectionPath/index", "$collectionPath/index", "$collectionPath/index", "$collectionPath/index", "$collectionPath/points"), requests.map { it.url.encodedPath })
+        client.close()
+    }
+
+    @Test
+    fun `rebuild clears active model points before streaming bounded upserts`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") response("{}", HttpStatusCode.NotFound) else response("{}")
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+
+        index.rebuild(
+            listOf(
+                entry("memory-1", listOf(.1f, .2f), listOf(.3f, .4f, .5f)),
+                entry("memory-2", listOf(.2f, .3f), listOf(.4f, .5f, .6f)),
+                entry("memory-3", listOf(.3f, .4f), listOf(.5f, .6f, .7f)),
+            ),
+            batchSize = 2,
+        )
+
+        val delete = requests[6].jsonBody()
+        assertTrue(requests[6].url.encodedPath.endsWith("/points/delete"))
+        assertEquals("local-v1", delete["filter"]!!.jsonObject["must"]!!.jsonArray.single().jsonObject["match"]!!.jsonObject["value"]!!.jsonPrimitive.content)
+        assertEquals(2, requests[7].jsonBody()["points"]!!.jsonArray.size)
+        assertEquals(1, requests[8].jsonBody()["points"]!!.jsonArray.size)
+        client.close()
+    }
+
+    @Test
+    fun `empty rebuild clears an existing compatible collection`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") {
+                response("""{"result":{"config":{"params":{"vectors":{"semantic":{"size":2,"distance":"Cosine"},"emotional":{"size":3,"distance":"Cosine"}}}}}}""")
+            } else response("{}")
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+
+        index.rebuild(emptyList())
+
+        assertTrue(requests.last().url.encodedPath.endsWith("/points/delete"))
+        client.close()
+    }
+
+    @Test
     fun `search sends exact session room kind and model filters and returns null entries`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { request ->
