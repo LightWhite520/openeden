@@ -64,7 +64,9 @@ class SqlDelightMemoryRepository(
                 queries.upsertVectorSync(entry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
                 transactionFailureHook?.invoke()
             }
-            try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
+            if (modelId == activeModelId) {
+                try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
+            }
             try {
                 projectionWake()
             } catch (cancellation: CancellationException) {
@@ -166,7 +168,11 @@ class SqlDelightMemoryRepository(
     private suspend fun ensureIndexed(sessionId: String) {
         loadMutex.withLock {
             if (sessionId in loadedSessions) return
-            val entries = withContext(Dispatchers.IO) { queries.selectBySession(sessionId, ::mapRow).executeAsList().map { it.entry } }
+            val entries = withContext(Dispatchers.IO) {
+                queries.selectBySession(sessionId, ::mapRow).executeAsList()
+                    .filter { it.modelId == activeModelId }
+                    .map { it.entry }
+            }
             var indexed = true
             try {
                 index.rebuild(entries)

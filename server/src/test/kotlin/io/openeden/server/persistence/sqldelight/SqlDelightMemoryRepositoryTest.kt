@@ -201,6 +201,22 @@ class SqlDelightMemoryRepositoryTest {
         }
     }
 
+    @Test
+    fun `fallback index only rebuilds memories for the active model`() = runTest {
+        val active = memoryEntry("QQ:42:1000:raw", "QQ:42", "active")
+        val old = memoryEntry("QQ:42:2000:raw", "QQ:42", "old")
+        SqlDelightMemoryRepository.open(dbPath, activeModelId = "local-v2").use { repository ->
+            repository.write(active, modelId = "local-v2")
+            repository.write(old, modelId = "local-v1")
+
+            val result = repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+            )
+
+            assertEquals(listOf(active.id), result.memories.map { it.id })
+        }
+    }
+
     private fun memoryEntry(id: String, sessionId: String, content: String) = MemoryEntry(
         id = id,
         sessionId = sessionId,
