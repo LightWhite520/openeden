@@ -56,6 +56,17 @@ class QdrantClient(
         }
     }
 
+    suspend fun inspectPayloadIndexes(name: String): Set<String> = request {
+        val response = http.get("${collectionPath(name)}/index")
+        if (response.status == HttpStatusCode.NotFound) return@request emptySet()
+        response.requireSuccess()
+            .decode<QdrantPayloadIndexResponse>()
+            .result
+            ?.payload_indexes
+            .orEmpty()
+            .mapTo(linkedSetOf()) { it.field_name }
+    }
+
     suspend fun createCollection(name: String, vectors: Map<String, QdrantVectorSpec>) {
         request {
             http.put(collectionPath(name)) {
@@ -154,6 +165,9 @@ class QdrantClient(
 @Serializable private data class QdrantVectorConfig(val size: Int, val distance: String)
 @Serializable private data class QdrantCreateCollectionRequest(val vectors: Map<String, QdrantVectorConfig>)
 @Serializable private data class QdrantPayloadIndexRequest(val field_name: String, val field_schema: String)
+@Serializable private data class QdrantPayloadIndexResponse(val result: QdrantPayloadIndexResult? = null)
+@Serializable private data class QdrantPayloadIndexResult(val payload_indexes: List<QdrantPayloadIndexConfig> = emptyList())
+@Serializable private data class QdrantPayloadIndexConfig(val field_name: String)
 @Serializable private data class QdrantWirePoint(val id: String, val vector: Map<String, List<Float>>, val payload: Map<String, String>)
 @Serializable private data class QdrantUpsertRequest(val points: List<QdrantWirePoint>)
 @Serializable private data class QdrantDeletePointsRequest(

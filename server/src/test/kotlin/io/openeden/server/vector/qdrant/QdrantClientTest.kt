@@ -63,6 +63,16 @@ class QdrantClientTest {
     }
 
     @Test
+    fun `payload index inspection decodes indexed field names`() = runTest {
+        val client = clientFor(mutableListOf()) {
+            response("""{"result":{"payload_indexes":[{"field_name":"session_id"},{"field_name":"room"}]}}""")
+        }
+
+        assertEquals(setOf("session_id", "room"), client.inspectPayloadIndexes("eden"))
+        client.close()
+    }
+
+    @Test
     fun `payload index and batch upsert send qdrant wire payloads`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { response("{}") }

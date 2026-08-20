@@ -10,6 +10,7 @@ import io.openeden.memory.RebuildableInMemoryVectorIndex
 import io.openeden.memory.VectorSearchRequest
 import io.openeden.server.vector.QdrantCircuitBreaker
 import io.openeden.server.vector.ResilientVectorIndex
+import kotlinx.coroutines.CancellationException
 import org.junit.Assume.assumeTrue
 import java.util.UUID
 import kotlin.test.Test
@@ -46,6 +47,10 @@ class QdrantIntegrationTest {
             assertEquals(setOf("semantic", "emotional"), schema.vectors.keys)
             assertEquals(2, schema.vectors.getValue("semantic").size)
             assertEquals(8, schema.vectors.getValue("emotional").size)
+            assertEquals(
+                setOf("session_id", "room", "kind", "model_id"),
+                client.inspectPayloadIndexes(collection),
+            )
 
             val request = VectorSearchRequest("session-a", listOf(1.0f, 0.0f), limit = 10)
             val filtered = index.search(request)
@@ -64,24 +69,36 @@ class QdrantIntegrationTest {
             )
             assertTrue(rawHits.all { it.payload["memory_id"] in setOf(sessionA1.id, sessionA2.id) })
 
-            val unavailableClient = QdrantClient("http://127.0.0.1:1", timeoutMillis = 250)
-            try {
-                val resilient = ResilientVectorIndex(
-                    primary = QdrantVectorIndex(unavailableClient, naming, modelId),
-                    fallback = RebuildableInMemoryVectorIndex(),
-                    circuit = QdrantCircuitBreaker(failureThreshold = 1),
-                )
-                resilient.insert(sessionA1)
-                val fallbackHits = resilient.search(request.copy(limit = 1))
-                assertEquals(listOf(sessionA1.id), fallbackHits.map { it.memoryId })
-                assertNotNull(fallbackHits.single().entry)
-                assertTrue(resilient.status().fallbackActive)
-            } finally {
-                unavailableClient.close()
-            }
+            var nowMs = 0L
+            val resilient = ResilientVectorIndex(
+                primary = index,
+                fallback = RebuildableInMemoryVectorIndex(),
+                circuit = QdrantCircuitBreaker(failureThreshold = 1, probeIntervalMs = 10, nowMs = { nowMs }),
+            )
+            resilient.rebuild(sequenceOf(sessionA1, sessionA2, sessionB1).asIterable())
+            client.deleteCollection(collection)
+
+            val fallbackHits = resilient.search(request.copy(limit = 1))
+            assertEquals(listOf(sessionA1.id), fallbackHits.map { it.memoryId })
+            assertNotNull(fallbackHits.single().entry)
+            assertTrue(resilient.status().fallbackActive)
+
+            nowMs = 10L
+            resilient.rebuild(sequenceOf(sessionA1, sessionA2, sessionB1).asIterable())
+            assertEquals(ResilientVectorIndex.TRACE_RECOVERED, resilient.status().lastTraceTag)
+            val recoveredHits = resilient.search(request.copy(limit = 1))
+            assertEquals(listOf(sessionA1.id), recoveredHits.map { it.memoryId })
+            assertTrue(recoveredHits.all { it.entry == null }, "recovered search must use Qdrant candidates")
         } finally {
-            runCatching { client.deleteCollection(collection) }
-            client.close()
+            try {
+                client.deleteCollection(collection)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                // Teardown must not hide the original integration failure.
+            } finally {
+                client.close()
+            }
         }
     }
 
