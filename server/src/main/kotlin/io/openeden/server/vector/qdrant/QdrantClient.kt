@@ -80,6 +80,16 @@ class QdrantClient(
         }
     }
 
+    suspend fun deletePoints(collection: String, pointIds: List<String>) {
+        if (pointIds.isEmpty()) return
+        request {
+            http.post("${collectionPath(collection)}/points/delete") {
+                contentType(ContentType.Application.Json)
+                setBody(QdrantDeletePointsRequest(pointIds))
+            }.requireSuccess()
+        }
+    }
+
     /** Qdrant's named-vector search shape is {vector:{name,vector}, limit, filter}. */
     suspend fun searchSemanticPoints(collection: String, vector: FloatArray, limit: Int, filter: QdrantFilter? = null, using: String = "semantic"): List<QdrantSearchHit> = request {
         val response = http.post("${collectionPath(collection)}/points/search") {
@@ -129,6 +139,7 @@ class QdrantClient(
 @Serializable private data class QdrantPayloadIndexRequest(val field_name: String, val field_schema: String)
 @Serializable private data class QdrantWirePoint(val id: String, val vector: Map<String, List<Float>>, val payload: Map<String, String>)
 @Serializable private data class QdrantUpsertRequest(val points: List<QdrantWirePoint>)
+@Serializable private data class QdrantDeletePointsRequest(val points: List<String>)
 @Serializable private data class QdrantNamedVector(val name: String, val vector: List<Float>)
 @Serializable private data class QdrantSearchRequest(val vector: QdrantNamedVector, val limit: Int, val filter: QdrantWireFilter? = null)
 @Serializable private data class QdrantWireFilter(val must: List<QdrantWireCondition>)
