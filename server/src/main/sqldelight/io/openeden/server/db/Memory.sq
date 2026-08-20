@@ -188,6 +188,13 @@ WHERE status = 'RUNNING';
 countPendingVectorSync:
 SELECT COUNT(*) FROM memory_vector_sync WHERE status = 'PENDING';
 
+countDuePendingVectorSync:
+SELECT COUNT(*) FROM memory_vector_sync
+WHERE status = 'PENDING' AND available_at_ms <= ?;
+
+countNonReadyVectorSync:
+SELECT COUNT(*) FROM memory_vector_sync WHERE status <> 'READY';
+
 selectReadyVectorSync:
 SELECT memory_id
 FROM memory_vector_sync

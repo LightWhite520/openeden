@@ -5,6 +5,8 @@ import io.openeden.memory.RebuildableInMemoryVectorIndex
 import io.openeden.memory.VectorIndex
 import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
+import io.openeden.server.vector.qdrant.QdrantClientException
+import io.openeden.trace.TraceTag
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -108,13 +110,17 @@ class ResilientVectorIndex(
     private suspend fun markFallback(failure: Throwable?) = statusMutex.withLock {
         fallbackActive = true
         lastTraceTag = TRACE_FALLBACK
-        lastErrorCategory = failure?.javaClass?.simpleName
+        lastErrorCategory = failure?.let { safeErrorCategory(it) }
         lastErrorAtMs = failure?.let { nowMs() }
     }
 
+    private fun safeErrorCategory(failure: Throwable): String =
+        (failure as? QdrantClientException)?.category?.name
+            ?: failure::class.simpleName.orEmpty().ifBlank { "REMOTE_FAILURE" }
+
     companion object {
-        const val TRACE_QDRANT = "vector_db=QDRANT"
-        const val TRACE_FALLBACK = "vector_db=QDRANT_FALLBACK"
-        const val TRACE_RECOVERED = "vector_db=QDRANT_RECOVERED"
+        const val TRACE_QDRANT = TraceTag.VectorDatabaseQdrant
+        const val TRACE_FALLBACK = TraceTag.VectorDatabaseFallback
+        const val TRACE_RECOVERED = TraceTag.VectorDatabaseRecovered
     }
 }

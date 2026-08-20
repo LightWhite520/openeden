@@ -26,6 +26,11 @@ class MemoryVectorProjectionStore(
         val updatedAtMs: Long,
     )
 
+    data class ProjectionCounts(
+        val duePending: Long,
+        val nonReady: Long,
+    )
+
     private val queries get() = database.memoryQueries
 
     suspend fun enqueue(memoryId: String, modelId: String, nowMs: Long) = withContext(Dispatchers.IO) {
@@ -97,6 +102,14 @@ class MemoryVectorProjectionStore(
 
     suspend fun pendingCount(): Long = withContext(Dispatchers.IO) {
         queries.countPendingVectorSync().executeAsOne()
+    }
+
+    suspend fun projectionCounts(nowMs: Long): ProjectionCounts = withContext(Dispatchers.IO) {
+        requireTimestamp(nowMs)
+        ProjectionCounts(
+            duePending = queries.countDuePendingVectorSync(nowMs).executeAsOne(),
+            nonReady = queries.countNonReadyVectorSync().executeAsOne(),
+        )
     }
 
     override suspend fun resetReady(modelId: String, nowMs: Long, batchSize: Int): List<String> =

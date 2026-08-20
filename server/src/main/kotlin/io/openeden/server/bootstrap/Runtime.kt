@@ -59,6 +59,8 @@ import io.openeden.server.vector.asProjectionWorkStore
 import io.openeden.server.vector.qdrant.QdrantClient
 import io.openeden.server.vector.qdrant.QdrantCollectionNaming
 import io.openeden.server.vector.qdrant.QdrantVectorIndex
+import io.openeden.server.vector.VectorDatabaseStatusProvider
+import io.openeden.server.vector.VectorDatabaseStatus
 import io.openeden.server.persistence.sqldelight.SqlDelightIncarnationLifecycleRepository
 import io.openeden.server.runtime.IncarnationTerminationCoordinator
 import io.openeden.runtime.lifecycle.IncarnationLifecycle
@@ -83,6 +85,7 @@ import java.nio.file.Path
 val PipelineKey = AttributeKey<DevelopmentMessagePipeline>("openeden.pipeline")
 val SessionStateStoreKey = AttributeKey<SessionStateStore>("openeden.session-state-store")
 val TranscriptStoreKey = AttributeKey<TranscriptStore>("openeden.transcript-store")
+val VectorDatabaseStatusKey = AttributeKey<VectorDatabaseStatusProvider>("openeden.vector-database-status")
 val IncarnationTerminationCoordinatorKey = AttributeKey<IncarnationTerminationCoordinator>("openeden.incarnation-termination-coordinator")
 
 /**
@@ -187,6 +190,7 @@ private suspend fun Application.startRuntime(
                     serverConfig.vectorDatabase.syncBatchSize,
                 ).isNotEmpty()) Unit
             },
+            onTrace = { tag -> log.info("Qdrant trace tag: $tag") },
         )
         QdrantRuntime(
             client = qdrantClient,
@@ -197,6 +201,7 @@ private suspend fun Application.startRuntime(
     } else {
         null
     }
+    val resilientIndex = qdrantRuntime?.resilientIndex(fallbackIndex)
     lateinit var projectionSynchronizer: QdrantProjectionSynchronizer
     val memoryStore = persistenceIo.open {
         SqlDelightMemoryRepository.open(
@@ -204,7 +209,7 @@ private suspend fun Application.startRuntime(
             embeddingModel = models.embeddingModel,
             activeModelId = serverConfig.vectorDatabase.modelId,
             projectionWake = { projectionWake() },
-            index = qdrantRuntime?.resilientIndex(fallbackIndex),
+            index = resilientIndex,
             fallbackIndex = fallbackIndex,
         )
     }
@@ -259,10 +264,33 @@ private suspend fun Application.startRuntime(
             batchSize = serverConfig.vectorDatabase.syncBatchSize,
             circuit = runtime.circuit,
             onCollectionLoss = { runtime.primary.markDirty() },
+            onTrace = { tag -> log.info("Qdrant projection trace tag: $tag") },
         )
         projectionWake = projectionSynchronizer::signal
         projectionSynchronizer.start(scope)
     }
+    attributes.put(
+        VectorDatabaseStatusKey,
+        VectorDatabaseStatusProvider {
+            val counts = projectionStore.projectionCounts(System.currentTimeMillis())
+            val status = resilientIndex?.status() ?: VectorDatabaseStatus(
+                backend = "IN_MEMORY",
+                circuit = QdrantCircuitBreaker.Snapshot(
+                    state = QdrantCircuitBreaker.State.CLOSED,
+                    consecutiveFailures = 0,
+                    openedAtMs = null,
+                    lastSuccessAtMs = null,
+                    lastFailure = null,
+                ),
+                fallbackActive = true,
+                lastTraceTag = "vector_db=IN_MEMORY",
+            )
+            status.copy(
+                pendingProjectionCount = counts.duePending,
+                totalNonReadyProjectionCount = counts.nonReady,
+            )
+        },
+    )
     val modelRefreshJob = scope.launch {
         try {
             memoryStore.refreshOutdatedEmbeddings(

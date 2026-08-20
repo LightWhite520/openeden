@@ -4,6 +4,7 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.VectorIndex
 import io.openeden.server.persistence.sqldelight.MemoryVectorProjectionStore
 import io.openeden.server.vector.qdrant.QdrantClientException
+import io.openeden.trace.TraceTag
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -38,6 +39,7 @@ class QdrantProjectionSynchronizer(
     private val retryJitterMs: (MemoryVectorProjectionStore.ProjectionWork) -> Long = {
         Random.nextLong(0L, 501L)
     },
+    private val onTrace: (String) -> Unit = {},
 ) {
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var child: Job? = null
@@ -53,6 +55,7 @@ class QdrantProjectionSynchronizer(
         circuit: QdrantCircuitBreaker? = null,
         retryJitterMs: (MemoryVectorProjectionStore.ProjectionWork) -> Long = { Random.nextLong(0L, 501L) },
         onCollectionLoss: (suspend () -> Unit)? = null,
+        onTrace: (String) -> Unit = {},
     ) : this(
         store = store,
         loadEntry = loadEntry,
@@ -64,6 +67,7 @@ class QdrantProjectionSynchronizer(
         circuit = circuit,
         onCollectionLoss = onCollectionLoss,
         retryJitterMs = retryJitterMs,
+        onTrace = onTrace,
     )
 
     init {
@@ -136,7 +140,13 @@ class QdrantProjectionSynchronizer(
             reschedule(work, completedAt, "MemorySourceMissing")
         }
         mismatched.forEach { work -> reschedule(work, completedAt, "MemoryIdentityMismatch") }
-        if (loaded.isNotEmpty()) store.markReady(loaded.map { it.id }, completedAt)
+        if (missing.isNotEmpty() || mismatched.isNotEmpty()) {
+            emitTrace(TraceTag.VectorProjectionRetry)
+        }
+        if (loaded.isNotEmpty()) {
+            store.markReady(loaded.map { it.id }, completedAt)
+            emitTrace(TraceTag.VectorProjectionSucceeded)
+        }
         return claimed.size
     }
 
@@ -147,6 +157,7 @@ class QdrantProjectionSynchronizer(
     ) {
         val safeError = failure::class.simpleName ?: "ProjectionFailure"
         claimed.forEach { work -> reschedule(work, atMs, safeError) }
+        emitTrace(TraceTag.VectorProjectionRetry)
     }
 
     private suspend fun reschedule(
@@ -161,11 +172,16 @@ class QdrantProjectionSynchronizer(
         try {
             while (store.resetReady(modelId, nowMs(), batchSize).isNotEmpty()) Unit
             onCollectionLoss?.invoke()
+            emitTrace(TraceTag.VectorCollectionRebuilt)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
             // Projection retry remains durable even when the rebuild hint cannot be persisted.
         }
+    }
+
+    private fun emitTrace(tag: String) {
+        runCatching { onTrace(tag) }
     }
 
     suspend fun stop() {

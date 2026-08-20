@@ -4,6 +4,7 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.VectorIndex
 import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
+import io.openeden.trace.TraceTag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
@@ -22,6 +23,7 @@ class QdrantVectorIndex(
     private val modelId: String,
     private val maxSearchLimit: Int = MAX_SEARCH_LIMIT,
     private val onCollectionRecreated: (suspend () -> Unit)? = null,
+    private val onTrace: (String) -> Unit = {},
 ) : VectorIndex {
     private val collection = naming.collectionName(modelId)
     private val stateMutex = Mutex()
@@ -118,12 +120,17 @@ class QdrantVectorIndex(
         if (inspected == null) {
             client.createCollection(collection, expected.asSpecs())
             onCollectionRecreated?.invoke()
+            emitTrace(TraceTag.VectorCollectionCreated)
         } else {
             validateCollection(inspected, expected)
         }
         ensurePayloadIndexes()
         dimensions = expected
         collectionReady = true
+    }
+
+    private fun emitTrace(tag: String) {
+        runCatching { onTrace(tag) }
     }
 
     private suspend fun ensureExistingCollectionLocked(): Boolean {

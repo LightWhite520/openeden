@@ -169,6 +169,25 @@ class MemoryVectorProjectionStoreTest {
         }
     }
 
+    @Test
+    fun `projection counts expose due pending and all non ready rows`() = runTest {
+        MemoryVectorProjectionStore.open(dbPath).use { store ->
+            store.enqueue("a-due", "model", 10L)
+            store.enqueue("b-ready", "model", 10L)
+            store.enqueue("c-due", "model", 10L)
+            store.enqueue("future", "model", 100L)
+            store.claimDue(10L, 1, "model")
+            store.claimDue(10L, 1, "model")
+            store.markReady("a-due", 11L)
+            store.markReady("b-ready", 11L)
+
+            assertEquals(
+                MemoryVectorProjectionStore.ProjectionCounts(duePending = 1L, nonReady = 2L),
+                store.projectionCounts(10L),
+            )
+        }
+    }
+
     private fun insertMemory(queries: io.openeden.server.db.MemoryQueries, id: String) {
         queries.insertEntry(
             id, "session", "user", "CLI", "event_room", "RAW", "content", "[]", 1L,

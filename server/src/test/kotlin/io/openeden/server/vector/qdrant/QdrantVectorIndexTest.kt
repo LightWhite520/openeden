@@ -7,6 +7,7 @@ import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
 import io.openeden.memory.VectorSearchRequest
+import io.openeden.trace.TraceTag
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
@@ -55,6 +56,26 @@ class QdrantVectorIndexTest {
         assertEquals("memory-1", point["payload"]!!.jsonObject["memory_id"]!!.jsonPrimitive.content)
         assertEquals("local-v1", point["payload"]!!.jsonObject["model_id"]!!.jsonPrimitive.content)
         assertEquals(2, point["vector"]!!.jsonObject.size)
+        client.close()
+    }
+
+    @Test
+    fun `collection creation emits an operational trace tag`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") response("{}", HttpStatusCode.NotFound) else response("{}")
+        }
+        val tags = mutableListOf<String>()
+        val index = QdrantVectorIndex(
+            client = client,
+            naming = QdrantCollectionNaming("eden"),
+            modelId = "local-v1",
+            onTrace = tags::add,
+        )
+
+        index.insert(entry("memory-1", semantic = listOf(.1f, .2f), emotional = listOf(.3f, .4f, .5f)))
+
+        assertEquals(listOf(TraceTag.VectorCollectionCreated), tags)
         client.close()
     }
 
