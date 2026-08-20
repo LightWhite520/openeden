@@ -142,7 +142,11 @@ class SqlDelightMemoryRepository(
         ).take(candidateLimit.coerceAtLeast(0))
         val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
         val candidates = hits.mapNotNull { hit ->
-            hit.entry?.takeIf { it.sessionId == request.sessionId } ?: hydrated[hit.memoryId]
+            if (retrievalIndex === localFallbackIndex) {
+                hit.entry?.takeIf { it.sessionId == request.sessionId } ?: hydrated[hit.memoryId]
+            } else {
+                hydrated[hit.memoryId]
+            }
         }
         val palace = InMemoryMemoryPalace(DirectInferenceExecutor, embeddingModel = embeddingModel)
         candidates.forEach { palace.write(it) }
@@ -153,8 +157,9 @@ class SqlDelightMemoryRepository(
         sessionId: String,
         hits: List<VectorSearchHit>,
     ): Map<String, MemoryEntry> {
+        val validateAllHits = retrievalIndex !== localFallbackIndex
         val ids = hits.asSequence()
-            .filter { it.entry == null }
+            .filter { validateAllHits || it.entry == null }
             .map { it.memoryId }
             .distinct()
             .take(candidateLimit.coerceAtLeast(0))

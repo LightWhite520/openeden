@@ -193,8 +193,8 @@ class SqlDelightMemoryRepositoryTest {
     @Test
     fun `local populated hits are ranked without sqlite hydration`() = runTest {
         val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "local")
-        val localIndex = FakeVectorIndex(listOf(VectorSearchHit(entry.id, entry, 0.9f, 0.9f)))
-        SqlDelightMemoryRepository.open(dbPath, index = localIndex).use { repository ->
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            repository.write(entry, modelId = "local-v1")
             val result = repository.retrieve(
                 RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
             )
@@ -256,7 +256,7 @@ class SqlDelightMemoryRepositoryTest {
     }
 
     @Test
-    fun `local retrieval index remains independent from the fallback index`() = runTest {
+    fun `independent populated retrieval hits are validated against sqlite`() = runTest {
         val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "retrieval")
         val retrievalIndex = RebuildableInMemoryVectorIndex()
         retrievalIndex.insert(entry)
@@ -265,7 +265,7 @@ class SqlDelightMemoryRepositoryTest {
             val result = repository.retrieve(
                 RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
             )
-            assertEquals(listOf(entry.id), result.memories.map { it.id })
+            assertEquals(emptyList(), result.memories)
         }
     }
 
