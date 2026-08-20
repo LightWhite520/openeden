@@ -11,10 +11,15 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.http.content.OutgoingContent
-import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -27,14 +32,19 @@ class QdrantClientTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { request ->
             when (request.url.encodedPath) {
-                "/collections/eden" -> if (request.method.value == "GET") response("{\"result\":{\"status\":\"green\"}}") else response("{}", HttpStatusCode.OK)
+                "/collections/eden" -> if (request.method.value == "GET") response("""{"result":{"status":"green","config":{"params":{"vectors":{"semantic":{"size":1536,"distance":"Cosine"},"emotional":{"size":8,"distance":"Cosine"}}}}}}""") else response("{}", HttpStatusCode.OK)
                 else -> response("{}")
             }
         }
-        assertEquals("green", client.inspectCollection("eden")?.status)
-        client.createCollection("eden", vectorSize = 1536)
+        val collection = client.inspectCollection("eden")
+        assertEquals("green", collection?.status)
+        assertEquals(1536, collection?.vectors?.get("semantic")?.size)
+        assertEquals(8, collection?.vectors?.get("emotional")?.size)
+        client.createCollection("eden", mapOf("semantic" to QdrantVectorSpec(1536), "emotional" to QdrantVectorSpec(8)))
         assertEquals("PUT", requests[1].method.value)
-        assertTrue(requests[1].body.toString().contains("\"semantic\""))
+        val createBody = requests[1].jsonBody()
+        assertEquals(1536, createBody["vectors"]!!.jsonObject["semantic"]!!.jsonObject["size"]!!.jsonPrimitive.content.toInt())
+        assertEquals("Cosine", createBody["vectors"]!!.jsonObject["emotional"]!!.jsonObject["distance"]!!.jsonPrimitive.content)
         client.close()
     }
 
@@ -43,11 +53,15 @@ class QdrantClientTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { response("{}") }
         client.ensurePayloadIndex("eden", "user_id")
-        client.upsertPoints("eden", listOf(QdrantPoint("p1", floatArrayOf(.1f, .2f), mapOf("user_id" to "u1"))))
+        client.upsertPoints("eden", listOf(QdrantPoint("p1", mapOf("semantic" to floatArrayOf(.1f, .2f), "emotional" to floatArrayOf(.3f, .4f)), mapOf("user_id" to "u1"))))
         assertEquals("PUT", requests[0].method.value)
         assertTrue(requests[0].url.encodedPath.endsWith("/index"))
         assertEquals("PUT", requests[1].method.value)
-        assertTrue(requests[1].body.toString().contains("\"points\""))
+        val upsertBody = requests[1].jsonBody()
+        val point = upsertBody["points"]!!.jsonArray.single().jsonObject
+        assertEquals("p1", point["id"]!!.jsonPrimitive.content)
+        assertTrue(point["vector"]!!.jsonObject.keys.containsAll(listOf("semantic", "emotional")))
+        assertEquals("u1", point["payload"]!!.jsonObject["user_id"]!!.jsonPrimitive.content)
         client.close()
     }
 
@@ -55,11 +69,11 @@ class QdrantClientTest {
     fun `semantic search uses named vector exact filter and api key`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { response("{\"result\":[{\"id\":\"p1\",\"version\":2,\"score\":0.9,\"payload\":{\"room\":\"event_room\"}}]}") }
-        val hits = client.searchSemanticPoints("eden", floatArrayOf(.1f, .2f), 5, QdrantFilter(must = listOf(QdrantFieldCondition("room", "event_room"))))
+        val hits = client.searchSemanticPoints("eden", floatArrayOf(.1f, .2f), 5, QdrantFilter(must = listOf(QdrantFieldCondition("room", "event_room"))), using = "emotional")
         assertEquals("p1", hits.single().id)
         assertEquals("secret", requests.single().headers["api-key"])
         val body = (requests.single().body as OutgoingContent.ByteArrayContent).bytes().decodeToString()
-        assertTrue(body.contains("\"name\":\"semantic\""))
+        assertTrue(body.contains("\"name\":\"emotional\""))
         assertTrue(body.contains("\"key\":\"room\""))
         assertTrue(body.contains("\"value\":\"event_room\""))
         client.close()
@@ -89,11 +103,17 @@ class QdrantClientTest {
 
     @Test
     fun `cancellation is always rethrown`() = runTest {
-        val client = clientFor(mutableListOf()) { throw CancellationException("cancelled") }
-        val job = launch { client.healthProbe() }
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val client = clientFor(mutableListOf()) {
+            started.complete(Unit)
+            gate.await()
+            response("{}")
+        }
+        val job = async { client.healthProbe() }
+        started.await()
         job.cancel()
-        job.join()
-        assertTrue(job.isCancelled)
+        assertFailsWith<CancellationException> { job.await() }
         client.close()
     }
 
@@ -102,4 +122,6 @@ class QdrantClientTest {
 
     private fun MockRequestHandleScope.response(body: String, status: HttpStatusCode = HttpStatusCode.OK) =
         respond(content = body, status = status, headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
+
+    private fun HttpRequestData.jsonBody() = Json.parseToJsonElement((body as OutgoingContent.ByteArrayContent).bytes().decodeToString()).jsonObject
 }

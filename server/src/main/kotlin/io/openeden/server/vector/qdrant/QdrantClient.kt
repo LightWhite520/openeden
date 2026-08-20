@@ -48,14 +48,19 @@ class QdrantClient(
         response.requireSuccess().decode<QdrantCollectionResponse>().result?.toModel()
     }
 
-    suspend fun createCollection(name: String, vectorSize: Int, distance: String = "Cosine", vectorName: String = "semantic") {
+    suspend fun createCollection(name: String, vectors: Map<String, QdrantVectorSpec>) {
         request {
             http.put(collectionPath(name)) {
                 contentType(ContentType.Application.Json)
-                setBody(QdrantCreateCollectionRequest(mapOf(vectorName to QdrantVectorConfig(vectorSize, distance))))
+                setBody(QdrantCreateCollectionRequest(vectors.mapValues { (_, spec) -> QdrantVectorConfig(spec.size, spec.distance) }))
             }.requireSuccess()
         }
     }
+
+    suspend fun createCollection(name: String, semanticSize: Int, emotionalSize: Int) = createCollection(
+        name,
+        mapOf("semantic" to QdrantVectorSpec(semanticSize), "emotional" to QdrantVectorSpec(emotionalSize)),
+    )
 
     suspend fun ensurePayloadIndex(collection: String, fieldName: String, schemaType: String = "keyword") {
         request {
@@ -76,10 +81,10 @@ class QdrantClient(
     }
 
     /** Qdrant's named-vector search shape is {vector:{name,vector}, limit, filter}. */
-    suspend fun searchSemanticPoints(collection: String, vector: FloatArray, limit: Int, filter: QdrantFilter? = null): List<QdrantSearchHit> = request {
+    suspend fun searchSemanticPoints(collection: String, vector: FloatArray, limit: Int, filter: QdrantFilter? = null, using: String = "semantic"): List<QdrantSearchHit> = request {
         val response = http.post("${collectionPath(collection)}/points/search") {
             contentType(ContentType.Application.Json)
-            setBody(QdrantSearchRequest(QdrantNamedVector("semantic", vector.toList()), limit, filter?.toWire()))
+            setBody(QdrantSearchRequest(QdrantNamedVector(using, vector.toList()), limit, filter?.toWire()))
         }.requireSuccess()
         response.decode<QdrantSearchResponse>().result.map { it.toModel() }
     }
@@ -130,11 +135,13 @@ class QdrantClient(
 @Serializable private data class QdrantWireCondition(val key: String, val match: QdrantMatch)
 @Serializable private data class QdrantMatch(val value: String)
 @Serializable private data class QdrantCollectionResponse(val result: QdrantCollectionWire? = null)
-@Serializable private data class QdrantCollectionWire(val status: String? = null)
+@Serializable private data class QdrantCollectionWire(val status: String? = null, val config: QdrantCollectionConfig? = null)
+@Serializable private data class QdrantCollectionConfig(val params: QdrantCollectionParams? = null)
+@Serializable private data class QdrantCollectionParams(val vectors: Map<String, QdrantVectorConfig> = emptyMap())
 @Serializable private data class QdrantSearchResponse(val result: List<QdrantHitWire> = emptyList())
 @Serializable private data class QdrantHitWire(val id: String, val score: Double, val payload: Map<String, String> = emptyMap())
 
-private fun QdrantPoint.toWire() = QdrantWirePoint(id, mapOf("semantic" to vector.toList()), payload)
+private fun QdrantPoint.toWire() = QdrantWirePoint(id, vectors.mapValues { (_, vector) -> vector.toList() }, payload)
 private fun QdrantFilter.toWire() = QdrantWireFilter(must.map { QdrantWireCondition(it.key, QdrantMatch(it.value)) })
-private fun QdrantCollectionWire.toModel() = QdrantCollection(status)
+private fun QdrantCollectionWire.toModel() = QdrantCollection(status, config?.params?.vectors.orEmpty().mapValues { (_, spec) -> QdrantVectorSpec(spec.size, spec.distance) })
 private fun QdrantHitWire.toModel() = QdrantSearchHit(id, score, payload)
