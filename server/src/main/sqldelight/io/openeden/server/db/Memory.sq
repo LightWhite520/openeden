@@ -63,6 +63,13 @@ FROM memory_entries
 LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
 WHERE memory_entries.id = ?;
 
+selectByIds:
+SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
+       memory_embeddings.emotional_json, memory_embeddings.status
+FROM memory_entries
+LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
+WHERE memory_entries.id IN ?;
+
 selectBySession:
 SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
        memory_embeddings.emotional_json, memory_embeddings.status

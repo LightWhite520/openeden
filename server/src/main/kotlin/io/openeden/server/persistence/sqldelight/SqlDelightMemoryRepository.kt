@@ -18,6 +18,8 @@ import io.openeden.memory.MemoryStore
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
 import io.openeden.memory.RebuildableInMemoryVectorIndex
+import io.openeden.memory.VectorIndex
+import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.diary.DiaryRawMemoryCursor
@@ -45,9 +47,10 @@ class SqlDelightMemoryRepository(
     private val activeModelId: String = "local-v1",
     private val projectionWake: () -> Unit = {},
     private val transactionFailureHook: (() -> Unit)? = null,
+    private val index: VectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
+    private val candidateLimit: Int = 128,
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
-    private val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
     private val loadedSessions = mutableSetOf<String>()
     private val loadMutex = Mutex()
 
@@ -122,17 +125,40 @@ class SqlDelightMemoryRepository(
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
         ensureIndexed(request.sessionId)
-        val candidates = index.search(
+        val hits = index.search(
             VectorSearchRequest(
                 sessionId = request.sessionId,
                 semanticEmbedding = embeddingModel.embed(request.userInput),
                 emotionalEmbedding = embeddingModel.embed(request.currentVector),
-                limit = 128,
+                limit = candidateLimit.coerceAtLeast(0),
             ),
-        ).mapNotNull { it.entry }
+        ).take(candidateLimit.coerceAtLeast(0))
+        val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
+        val candidates = hits.mapNotNull { hit ->
+            hit.entry?.takeIf { it.sessionId == request.sessionId } ?: hydrated[hit.memoryId]
+        }
         val palace = InMemoryMemoryPalace(DirectInferenceExecutor, embeddingModel = embeddingModel)
         candidates.forEach { palace.write(it) }
         return palace.retrieve(request)
+    }
+
+    private suspend fun hydrateRemoteCandidates(
+        sessionId: String,
+        hits: List<VectorSearchHit>,
+    ): Map<String, MemoryEntry> {
+        val ids = hits.asSequence()
+            .filter { it.entry == null }
+            .map { it.memoryId }
+            .distinct()
+            .take(candidateLimit.coerceAtLeast(0))
+            .toList()
+        if (ids.isEmpty()) return emptyMap()
+        return withContext(Dispatchers.IO) {
+            queries.selectByIds(ids, ::mapRow).executeAsList()
+                .asSequence()
+                .filter { it.entry.sessionId == sessionId && it.modelId == activeModelId }
+                .associate { it.entry.id to it.entry }
+        }
     }
 
     fun close() = driver.close()
@@ -222,10 +248,12 @@ class SqlDelightMemoryRepository(
             activeModelId: String = "local-v1",
             projectionWake: () -> Unit = {},
             transactionFailureHook: (() -> Unit)? = null,
+            index: VectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
+            candidateLimit: Int = 128,
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake, transactionFailureHook)
+            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake, transactionFailureHook, index, candidateLimit)
         }
     }
 }

@@ -6,6 +6,11 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
+import io.openeden.memory.RetrievalMode
+import io.openeden.memory.RetrievalRequest
+import io.openeden.memory.VectorIndex
+import io.openeden.memory.VectorSearchHit
+import io.openeden.memory.VectorSearchRequest
 import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -152,6 +157,75 @@ class SqlDelightMemoryRepositoryTest {
             assertEquals(listOf("QQ:42:3000:raw"), rows.map { it.id })
             assertEquals(4000L, repository.latestRawMemory("QQ:42")?.createdAtMs)
         }
+    }
+
+    @Test
+    fun `remote null-entry hits are hydrated in remote order and filtered by session and model`() = runTest {
+        val first = memoryEntry("QQ:42:1000:raw", "QQ:42", "first")
+        val second = memoryEntry("QQ:42:2000:raw", "QQ:42", "second")
+        val wrongSession = memoryEntry("QQ:99:3000:raw", "QQ:99", "wrong session")
+        val wrongModel = memoryEntry("QQ:42:4000:raw", "QQ:42", "wrong model")
+        val remoteIndex = FakeVectorIndex(
+            listOf(
+                VectorSearchHit(second.id, null, 0.9f, 0.9f),
+                VectorSearchHit(first.id, null, 0.8f, 0.8f),
+                VectorSearchHit(wrongSession.id, null, 0.7f, 0.7f),
+                VectorSearchHit(wrongModel.id, null, 0.6f, 0.6f),
+            ),
+        )
+        SqlDelightMemoryRepository.open(dbPath, index = remoteIndex).use { repository ->
+            repository.write(first, modelId = "local-v1")
+            repository.write(second, modelId = "local-v1")
+            repository.write(wrongSession, modelId = "local-v1")
+            repository.write(wrongModel, modelId = "other-model")
+
+            val result = repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+            )
+
+            assertEquals(listOf(second.id, first.id), result.memories.map { it.id })
+            assertEquals(1, remoteIndex.searchCount)
+            assertEquals(1, remoteIndex.rebuildCount)
+        }
+    }
+
+    @Test
+    fun `local populated hits are ranked without sqlite hydration`() = runTest {
+        val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "local")
+        val localIndex = FakeVectorIndex(listOf(VectorSearchHit(entry.id, entry, 0.9f, 0.9f)))
+        SqlDelightMemoryRepository.open(dbPath, index = localIndex).use { repository ->
+            val result = repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+            )
+            assertEquals(listOf(entry.id), result.memories.map { it.id })
+        }
+    }
+
+    private fun memoryEntry(id: String, sessionId: String, content: String) = MemoryEntry(
+        id = id,
+        sessionId = sessionId,
+        content = content,
+        room = MemoryRoom.EVENT_ROOM,
+        kind = MemoryKind.RAW,
+        metadata = MemoryMetadata(BioVector.Neutral, 0.0f, VectorDelta.Zero, BioVector.Neutral, "u1"),
+        semanticEmbedding = listOf(1.0f),
+        emotionalEmbedding = listOf(1.0f),
+    )
+
+    private class FakeVectorIndex(private val hits: List<VectorSearchHit>) : VectorIndex {
+        var searchCount = 0
+        var rebuildCount = 0
+
+        override suspend fun insert(entry: MemoryEntry) = Unit
+        override suspend fun remove(memoryId: String) = Unit
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
+            rebuildCount += 1
+        }
+        override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
+            searchCount += 1
+            return hits.take(request.limit)
+        }
+        override suspend fun markDirty() = Unit
     }
 
     private inline fun SqlDelightMemoryRepository.use(
