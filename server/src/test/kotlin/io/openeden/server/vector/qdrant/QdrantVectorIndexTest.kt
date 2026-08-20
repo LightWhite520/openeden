@@ -20,6 +20,7 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -29,6 +30,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.name
 
 class QdrantVectorIndexTest {
     @Test
@@ -190,6 +194,32 @@ class QdrantVectorIndexTest {
     }
 
     @Test
+    fun `cancellation cleans rebuild snapshot and closes the remote replacement`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val deleteStarted = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val client = clientFor(requests) { request ->
+            if (request.url.encodedPath.endsWith("/points/delete")) {
+                deleteStarted.complete(Unit)
+                gate.await()
+            }
+            if (request.method.value == "GET") response("{}", HttpStatusCode.NotFound) else response("{}")
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+        val before = snapshotFiles()
+        val job = async {
+            index.rebuild(listOf(entry("memory-1", listOf(.1f, .2f), listOf(.3f, .4f, .5f))), batchSize = 1)
+        }
+
+        deleteStarted.await()
+        job.cancel()
+        assertFailsWith<CancellationException> { job.await() }
+        assertEquals(before, snapshotFiles())
+        gate.complete(Unit)
+        client.close()
+    }
+
+    @Test
     fun `search sends exact session room kind and model filters and returns null entries`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { request ->
@@ -286,4 +316,9 @@ class QdrantVectorIndexTest {
     private fun HttpRequestData.jsonBody() = Json.parseToJsonElement(
         (body as OutgoingContent.ByteArrayContent).bytes().decodeToString(),
     ).jsonObject
+
+    private fun snapshotFiles(): Set<Path> = Files.list(Path.of(System.getProperty("java.io.tmpdir"))).use { files ->
+        files.filter { it.name.startsWith("openeden-qdrant-rebuild-") && it.name.endsWith(".bin") }
+            .collect(java.util.stream.Collectors.toSet())
+    }
 }

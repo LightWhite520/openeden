@@ -5,6 +5,7 @@ import io.openeden.memory.VectorIndex
 import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -66,7 +67,7 @@ class QdrantVectorIndex(
                     replaySnapshot(snapshot, summary.count, batchSize)
                 }
             } finally {
-                withContext(Dispatchers.IO) { Files.deleteIfExists(snapshot) }
+                withContext(NonCancellable + Dispatchers.IO) { Files.deleteIfExists(snapshot) }
             }
         }
     }
@@ -161,7 +162,7 @@ class QdrantVectorIndex(
                 remaining -= batchCount
             }
         } finally {
-            withContext(Dispatchers.IO) { input.close() }
+            withContext(NonCancellable + Dispatchers.IO) { input.close() }
         }
     }
 
