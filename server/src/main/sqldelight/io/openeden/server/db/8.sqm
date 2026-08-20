@@ -14,4 +14,4 @@ ON memory_vector_sync(status, available_at_ms, memory_id);
 INSERT INTO memory_vector_sync(memory_id, model_id, status, attempts, available_at_ms, last_error, updated_at_ms)
 SELECT memory_id, model_id, 'PENDING', 0, 0, NULL, 0
 FROM memory_embeddings
-WHERE status = 'READY';
+WHERE status = 'READY' AND TRIM(model_id) <> '' AND LOWER(model_id) <> 'unknown';

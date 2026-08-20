@@ -1,8 +1,11 @@
 package io.openeden.server.persistence.sqldelight
 
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import io.openeden.server.db.Database
 import io.openeden.server.persistence.sqldelight.MemoryVectorProjectionStore.ProjectionStatus
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
+import java.util.Properties
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -48,6 +51,16 @@ class MemoryVectorProjectionStoreTest {
     }
 
     @Test
+    fun `claimDue filters to the active model`() = runTest {
+        MemoryVectorProjectionStore.open(dbPath).use { store ->
+            store.enqueue("old", "model-old", 1L)
+            store.enqueue("current", "model-current", 1L)
+            assertEquals(listOf("current"), store.claimDue(1L, 10, "model-current").map { it.memoryId })
+            assertEquals(ProjectionStatus.PENDING, store.read("old")?.status)
+        }
+    }
+
+    @Test
     fun `ready acknowledgement and retry preserve durable metadata`() = runTest {
         val store = MemoryVectorProjectionStore.open(dbPath)
         try {
@@ -67,14 +80,55 @@ class MemoryVectorProjectionStoreTest {
     }
 
     @Test
+    fun `batch ready acknowledgement marks only running work`() = runTest {
+        MemoryVectorProjectionStore.open(dbPath).use { store ->
+            store.enqueue("a", "m", 1L)
+            store.enqueue("b", "m", 1L)
+            store.claimDue(1L, 10, "m")
+            store.markReady(listOf("a", "b"), 2L)
+            assertTrue(listOf("a", "b").all { store.read(it)?.status == ProjectionStatus.READY })
+        }
+    }
+
+    @Test
     fun `running work is recovered on startup`() = runTest {
         MemoryVectorProjectionStore.open(dbPath).use { store ->
             store.enqueue("memory-1", "m", 10L)
             store.claimDue(10L, 1)
         }
         MemoryVectorProjectionStore.open(dbPath).use { store ->
+            store.recoverRunning(11L)
             assertEquals(ProjectionStatus.PENDING, store.read("memory-1")?.status)
             assertEquals(listOf("memory-1"), store.claimDue(11L, 10).map { it.memoryId })
+        }
+    }
+
+    @Test
+    fun `duplicate enqueue resets pending state and attempts`() = runTest {
+        MemoryVectorProjectionStore.open(dbPath).use { store ->
+            store.enqueue("memory-1", "m", 1L)
+            store.claimDue(1L, 1, "m")
+            store.reschedule("memory-1", 2L, "failed")
+            store.enqueue("memory-1", "m", 3L)
+            val work = store.read("memory-1")!!
+            assertEquals(ProjectionStatus.PENDING, work.status)
+            assertEquals(0, work.attempts)
+            assertEquals(3L, work.availableAtMs)
+            assertEquals(null, work.lastError)
+        }
+    }
+
+    @Test
+    fun `model refresh selection includes unknown and incompatible local models`() = runTest {
+        JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema).use { driver ->
+            val queries = Database(driver).memoryQueries
+            insertMemory(queries, "unknown-memory")
+            queries.upsertEmbedding("unknown-memory", "unknown", "[]", "[]", "READY")
+            insertMemory(queries, "old-memory")
+            queries.upsertEmbedding("old-memory", "model-old", "[]", "[]", "READY")
+        }
+        MemoryVectorProjectionStore.open(dbPath).use { store ->
+            assertEquals(listOf("old-memory", "unknown-memory"), store.selectModelRefresh("model-current", 10).map { it.memoryId }.sorted())
         }
     }
 
@@ -86,5 +140,15 @@ class MemoryVectorProjectionStoreTest {
             assertFailsWith<IllegalArgumentException> { store.enqueue("", "m", 1L) }
             assertFailsWith<IllegalArgumentException> { store.markReady("x", -1L) }
         } finally { store.close() }
+    }
+
+    private fun insertMemory(queries: io.openeden.server.db.MemoryQueries, id: String) {
+        queries.insertEntry(
+            id, "session", "user", "CLI", "event_room", "RAW", "content", "[]", 1L,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0,
+        )
     }
 }

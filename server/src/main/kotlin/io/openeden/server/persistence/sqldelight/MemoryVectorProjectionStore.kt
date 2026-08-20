@@ -4,7 +4,6 @@ import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.openeden.server.db.Database
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
@@ -41,11 +40,12 @@ class MemoryVectorProjectionStore(
         queries.selectVectorSync(memoryId, ::map).executeAsOneOrNull()
     }
 
-    suspend fun claimDue(nowMs: Long, batchSize: Int): List<ProjectionWork> = withContext(Dispatchers.IO) {
+    suspend fun claimDue(nowMs: Long, batchSize: Int, activeModelId: String = ""): List<ProjectionWork> = withContext(Dispatchers.IO) {
         requireTimestamp(nowMs)
         require(batchSize > 0) { "batchSize must be positive" }
+        if (activeModelId.isNotEmpty()) requireId(activeModelId)
         database.transactionWithResult {
-            queries.selectDueVectorSync(nowMs, batchSize.toLong(), ::map).executeAsList().mapNotNull { candidate ->
+            queries.selectDueVectorSync(nowMs, activeModelId, activeModelId, batchSize.toLong(), ::map).executeAsList().mapNotNull { candidate ->
                 queries.claimVectorSync(nowMs, candidate.memoryId)
                 if (queries.selectChanges().executeAsOne() != 1L) return@mapNotNull null
                 queries.selectVectorSync(candidate.memoryId, ::map).executeAsOneOrNull()
@@ -78,6 +78,8 @@ class MemoryVectorProjectionStore(
         requireTimestamp(nowMs)
         queries.recoverRunningVectorSync(nowMs, nowMs)
     }
+
+    suspend fun recoverOnStartup(nowMs: Long) = recoverRunning(nowMs)
 
     suspend fun pendingCount(): Long = withContext(Dispatchers.IO) {
         queries.countPendingVectorSync().executeAsOne()
@@ -118,9 +120,7 @@ class MemoryVectorProjectionStore(
         fun open(dbPath: Path): MemoryVectorProjectionStore {
             dbPath.parent?.let(Files::createDirectories)
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            val store = MemoryVectorProjectionStore(Database(driver), driver)
-            runBlocking(Dispatchers.IO) { store.recoverRunning(0L) }
-            return store
+            return MemoryVectorProjectionStore(Database(driver), driver)
         }
     }
 }

@@ -158,7 +158,7 @@ FROM memory_vector_sync WHERE memory_id = ?;
 selectDueVectorSync:
 SELECT memory_id, model_id, status, attempts, available_at_ms, last_error, updated_at_ms
 FROM memory_vector_sync
-WHERE status = 'PENDING' AND available_at_ms <= ?
+WHERE status = 'PENDING' AND available_at_ms <= ? AND (? = '' OR model_id = ?)
 ORDER BY available_at_ms ASC, memory_id ASC
 LIMIT ?;
 
@@ -182,10 +182,18 @@ countPendingVectorSync:
 SELECT COUNT(*) FROM memory_vector_sync WHERE status = 'PENDING';
 
 selectVectorSyncForModelRefresh:
-SELECT memory_id, model_id, status, attempts, available_at_ms, last_error, updated_at_ms
-FROM memory_vector_sync
-WHERE model_id != ?
-ORDER BY memory_id ASC
+SELECT memory_entries.id, memory_embeddings.model_id,
+       COALESCE(memory_vector_sync.status, 'PENDING'),
+       COALESCE(memory_vector_sync.attempts, 0),
+       COALESCE(memory_vector_sync.available_at_ms, 0),
+       memory_vector_sync.last_error,
+       COALESCE(memory_vector_sync.updated_at_ms, 0)
+FROM memory_entries
+JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
+LEFT JOIN memory_vector_sync ON memory_vector_sync.memory_id = memory_entries.id
+WHERE memory_embeddings.status = 'READY'
+  AND (TRIM(memory_embeddings.model_id) = '' OR LOWER(memory_embeddings.model_id) = 'unknown' OR memory_embeddings.model_id != ?)
+ORDER BY memory_entries.id ASC
 LIMIT ?;
 
 CREATE TABLE diary_tasks (
