@@ -112,7 +112,7 @@ class SqlDelightMemoryRepository(
                 emotionalEmbedding = embeddingModel.embed(request.currentVector),
                 limit = 128,
             ),
-        ).map { it.entry }
+        ).mapNotNull { it.entry }
         val palace = InMemoryMemoryPalace(DirectInferenceExecutor, embeddingModel = embeddingModel)
         candidates.forEach { palace.write(it) }
         return palace.retrieve(request)
