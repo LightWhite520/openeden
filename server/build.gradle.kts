@@ -27,6 +27,9 @@ sqldelight {
 }
 
 dependencies {
+    implementation(ktorLibs.client.core)
+    implementation(ktorLibs.client.contentNegotiation)
+    implementation(ktorLibs.client.cio)
     implementation(ktorLibs.serialization.kotlinx.json)
     implementation(ktorLibs.server.callLogging)
     implementation(ktorLibs.server.config.yaml)
@@ -40,5 +43,6 @@ dependencies {
     implementation(project(":core"))
 
     testImplementation(kotlin("test"))
+    testImplementation(ktorLibs.client.mock)
     testImplementation(ktorLibs.server.testHost)
 }
