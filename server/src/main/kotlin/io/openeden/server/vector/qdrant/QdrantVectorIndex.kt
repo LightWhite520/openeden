@@ -6,6 +6,7 @@ import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
 class QdrantVectorIndex(
     private val client: QdrantClient,
     private val naming: QdrantCollectionNaming,
@@ -23,23 +24,28 @@ class QdrantVectorIndex(
     }
 
     override suspend fun insert(entry: MemoryEntry) {
-        validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, dimensions)
-        ensureCollection(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
-        client.upsertPoints(collection, listOf(entry.toPoint(modelId)))
+        stateMutex.withLock {
+            validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, dimensions)
+            ensureCollectionLocked(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
+            client.upsertPoints(collection, listOf(entry.toPoint(modelId)))
+        }
     }
 
     override suspend fun remove(memoryId: String) {
-        try {
-            client.deletePoints(collection, listOf(QdrantPointIds.fromMemoryId(memoryId)))
-        } catch (failure: QdrantClientException) {
-            if (failure.category != QdrantErrorCategory.HTTP || failure.statusCode != 404) throw failure
+        stateMutex.withLock {
+            try {
+                client.deletePoints(collection, listOf(QdrantPointIds.fromMemoryId(memoryId)))
+            } catch (failure: QdrantClientException) {
+                if (failure.category != QdrantErrorCategory.HTTP || failure.statusCode != 404) throw failure
+            }
         }
     }
 
     override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
         require(batchSize > 0) { "batchSize must be positive" }
-        var expectedDimensions = dimensions
-        var entryCount = 0
+        var expectedDimensions: Dimensions? = null
+        var batch = ArrayList<QdrantPoint>(batchSize)
+        val batches = ArrayList<List<QdrantPoint>>()
         for (entry in entries) {
             validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, expectedDimensions)
             val entryDimensions = Dimensions(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
@@ -47,25 +53,27 @@ class QdrantVectorIndex(
             require(expectedDimensions == entryDimensions) {
                 incompatibleMessage(expectedDimensions, entryDimensions)
             }
-            entryCount += 1
-        }
-        if (entryCount == 0) {
-            if (ensureExistingCollection()) client.deletePoints(collection, activeModelFilter())
-            return
-        }
-        val establishedDimensions = requireNotNull(expectedDimensions)
-        ensureCollection(establishedDimensions.semantic, establishedDimensions.emotional)
-        client.deletePoints(collection, activeModelFilter())
-
-        val batch = ArrayList<QdrantPoint>(batchSize)
-        for (entry in entries) {
             batch += entry.toPoint(modelId)
             if (batch.size == batchSize) {
-                client.upsertPoints(collection, batch.toList())
-                batch.clear()
+                batches += batch
+                batch = ArrayList(batchSize)
             }
         }
-        if (batch.isNotEmpty()) client.upsertPoints(collection, batch.toList())
+        if (batch.isNotEmpty()) batches += batch
+
+        stateMutex.withLock {
+            if (batches.isEmpty()) {
+                if (ensureExistingCollectionLocked()) client.deletePoints(collection, activeModelFilter())
+                return
+            }
+            val establishedDimensions = requireNotNull(expectedDimensions)
+            dimensions?.let { existing ->
+                require(existing == establishedDimensions) { incompatibleMessage(existing, establishedDimensions) }
+            }
+            ensureCollectionLocked(establishedDimensions.semantic, establishedDimensions.emotional)
+            client.deletePoints(collection, activeModelFilter())
+            batches.forEach { points -> client.upsertPoints(collection, points) }
+        }
     }
 
     override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
@@ -95,33 +103,31 @@ class QdrantVectorIndex(
         }
     }
 
-    private suspend fun ensureCollection(semanticSize: Int, emotionalSize: Int) {
+    private suspend fun ensureCollectionLocked(semanticSize: Int, emotionalSize: Int) {
         val expected = Dimensions(semanticSize, emotionalSize)
-        stateMutex.withLock {
-            dimensions?.let { existing -> require(existing == expected) { incompatibleMessage(existing, expected) } }
-            if (collectionReady) return
-            val inspected = client.inspectCollection(collection)
-            if (inspected == null) {
-                client.createCollection(collection, expected.asSpecs())
-            } else {
-                validateCollection(inspected, expected)
-            }
-            ensurePayloadIndexes()
-            dimensions = expected
-            collectionReady = true
+        dimensions?.let { existing -> require(existing == expected) { incompatibleMessage(existing, expected) } }
+        if (collectionReady) return
+        val inspected = client.inspectCollection(collection)
+        if (inspected == null) {
+            client.createCollection(collection, expected.asSpecs())
+        } else {
+            validateCollection(inspected, expected)
         }
+        ensurePayloadIndexes()
+        dimensions = expected
+        collectionReady = true
     }
 
-    private suspend fun ensureExistingCollection(): Boolean = stateMutex.withLock {
-        if (collectionReady) return@withLock true
-        val inspected = client.inspectCollection(collection) ?: return@withLock false
+    private suspend fun ensureExistingCollectionLocked(): Boolean {
+        if (collectionReady) return true
+        val inspected = client.inspectCollection(collection) ?: return false
         val inspectedDimensions = inspected.vectors.toDimensions()
         require(inspectedDimensions != null) { "Qdrant collection is missing named vectors" }
         validateCollection(inspected, inspectedDimensions)
         ensurePayloadIndexes()
         dimensions = inspectedDimensions
         collectionReady = true
-        true
+        return true
     }
 
     private suspend fun ensureSearchCollection(semanticSize: Int): String? {

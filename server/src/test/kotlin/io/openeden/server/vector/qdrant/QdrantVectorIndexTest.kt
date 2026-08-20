@@ -18,6 +18,9 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -106,6 +109,61 @@ class QdrantVectorIndexTest {
         index.rebuild(emptyList())
 
         assertTrue(requests.last().url.encodedPath.endsWith("/points/delete"))
+        client.close()
+    }
+
+    @Test
+    fun `rebuild consumes a one shot iterable exactly once`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") response("{}", HttpStatusCode.NotFound) else response("{}")
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+        val entries = listOf(
+            entry("memory-1", listOf(.1f, .2f), listOf(.3f, .4f, .5f)),
+            entry("memory-2", listOf(.2f, .3f), listOf(.4f, .5f, .6f)),
+        )
+        var iteratorCalls = 0
+        val oneShot = object : Iterable<MemoryEntry> {
+            override fun iterator(): Iterator<MemoryEntry> {
+                check(iteratorCalls++ == 0) { "rebuild iterated more than once" }
+                return entries.iterator()
+            }
+        }
+
+        index.rebuild(oneShot, batchSize = 1)
+
+        assertEquals(2, requests.count { it.url.encodedPath.endsWith("/points") })
+        client.close()
+    }
+
+    @Test
+    fun `rebuild replacement excludes concurrent insert until all upserts finish`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val deleteStarted = CompletableDeferred<Unit>()
+        val releaseDelete = CompletableDeferred<Unit>()
+        val client = clientFor(requests) { request ->
+            if (request.url.encodedPath.endsWith("/points/delete")) {
+                deleteStarted.complete(Unit)
+                releaseDelete.await()
+            }
+            if (request.method.value == "GET") response("{}", HttpStatusCode.NotFound) else response("{}")
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+        val rebuildJob = async {
+            index.rebuild(listOf(entry("memory-1", listOf(.1f, .2f), listOf(.3f, .4f, .5f))), batchSize = 1)
+        }
+        deleteStarted.await()
+        val insertJob = async {
+            index.insert(entry("memory-2", listOf(.2f, .3f), listOf(.4f, .5f, .6f)))
+        }
+        yield()
+        assertTrue(!insertJob.isCompleted)
+        releaseDelete.complete(Unit)
+        rebuildJob.await()
+        insertJob.await()
+
+        assertEquals(2, requests.count { it.url.encodedPath.endsWith("/points") })
         client.close()
     }
 
