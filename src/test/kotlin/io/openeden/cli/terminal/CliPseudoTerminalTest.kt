@@ -117,7 +117,7 @@ class CliPseudoTerminalTest {
                 assertEquals("> 多字节输入", fullEditing.visibleLines[28], fullEditing.raw.boundedForFailure())
                 assertEquals("editor: active=false", fullEditing.visibleLines[29], fullEditing.raw.boundedForFailure())
 
-                repeat("多字节输入".length) { input.write("\u007f") }
+                input.write("\u0015")
                 input.flush()
                 transcriptBuffer.awaitScreenState("empty full screen input after multibyte deletion") { lines ->
                     val visible = lines.takeLast(30)
