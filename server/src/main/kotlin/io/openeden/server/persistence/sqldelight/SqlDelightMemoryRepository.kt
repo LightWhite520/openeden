@@ -24,6 +24,7 @@ import io.openeden.runtime.diary.DiaryRawMemoryCursor
 import io.openeden.runtime.diary.DiaryRawMemorySource
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -61,7 +62,13 @@ class SqlDelightMemoryRepository(
                 transactionFailureHook?.invoke()
             }
             try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
-            runCatching { projectionWake() }
+            try {
+                projectionWake()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Wake delivery is best effort after the durable write and fallback update.
+            }
             setOf(io.openeden.trace.TraceTag.MemoryWritten)
         }
     }

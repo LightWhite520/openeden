@@ -7,11 +7,13 @@ import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
 import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
 class SqlDelightMemoryRepositoryTest {
@@ -113,6 +115,21 @@ class SqlDelightMemoryRepositoryTest {
         )
         SqlDelightMemoryRepository.open(dbPath, projectionWake = { error("wake failure") }).use { repository ->
             repository.write(entry, modelId = "local-v1")
+        }
+        MemoryVectorProjectionStore.open(dbPath).use { projection ->
+            assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, projection.read(entry.id)?.status)
+        }
+    }
+
+    @Test
+    fun `wake cancellation propagates after committed write`() = runTest {
+        val entry = MemoryEntry(
+            id = "QQ:42:1000:raw", sessionId = "QQ:42", content = "cancel", room = MemoryRoom.EVENT_ROOM,
+            kind = MemoryKind.RAW, metadata = MemoryMetadata(BioVector.Neutral, 0.0f, VectorDelta.Zero, BioVector.Neutral, "u1"),
+            semanticEmbedding = emptyList(), emotionalEmbedding = emptyList(),
+        )
+        SqlDelightMemoryRepository.open(dbPath, projectionWake = { throw CancellationException("cancel") }).use { repository ->
+            assertFailsWith<CancellationException> { repository.write(entry, modelId = "local-v1") }
         }
         MemoryVectorProjectionStore.open(dbPath).use { projection ->
             assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, projection.read(entry.id)?.status)
