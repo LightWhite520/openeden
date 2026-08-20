@@ -16,6 +16,9 @@ import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import io.openeden.runtime.inference.RecordingInferenceExecutor
+import io.openeden.server.db.Database
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import java.util.Properties
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -296,6 +299,61 @@ class SqlDelightMemoryRepositoryTest {
         MemoryVectorProjectionStore.open(dbPath).use { projection ->
             assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, projection.read(entry.id)?.status)
             assertEquals("local-v2", projection.read(entry.id)?.modelId)
+        }
+    }
+
+    @Test
+    fun `refresh invalidates loaded fallback sessions before the next retrieval`() = runTest {
+        val first = memoryEntry("QQ:42:1000:raw", "QQ:42", "first").copy(
+            semanticEmbedding = listOf(1.0f, 0.0f),
+            emotionalEmbedding = listOf(1.0f, 0.0f),
+        )
+        val second = memoryEntry("QQ:42:2000:raw", "QQ:42", "second").copy(
+            semanticEmbedding = listOf(0.0f, 1.0f),
+            emotionalEmbedding = listOf(0.0f, 1.0f),
+        )
+        val embeddingModel = object : io.openeden.memory.MemoryEmbeddingModel {
+            override suspend fun embed(text: String): List<Float> = when (text) {
+                "first" -> listOf(0.0f, 1.0f)
+                "second" -> listOf(1.0f, 0.0f)
+                else -> listOf(1.0f, 0.0f)
+            }
+
+            override suspend fun embed(vector: BioVector): List<Float> = listOf(1.0f, 0.0f)
+        }
+        val fallback = RebuildableInMemoryVectorIndex()
+
+        SqlDelightMemoryRepository.open(
+            dbPath,
+            embeddingModel = embeddingModel,
+            activeModelId = "local-v2",
+            fallbackIndex = fallback,
+            candidateLimit = 1,
+        ).use { repository ->
+            repository.write(first, modelId = "local-v2")
+            repository.write(second, modelId = "local-v2")
+
+            assertEquals(
+                listOf(first.id),
+                repository.retrieve(
+                    RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                ).memories.map { it.id },
+            )
+
+            JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema).use { driver ->
+                val database = Database(driver)
+                database.memoryQueries.upsertEmbedding(first.id, "old-model", "[1.0,0.0]", "[1.0,0.0]", "READY")
+                database.memoryQueries.upsertEmbedding(second.id, "old-model", "[0.0,1.0]", "[0.0,1.0]", "READY")
+            }
+
+            repository.refreshOutdatedEmbeddings(RecordingInferenceExecutor(), batchSize = 2)
+
+            assertEquals(
+                listOf(second.id),
+                repository.retrieve(
+                    RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                ).memories.map { it.id },
+            )
         }
     }
 

@@ -139,6 +139,7 @@ class SqlDelightMemoryRepository(
                 }
             }
             refreshedCount += refreshed.size
+            loadMutex.withLock { loadedSessions.clear() }
             localFallbackIndex.markDirty()
             if (refreshed.size >= batchSize) yield()
         }
