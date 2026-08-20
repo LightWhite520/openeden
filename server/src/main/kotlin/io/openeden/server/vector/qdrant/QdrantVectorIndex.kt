@@ -43,36 +43,45 @@ class QdrantVectorIndex(
 
     override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
         require(batchSize > 0) { "batchSize must be positive" }
-        var expectedDimensions: Dimensions? = null
-        var batch = ArrayList<QdrantPoint>(batchSize)
-        val batches = ArrayList<List<QdrantPoint>>()
-        for (entry in entries) {
-            validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, expectedDimensions)
-            val entryDimensions = Dimensions(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
-            expectedDimensions = expectedDimensions ?: entryDimensions
-            require(expectedDimensions == entryDimensions) {
-                incompatibleMessage(expectedDimensions, entryDimensions)
-            }
-            batch += entry.toPoint(modelId)
-            if (batch.size == batchSize) {
-                batches += batch
-                batch = ArrayList(batchSize)
-            }
-        }
-        if (batch.isNotEmpty()) batches += batch
-
         stateMutex.withLock {
-            if (batches.isEmpty()) {
+            val iterator = entries.iterator()
+            if (!iterator.hasNext()) {
                 if (ensureExistingCollectionLocked()) client.deletePoints(collection, activeModelFilter())
                 return
             }
-            val establishedDimensions = requireNotNull(expectedDimensions)
-            dimensions?.let { existing ->
-                require(existing == establishedDimensions) { incompatibleMessage(existing, establishedDimensions) }
+
+            var expectedDimensions = dimensions
+            val first = iterator.next()
+            validateVectors(first.semanticEmbedding, first.emotionalEmbedding, expectedDimensions)
+            val firstDimensions = Dimensions(first.semanticEmbedding.size, first.emotionalEmbedding.size)
+            expectedDimensions = expectedDimensions ?: firstDimensions
+            require(expectedDimensions == firstDimensions) {
+                incompatibleMessage(expectedDimensions, firstDimensions)
             }
+            val establishedDimensions = requireNotNull(expectedDimensions)
             ensureCollectionLocked(establishedDimensions.semantic, establishedDimensions.emotional)
             client.deletePoints(collection, activeModelFilter())
-            batches.forEach { points -> client.upsertPoints(collection, points) }
+
+            val batch = ArrayList<QdrantPoint>(batchSize)
+            batch += first.toPoint(modelId)
+            if (batch.size == batchSize) {
+                client.upsertPoints(collection, batch.toList())
+                batch.clear()
+            }
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, expectedDimensions)
+                val entryDimensions = Dimensions(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
+                require(expectedDimensions == entryDimensions) {
+                    incompatibleMessage(expectedDimensions, entryDimensions)
+                }
+                batch += entry.toPoint(modelId)
+                if (batch.size == batchSize) {
+                    client.upsertPoints(collection, batch.toList())
+                    batch.clear()
+                }
+            }
+            if (batch.isNotEmpty()) client.upsertPoints(collection, batch.toList())
         }
     }
 

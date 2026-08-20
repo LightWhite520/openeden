@@ -168,6 +168,29 @@ class QdrantVectorIndexTest {
     }
 
     @Test
+    fun `mid stream invalid vector fails after replacement has started`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") response("{}", HttpStatusCode.NotFound) else response("{}")
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+
+        assertFailsWith<IllegalArgumentException> {
+            index.rebuild(
+                listOf(
+                    entry("memory-1", listOf(.1f, .2f), listOf(.3f, .4f, .5f)),
+                    entry("invalid", listOf(.2f), listOf(.4f, .5f, .6f)),
+                ),
+                batchSize = 1,
+            )
+        }
+
+        assertTrue(requests.any { it.url.encodedPath.endsWith("/points/delete") })
+        assertEquals(1, requests.count { it.url.encodedPath.endsWith("/points") })
+        client.close()
+    }
+
+    @Test
     fun `search sends exact session room kind and model filters and returns null entries`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { request ->
