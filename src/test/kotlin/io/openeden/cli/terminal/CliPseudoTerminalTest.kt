@@ -34,6 +34,7 @@ class CliPseudoTerminalTest {
                     put("JAVA_OPTS", "-Duser.home=$home")
                 },
             )
+            .setUseWinConPty(System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true))
             .setInitialColumns(100)
             .setInitialRows(30)
             .setRedirectErrorStream(true)
@@ -223,7 +224,7 @@ class CliPseudoTerminalTest {
         description = "a new prompt after offset $offset",
     ) { output ->
         val suffix = output.substring(offset).stripAnsi()
-        output.length.takeIf { PROMPT.containsMatchIn(suffix) }
+        output.length.takeIf { suffix.contains("> ") }
     }
 
     private fun StringBuffer.awaitScreenState(
@@ -287,6 +288,5 @@ class CliPseudoTerminalTest {
     private companion object {
         const val PTY_WAIT_TIMEOUT_SECONDS = 30L
         val ANSI_CSI = Regex("\\u001B\\[[0-?]*[ -/]*[@-~]")
-        val PROMPT = Regex("(?:^|[\\r\\n])> ?")
     }
 }
