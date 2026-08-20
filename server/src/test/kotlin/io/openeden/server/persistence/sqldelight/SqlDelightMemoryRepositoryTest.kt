@@ -20,8 +20,8 @@ class SqlDelightMemoryRepositoryTest {
 
     @AfterTest
     fun cleanup() {
-        Files.list(tempDir).use { stream -> stream.forEach { Files.deleteIfExists(it) } }
-        Files.deleteIfExists(tempDir)
+        runCatching { Files.list(tempDir).use { stream -> stream.forEach { Files.deleteIfExists(it) } } }
+        runCatching { Files.deleteIfExists(tempDir) }
     }
 
     @Test
@@ -53,6 +53,51 @@ class SqlDelightMemoryRepositoryTest {
             assertEquals(entry, restored.entry)
             assertEquals("local-v1", restored.modelId)
             assertEquals(listOf(entry.metadata.snapshot8D), reopened.stableVectors("QQ:42", 32))
+        }
+        MemoryVectorProjectionStore.open(dbPath).use { projection ->
+            assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, projection.read("memory-1")?.status)
+            assertEquals("local-v1", projection.read("memory-1")?.modelId)
+        }
+    }
+
+    @Test
+    fun `rewriting a memory resets its projection work`() = runTest {
+        val entry = MemoryEntry(
+            id = "QQ:42:1000:raw", sessionId = "QQ:42", content = "durable", room = MemoryRoom.EVENT_ROOM,
+            kind = MemoryKind.RAW, metadata = MemoryMetadata(BioVector.Neutral, 0.0f, VectorDelta.Zero, BioVector.Neutral, "u1"),
+            semanticEmbedding = listOf(0.1f), emotionalEmbedding = listOf(0.2f),
+        )
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            repository.write(entry, modelId = "local-v1")
+        }
+        MemoryVectorProjectionStore.open(dbPath).use { projection ->
+            projection.claimDue(1000L, 1, "local-v1")
+            projection.reschedule(entry.id, 1000L, "failure")
+        }
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            repository.write(entry, modelId = "local-v1")
+        }
+        MemoryVectorProjectionStore.open(dbPath).use { projection ->
+            val work = projection.read(entry.id)!!
+            assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, work.status)
+            assertEquals(0, work.attempts)
+            assertEquals(1000L, work.availableAtMs)
+            assertEquals(null, work.lastError)
+        }
+    }
+
+    @Test
+    fun `failed memory write leaves no projection work`() = runTest {
+        val repository = SqlDelightMemoryRepository.open(dbPath)
+        val entry = MemoryEntry(
+            id = "QQ:42:1000:raw", sessionId = "QQ:42", content = "failed", room = MemoryRoom.EVENT_ROOM,
+            kind = MemoryKind.RAW, metadata = MemoryMetadata(BioVector.Neutral, 0.0f, VectorDelta.Zero, BioVector.Neutral, "u1"),
+            semanticEmbedding = emptyList(), emotionalEmbedding = emptyList(),
+        )
+        runCatching { repository.write(entry, modelId = "") }
+        repository.close()
+        MemoryVectorProjectionStore.open(dbPath).use { projection ->
+            assertEquals(null, projection.read(entry.id))
         }
     }
 

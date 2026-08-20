@@ -41,6 +41,8 @@ class SqlDelightMemoryRepository(
     private val driver: SqlDriver,
     private val embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
     private val json: Json = Json,
+    private val activeModelId: String = "local-v1",
+    private val projectionWake: () -> Unit = {},
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
     private val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
@@ -49,14 +51,20 @@ class SqlDelightMemoryRepository(
 
     suspend fun write(entry: MemoryEntry, modelId: String): Set<String> {
         return withContext(Dispatchers.IO) {
-            writeEntry(entry)
-            queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
+            require(modelId.isNotBlank()) { "modelId must not be blank" }
+            database.transaction {
+                writeEntry(entry)
+                queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
+                val nowMs = createdAtMsFromId(entry.id)
+                queries.upsertVectorSync(entry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
+            }
+            projectionWake()
             try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
             setOf(io.openeden.trace.TraceTag.MemoryWritten)
         }
     }
 
-    override suspend fun write(entry: MemoryEntry): Set<String> = write(entry, "unknown")
+    override suspend fun write(entry: MemoryEntry): Set<String> = write(entry, activeModelId)
 
     suspend fun readById(id: String): StoredMemory? = withContext(Dispatchers.IO) {
         queries.selectById(id, ::mapRow).executeAsOneOrNull()
@@ -202,10 +210,12 @@ class SqlDelightMemoryRepository(
         fun open(
             dbPath: Path,
             embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
+            activeModelId: String = "local-v1",
+            projectionWake: () -> Unit = {},
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel)
+            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake)
         }
     }
 }
