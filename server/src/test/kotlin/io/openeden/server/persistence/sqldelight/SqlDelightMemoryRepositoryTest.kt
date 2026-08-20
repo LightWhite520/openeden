@@ -8,6 +8,7 @@ import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
 import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
+import io.openeden.memory.RebuildableInMemoryVectorIndex
 import io.openeden.memory.VectorIndex
 import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
@@ -254,6 +255,20 @@ class SqlDelightMemoryRepositoryTest {
         assertEquals(0, retrievalIndex.mutationCalls)
     }
 
+    @Test
+    fun `local retrieval index remains independent from the fallback index`() = runTest {
+        val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "retrieval")
+        val retrievalIndex = RebuildableInMemoryVectorIndex()
+        retrievalIndex.insert(entry)
+        SqlDelightMemoryRepository.open(dbPath, index = retrievalIndex).use { repository ->
+            repository.write(entry.copy(content = "old"), modelId = "old-model")
+            val result = repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+            )
+            assertEquals(listOf(entry.id), result.memories.map { it.id })
+        }
+    }
+
     private fun memoryEntry(id: String, sessionId: String, content: String) = MemoryEntry(
         id = id,
         sessionId = sessionId,
@@ -298,6 +313,7 @@ class SqlDelightMemoryRepositoryTest {
         override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> = emptyList()
         override suspend fun markDirty() = Unit
     }
+
 
     private inline fun SqlDelightMemoryRepository.use(
         block: (SqlDelightMemoryRepository) -> Unit,

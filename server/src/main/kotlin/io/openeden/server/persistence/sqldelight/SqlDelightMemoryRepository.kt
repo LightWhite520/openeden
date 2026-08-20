@@ -47,14 +47,13 @@ class SqlDelightMemoryRepository(
     private val activeModelId: String = "local-v1",
     private val projectionWake: () -> Unit = {},
     private val transactionFailureHook: (() -> Unit)? = null,
-    private val index: VectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
+    private val index: VectorIndex? = null,
     private val candidateLimit: Int = 128,
-    private val fallbackIndex: RebuildableInMemoryVectorIndex? = null,
+    private val fallbackIndex: RebuildableInMemoryVectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
     private val localFallbackIndex = fallbackIndex
-        ?: (index as? RebuildableInMemoryVectorIndex)
-        ?: RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
+    private val retrievalIndex = index ?: localFallbackIndex
     private val loadedSessions = mutableSetOf<String>()
     private val loadMutex = Mutex()
 
@@ -133,7 +132,7 @@ class SqlDelightMemoryRepository(
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
         ensureIndexed(request.sessionId)
-        val hits = index.search(
+        val hits = retrievalIndex.search(
             VectorSearchRequest(
                 sessionId = request.sessionId,
                 semanticEmbedding = embeddingModel.embed(request.userInput),
@@ -260,9 +259,9 @@ class SqlDelightMemoryRepository(
             activeModelId: String = "local-v1",
             projectionWake: () -> Unit = {},
             transactionFailureHook: (() -> Unit)? = null,
-            index: VectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
+            index: VectorIndex? = null,
             candidateLimit: Int = 128,
-            fallbackIndex: RebuildableInMemoryVectorIndex? = null,
+            fallbackIndex: RebuildableInMemoryVectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
