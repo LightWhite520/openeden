@@ -48,6 +48,14 @@ class QdrantClient(
         response.requireSuccess().decode<QdrantCollectionResponse>().result?.toModel()
     }
 
+    /** Deletes one collection; missing collections are already clean for callers performing teardown. */
+    suspend fun deleteCollection(name: String) {
+        request {
+            val response = http.delete(collectionPath(name))
+            if (response.status != HttpStatusCode.NotFound) response.requireSuccess()
+        }
+    }
+
     suspend fun createCollection(name: String, vectors: Map<String, QdrantVectorSpec>) {
         request {
             http.put(collectionPath(name)) {

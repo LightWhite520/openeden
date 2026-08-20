@@ -28,6 +28,20 @@ import kotlin.test.assertTrue
 
 class QdrantClientTest {
     @Test
+    fun `collection deletion targets only the named collection and tolerates missing collection`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "DELETE") response("{}", HttpStatusCode.NotFound) else response("{}")
+        }
+
+        client.deleteCollection("eden-test")
+
+        assertEquals("DELETE", requests.single().method.value)
+        assertEquals("/collections/eden-test", requests.single().url.encodedPath)
+        client.close()
+    }
+
+    @Test
     fun `collection inspection and creation use collection endpoints`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { request ->
