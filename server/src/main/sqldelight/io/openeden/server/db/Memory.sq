@@ -188,6 +188,18 @@ WHERE status = 'RUNNING';
 countPendingVectorSync:
 SELECT COUNT(*) FROM memory_vector_sync WHERE status = 'PENDING';
 
+selectReadyVectorSync:
+SELECT memory_id
+FROM memory_vector_sync
+WHERE status = 'READY' AND model_id = ?
+ORDER BY updated_at_ms ASC, memory_id ASC
+LIMIT ?;
+
+resetReadyVectorSync:
+UPDATE memory_vector_sync
+SET status = 'PENDING', attempts = 0, available_at_ms = ?, last_error = NULL, updated_at_ms = ?
+WHERE memory_id = ? AND status = 'READY';
+
 selectVectorSyncForModelRefresh:
 SELECT memory_entries.id, memory_embeddings.model_id,
        COALESCE(memory_vector_sync.status, 'PENDING'),

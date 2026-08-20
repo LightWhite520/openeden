@@ -21,6 +21,7 @@ class QdrantVectorIndex(
     private val naming: QdrantCollectionNaming,
     private val modelId: String,
     private val maxSearchLimit: Int = MAX_SEARCH_LIMIT,
+    private val onCollectionRecreated: (suspend () -> Unit)? = null,
 ) : VectorIndex {
     private val collection = naming.collectionName(modelId)
     private val stateMutex = Mutex()
@@ -36,7 +37,12 @@ class QdrantVectorIndex(
         stateMutex.withLock {
             validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, dimensions)
             ensureCollectionLocked(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
-            client.upsertPoints(collection, listOf(entry.toPoint(modelId)))
+            try {
+                client.upsertPoints(collection, listOf(entry.toPoint(modelId)))
+            } catch (failure: QdrantClientException) {
+                resetIfCollectionMissing(failure)
+                throw failure
+            }
         }
     }
 
@@ -85,11 +91,16 @@ class QdrantVectorIndex(
                 add(QdrantFieldCondition("model_id", modelId))
             },
         )
-        return client.searchSemanticPoints(knownCollection, request.semanticEmbedding.toFloatArray(), limit, filter)
-            .mapNotNull { hit ->
-                val memoryId = hit.payload[MEMORY_ID]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                VectorSearchHit(memoryId, entry = null, semanticSimilarity = hit.score.toFloat(), emotionalSimilarity = 0.0f)
-            }
+        return try {
+            client.searchSemanticPoints(knownCollection, request.semanticEmbedding.toFloatArray(), limit, filter)
+                .mapNotNull { hit ->
+                    val memoryId = hit.payload[MEMORY_ID]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    VectorSearchHit(memoryId, entry = null, semanticSimilarity = hit.score.toFloat(), emotionalSimilarity = 0.0f)
+                }
+        } catch (failure: QdrantClientException) {
+            stateMutex.withLock { resetIfCollectionMissing(failure) }
+            throw failure
+        }
     }
 
     override suspend fun markDirty() {
@@ -106,6 +117,7 @@ class QdrantVectorIndex(
         val inspected = client.inspectCollection(collection)
         if (inspected == null) {
             client.createCollection(collection, expected.asSpecs())
+            onCollectionRecreated?.invoke()
         } else {
             validateCollection(inspected, expected)
         }
@@ -256,6 +268,13 @@ class QdrantVectorIndex(
 
     private fun validateVectorSize(actual: Int, expected: Int, name: String) {
         require(actual == expected) { "$name vector dimension $actual does not match expected $expected" }
+    }
+
+    private fun resetIfCollectionMissing(failure: QdrantClientException) {
+        if (failure.statusCode == 404) {
+            collectionReady = false
+            dimensions = null
+        }
     }
 
     private fun incompatibleMessage(actual: Dimensions, expected: Dimensions) =

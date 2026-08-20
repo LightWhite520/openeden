@@ -41,6 +41,32 @@ class ResilientVectorIndexTest {
         assertEquals(QdrantCircuitBreaker.State.CLOSED, resilient.status().circuit.state)
     }
 
+    @Test
+    fun `rebuild reuses an already materialized collection for both indexes`() = runTest {
+        val entries = listOf(entry("m1"), entry("m2"))
+        val primary = FakeIndex()
+        val resilient = ResilientVectorIndex(primary, RebuildableInMemoryVectorIndex(), QdrantCircuitBreaker())
+
+        resilient.rebuild(entries)
+
+        assertTrue(primary.rebuildInput === entries)
+    }
+
+    @Test
+    fun `first successful remote operation after fallback reports recovery`() = runTest {
+        var now = 0L
+        val primary = FakeIndex(failSearch = true)
+        val breaker = QdrantCircuitBreaker(failureThreshold = 1, probeIntervalMs = 10, nowMs = { now })
+        val resilient = ResilientVectorIndex(primary, RebuildableInMemoryVectorIndex(), breaker)
+        resilient.search(VectorSearchRequest("session", listOf(1f)))
+        now = 10L
+        primary.failSearch = false
+
+        resilient.search(VectorSearchRequest("session", listOf(1f)))
+
+        assertEquals(ResilientVectorIndex.TRACE_RECOVERED, resilient.status().lastTraceTag)
+    }
+
     private fun entry(id: String) = MemoryEntry(
         id = id, sessionId = "session", content = id, room = MemoryRoom.EVENT_ROOM, kind = MemoryKind.RAW,
         semanticEmbedding = listOf(1f), emotionalEmbedding = listOf(1f),
@@ -48,13 +74,14 @@ class ResilientVectorIndexTest {
     )
 
     private class FakeIndex(
-        private val failSearch: Boolean = false,
+        var failSearch: Boolean = false,
         private val cancelSearch: Boolean = false,
     ) : VectorIndex {
         var insertCount = 0
+        var rebuildInput: Iterable<MemoryEntry>? = null
         override suspend fun insert(entry: MemoryEntry) { insertCount++ }
         override suspend fun remove(memoryId: String) = Unit
-        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) = Unit
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) { rebuildInput = entries }
         override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
             if (cancelSearch) throw CancellationException("cancel")
             if (failSearch) error("remote down")

@@ -33,7 +33,7 @@ class ResilientVectorIndex(
     }
 
     override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
-        val snapshot = entries.toList()
+        val snapshot: Iterable<MemoryEntry> = if (entries is Collection<MemoryEntry>) entries else entries.toList()
         fallback.rebuild(snapshot, batchSize)
         runPrimary { primary.rebuild(snapshot, batchSize) }
     }
@@ -90,8 +90,9 @@ class ResilientVectorIndex(
     }
 
     private suspend fun markRemoteSuccess() = statusMutex.withLock {
+        val recovered = fallbackActive
         fallbackActive = false
-        lastTraceTag = TRACE_QDRANT
+        lastTraceTag = if (recovered) TRACE_RECOVERED else TRACE_QDRANT
         lastErrorCategory = null
     }
 

@@ -142,6 +142,20 @@ class MemoryVectorProjectionStoreTest {
         } finally { store.close() }
     }
 
+    @Test
+    fun `requeueReady resets a bounded batch after collection recreation`() = runTest {
+        MemoryVectorProjectionStore.open(dbPath).use { store ->
+            store.enqueue("a", "model", 1L)
+            store.enqueue("b", "model", 1L)
+            store.claimDue(1L, 10, "model")
+            store.markReady(listOf("a", "b"), 2L)
+
+            assertEquals(listOf("a"), store.requeueReady("model", 3L, 1))
+            assertEquals(ProjectionStatus.PENDING, store.read("a")?.status)
+            assertEquals(ProjectionStatus.READY, store.read("b")?.status)
+        }
+    }
+
     private fun insertMemory(queries: io.openeden.server.db.MemoryQueries, id: String) {
         queries.insertEntry(
             id, "session", "user", "CLI", "event_room", "RAW", "content", "[]", 1L,

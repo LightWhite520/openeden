@@ -13,7 +13,7 @@ import kotlin.math.min
 class MemoryVectorProjectionStore(
     private val database: Database,
     private val driver: SqlDriver? = null,
-) : AutoCloseable {
+) : AutoCloseable, io.openeden.server.vector.ProjectionWorkStore {
     enum class ProjectionStatus { PENDING, RUNNING, READY }
 
     data class ProjectionWork(
@@ -40,7 +40,7 @@ class MemoryVectorProjectionStore(
         queries.selectVectorSync(memoryId, ::map).executeAsOneOrNull()
     }
 
-    suspend fun claimDue(nowMs: Long, batchSize: Int, activeModelId: String = ""): List<ProjectionWork> = withContext(Dispatchers.IO) {
+    override suspend fun claimDue(nowMs: Long, batchSize: Int, activeModelId: String): List<ProjectionWork> = withContext(Dispatchers.IO) {
         requireTimestamp(nowMs)
         require(batchSize > 0) { "batchSize must be positive" }
         if (activeModelId.isNotEmpty()) requireId(activeModelId)
@@ -53,19 +53,21 @@ class MemoryVectorProjectionStore(
         }
     }
 
+    suspend fun claimDue(nowMs: Long, batchSize: Int): List<ProjectionWork> = claimDue(nowMs, batchSize, "")
+
     suspend fun markReady(memoryId: String, nowMs: Long) = withContext(Dispatchers.IO) {
         requireId(memoryId)
         requireTimestamp(nowMs)
         queries.markVectorSyncReady(nowMs, memoryId)
     }
 
-    suspend fun markReady(memoryIds: Collection<String>, nowMs: Long) = withContext(Dispatchers.IO) {
+    override suspend fun markReady(memoryIds: Collection<String>, nowMs: Long) = withContext(Dispatchers.IO) {
         requireTimestamp(nowMs)
         memoryIds.forEach(::requireId)
         database.transaction { memoryIds.forEach { queries.markVectorSyncReady(nowMs, it) } }
     }
 
-    suspend fun reschedule(memoryId: String, nowMs: Long, error: String?) = withContext(Dispatchers.IO) {
+    override suspend fun reschedule(memoryId: String, nowMs: Long, error: String?) = withContext(Dispatchers.IO) {
         requireId(memoryId)
         requireTimestamp(nowMs)
         val existing = queries.selectVectorSync(memoryId, ::map).executeAsOneOrNull() ?: return@withContext
@@ -74,7 +76,19 @@ class MemoryVectorProjectionStore(
         queries.rescheduleVectorSync(attempts.toLong(), nowMs + delayMs, sanitizeError(error), nowMs, memoryId)
     }
 
-    suspend fun recoverRunning(nowMs: Long) = withContext(Dispatchers.IO) {
+    override suspend fun rescheduleWithJitter(memoryId: String, nowMs: Long, error: String?, jitterMs: Long, baseDelayMs: Long) = withContext(Dispatchers.IO) {
+        requireId(memoryId)
+        requireTimestamp(nowMs)
+        require(jitterMs >= 0) { "jitterMs must not be negative" }
+        require(baseDelayMs > 0) { "baseDelayMs must be positive" }
+        val existing = queries.selectVectorSync(memoryId, ::map).executeAsOneOrNull() ?: return@withContext
+        val attempts = existing.attempts + 1
+        val exponentialDelayMs = min(300_000L, baseDelayMs * (1L shl min(attempts, 8)))
+        val delayMs = min(300_000L, exponentialDelayMs + jitterMs)
+        queries.rescheduleVectorSync(attempts.toLong(), nowMs + delayMs, sanitizeError(error), nowMs, memoryId)
+    }
+
+    override suspend fun recoverRunning(nowMs: Long) = withContext(Dispatchers.IO) {
         requireTimestamp(nowMs)
         queries.recoverRunningVectorSync(nowMs, nowMs)
     }
@@ -83,6 +97,20 @@ class MemoryVectorProjectionStore(
 
     suspend fun pendingCount(): Long = withContext(Dispatchers.IO) {
         queries.countPendingVectorSync().executeAsOne()
+    }
+
+    override suspend fun resetReady(modelId: String, nowMs: Long, batchSize: Int): List<String> =
+        requeueReady(modelId, nowMs, batchSize)
+
+    suspend fun requeueReady(modelId: String, nowMs: Long, batchSize: Int): List<String> = withContext(Dispatchers.IO) {
+        requireId(modelId)
+        requireTimestamp(nowMs)
+        require(batchSize > 0) { "batchSize must be positive" }
+        database.transactionWithResult {
+            val ids = queries.selectReadyVectorSync(modelId, batchSize.toLong()).executeAsList()
+            ids.forEach { queries.resetReadyVectorSync(nowMs, nowMs, it) }
+            ids
+        }
     }
 
     suspend fun selectModelRefresh(activeModelId: String, batchSize: Int): List<ProjectionWork> = withContext(Dispatchers.IO) {
