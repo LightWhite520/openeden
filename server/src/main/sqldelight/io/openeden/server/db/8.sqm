@@ -1,0 +1,17 @@
+CREATE TABLE memory_vector_sync (
+    memory_id TEXT NOT NULL PRIMARY KEY REFERENCES memory_entries(id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL,
+    available_at_ms INTEGER NOT NULL,
+    last_error TEXT,
+    updated_at_ms INTEGER NOT NULL
+);
+
+CREATE INDEX memory_vector_sync_due_index
+ON memory_vector_sync(status, available_at_ms, memory_id);
+
+INSERT INTO memory_vector_sync(memory_id, model_id, status, attempts, available_at_ms, last_error, updated_at_ms)
+SELECT memory_id, model_id, 'PENDING', 0, 0, NULL, 0
+FROM memory_embeddings
+WHERE status = 'READY';

@@ -43,6 +43,19 @@ CREATE TABLE memory_embeddings (
     status TEXT NOT NULL
 );
 
+CREATE TABLE memory_vector_sync (
+    memory_id TEXT NOT NULL PRIMARY KEY REFERENCES memory_entries(id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL,
+    available_at_ms INTEGER NOT NULL,
+    last_error TEXT,
+    updated_at_ms INTEGER NOT NULL
+);
+
+CREATE INDEX memory_vector_sync_due_index
+ON memory_vector_sync(status, available_at_ms, memory_id);
+
 selectById:
 SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
        memory_embeddings.emotional_json, memory_embeddings.status
@@ -133,6 +146,47 @@ INSERT OR REPLACE INTO memory_entries(
 upsertEmbedding:
 INSERT OR REPLACE INTO memory_embeddings(memory_id, model_id, semantic_json, emotional_json, status)
 VALUES (?, ?, ?, ?, ?);
+
+upsertVectorSync:
+INSERT OR REPLACE INTO memory_vector_sync(memory_id, model_id, status, attempts, available_at_ms, last_error, updated_at_ms)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectVectorSync:
+SELECT memory_id, model_id, status, attempts, available_at_ms, last_error, updated_at_ms
+FROM memory_vector_sync WHERE memory_id = ?;
+
+selectDueVectorSync:
+SELECT memory_id, model_id, status, attempts, available_at_ms, last_error, updated_at_ms
+FROM memory_vector_sync
+WHERE status = 'PENDING' AND available_at_ms <= ?
+ORDER BY available_at_ms ASC, memory_id ASC
+LIMIT ?;
+
+claimVectorSync:
+UPDATE memory_vector_sync SET status = 'RUNNING', updated_at_ms = ?
+WHERE memory_id = ? AND status = 'PENDING';
+
+markVectorSyncReady:
+UPDATE memory_vector_sync SET status = 'READY', last_error = NULL, updated_at_ms = ?
+WHERE memory_id = ? AND status = 'RUNNING';
+
+rescheduleVectorSync:
+UPDATE memory_vector_sync SET status = 'PENDING', attempts = ?, available_at_ms = ?, last_error = ?, updated_at_ms = ?
+WHERE memory_id = ? AND status = 'RUNNING';
+
+recoverRunningVectorSync:
+UPDATE memory_vector_sync SET status = 'PENDING', available_at_ms = ?, updated_at_ms = ?
+WHERE status = 'RUNNING';
+
+countPendingVectorSync:
+SELECT COUNT(*) FROM memory_vector_sync WHERE status = 'PENDING';
+
+selectVectorSyncForModelRefresh:
+SELECT memory_id, model_id, status, attempts, available_at_ms, last_error, updated_at_ms
+FROM memory_vector_sync
+WHERE model_id != ?
+ORDER BY memory_id ASC
+LIMIT ?;
 
 CREATE TABLE diary_tasks (
     id TEXT NOT NULL PRIMARY KEY,
