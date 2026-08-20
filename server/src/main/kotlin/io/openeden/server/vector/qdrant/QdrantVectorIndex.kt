@@ -4,8 +4,16 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.VectorIndex
 import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.nio.file.Files
+import java.nio.file.Path
 
 class QdrantVectorIndex(
     private val client: QdrantClient,
@@ -44,44 +52,22 @@ class QdrantVectorIndex(
     override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
         require(batchSize > 0) { "batchSize must be positive" }
         stateMutex.withLock {
-            val iterator = entries.iterator()
-            if (!iterator.hasNext()) {
-                if (ensureExistingCollectionLocked()) client.deletePoints(collection, activeModelFilter())
-                return
+            val snapshot = withContext(Dispatchers.IO) {
+                Files.createTempFile("openeden-qdrant-rebuild-", ".bin")
             }
-
-            var expectedDimensions = dimensions
-            val first = iterator.next()
-            validateVectors(first.semanticEmbedding, first.emotionalEmbedding, expectedDimensions)
-            val firstDimensions = Dimensions(first.semanticEmbedding.size, first.emotionalEmbedding.size)
-            expectedDimensions = expectedDimensions ?: firstDimensions
-            require(expectedDimensions == firstDimensions) {
-                incompatibleMessage(expectedDimensions, firstDimensions)
-            }
-            val establishedDimensions = requireNotNull(expectedDimensions)
-            ensureCollectionLocked(establishedDimensions.semantic, establishedDimensions.emotional)
-            client.deletePoints(collection, activeModelFilter())
-
-            val batch = ArrayList<QdrantPoint>(batchSize)
-            batch += first.toPoint(modelId)
-            if (batch.size == batchSize) {
-                client.upsertPoints(collection, batch.toList())
-                batch.clear()
-            }
-            while (iterator.hasNext()) {
-                val entry = iterator.next()
-                validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, expectedDimensions)
-                val entryDimensions = Dimensions(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
-                require(expectedDimensions == entryDimensions) {
-                    incompatibleMessage(expectedDimensions, entryDimensions)
+            try {
+                val summary = writeSnapshot(snapshot, entries)
+                if (summary.count == 0) {
+                    if (ensureExistingCollectionLocked()) client.deletePoints(collection, activeModelFilter())
+                } else {
+                    val establishedDimensions = requireNotNull(summary.dimensions)
+                    ensureCollectionLocked(establishedDimensions.semantic, establishedDimensions.emotional)
+                    client.deletePoints(collection, activeModelFilter())
+                    replaySnapshot(snapshot, summary.count, batchSize)
                 }
-                batch += entry.toPoint(modelId)
-                if (batch.size == batchSize) {
-                    client.upsertPoints(collection, batch.toList())
-                    batch.clear()
-                }
+            } finally {
+                withContext(Dispatchers.IO) { Files.deleteIfExists(snapshot) }
             }
-            if (batch.isNotEmpty()) client.upsertPoints(collection, batch.toList())
         }
     }
 
@@ -137,6 +123,78 @@ class QdrantVectorIndex(
         dimensions = inspectedDimensions
         collectionReady = true
         return true
+    }
+
+    private suspend fun writeSnapshot(path: Path, entries: Iterable<MemoryEntry>): SnapshotSummary =
+        withContext(Dispatchers.IO) {
+            DataOutputStream(BufferedOutputStream(Files.newOutputStream(path))).use { output ->
+                var expectedDimensions = dimensions
+                var count = 0
+                for (entry in entries) {
+                    validateVectors(entry.semanticEmbedding, entry.emotionalEmbedding, expectedDimensions)
+                    val entryDimensions = Dimensions(entry.semanticEmbedding.size, entry.emotionalEmbedding.size)
+                    expectedDimensions = expectedDimensions ?: entryDimensions
+                    require(expectedDimensions == entryDimensions) {
+                        incompatibleMessage(expectedDimensions, entryDimensions)
+                    }
+                    writePoint(output, entry.toPoint(modelId))
+                    count += 1
+                }
+                SnapshotSummary(count, expectedDimensions)
+            }
+        }
+
+    private suspend fun replaySnapshot(path: Path, count: Int, batchSize: Int) {
+        val input = withContext(Dispatchers.IO) {
+            DataInputStream(BufferedInputStream(Files.newInputStream(path)))
+        }
+        try {
+            var remaining = count
+            while (remaining > 0) {
+                val batchCount = minOf(remaining, batchSize)
+                val batch = withContext(Dispatchers.IO) {
+                    ArrayList<QdrantPoint>(batchCount).also { points ->
+                        repeat(batchCount) { points += readPoint(input) }
+                    }
+                }
+                client.upsertPoints(collection, batch)
+                remaining -= batchCount
+            }
+        } finally {
+            withContext(Dispatchers.IO) { input.close() }
+        }
+    }
+
+    private fun writePoint(output: DataOutputStream, point: QdrantPoint) {
+        output.writeUTF(point.id)
+        output.writeInt(point.vectors.size)
+        point.vectors.toSortedMap().forEach { (name, vector) ->
+            output.writeUTF(name)
+            output.writeInt(vector.size)
+            vector.forEach(output::writeFloat)
+        }
+        output.writeInt(point.payload.size)
+        point.payload.toSortedMap().forEach { (key, value) ->
+            output.writeUTF(key)
+            output.writeUTF(value)
+        }
+    }
+
+    private fun readPoint(input: DataInputStream): QdrantPoint {
+        val id = input.readUTF()
+        val vectorCount = input.readInt().also { require(it >= 0) { "snapshot vector count must not be negative" } }
+        val vectors = buildMap {
+            repeat(vectorCount) {
+                val name = input.readUTF()
+                val size = input.readInt().also { require(it >= 0) { "snapshot vector size must not be negative" } }
+                put(name, FloatArray(size) { input.readFloat() })
+            }
+        }
+        val payloadCount = input.readInt().also { require(it >= 0) { "snapshot payload count must not be negative" } }
+        val payload = buildMap {
+            repeat(payloadCount) { put(input.readUTF(), input.readUTF()) }
+        }
+        return QdrantPoint(id, vectors, payload)
     }
 
     private suspend fun ensureSearchCollection(semanticSize: Int): String? {
@@ -208,6 +266,8 @@ class QdrantVectorIndex(
             EMOTIONAL to QdrantVectorSpec(emotional, COSINE),
         )
     }
+
+    private data class SnapshotSummary(val count: Int, val dimensions: Dimensions?)
 
     private companion object {
         const val SEMANTIC = "semantic"

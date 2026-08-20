@@ -168,7 +168,7 @@ class QdrantVectorIndexTest {
     }
 
     @Test
-    fun `mid stream invalid vector fails after replacement has started`() = runTest {
+    fun `mid stream invalid vector fails before any network request`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { request ->
             if (request.method.value == "GET") response("{}", HttpStatusCode.NotFound) else response("{}")
@@ -185,8 +185,7 @@ class QdrantVectorIndexTest {
             )
         }
 
-        assertTrue(requests.any { it.url.encodedPath.endsWith("/points/delete") })
-        assertEquals(1, requests.count { it.url.encodedPath.endsWith("/points") })
+        assertEquals(0, requests.size)
         client.close()
     }
 
