@@ -14,6 +14,6 @@ internal fun ScreenTerminal.screenAndScrollbackLines(): List<String> {
 private fun LongArray.toPhysicalLine(): String = buildString {
     this@toPhysicalLine.forEach { cell ->
         val codePoint = ScreenTerminal.cellCodePoint(cell)
-        if (codePoint != 0) appendCodePoint(codePoint)
+        if (codePoint != 0 && codePoint != 0xFFFF) appendCodePoint(codePoint)
     }
 }.trimEnd()

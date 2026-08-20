@@ -1,5 +1,4 @@
 import java.net.URI
-import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 
 plugins {
     application
@@ -26,13 +25,6 @@ tasks.named<JavaExec>("run") {
 
 tasks.named<Test>("test") {
     dependsOn(tasks.named("installDist"))
-}
-
-tasks.withType<Test>().configureEach {
-    testLogging {
-        exceptionFormat = TestExceptionFormat.FULL
-        showStandardStreams = true
-    }
 }
 
 val localModelArtifactPath = providers

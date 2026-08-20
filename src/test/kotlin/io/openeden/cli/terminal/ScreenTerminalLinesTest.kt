@@ -41,4 +41,12 @@ class ScreenTerminalLinesTest {
         assertTrue(lines.contains("ATRI: 你"))
         assertTrue(lines.contains("ATRI: 好"))
     }
+
+    @Test
+    fun `wide character continuation cells are not rendered as text`() {
+        val screen = ScreenTerminal(30, 2, true)
+        screen.write("> 多字节输入\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF")
+
+        assertEquals("> 多字节输入", screen.screenAndScrollbackLines().first())
+    }
 }
