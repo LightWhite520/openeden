@@ -88,16 +88,34 @@ class SqlDelightMemoryRepositoryTest {
 
     @Test
     fun `failed memory write leaves no projection work`() = runTest {
-        val repository = SqlDelightMemoryRepository.open(dbPath)
+        val repository = SqlDelightMemoryRepository.open(dbPath, transactionFailureHook = { error("injected transaction failure") })
         val entry = MemoryEntry(
             id = "QQ:42:1000:raw", sessionId = "QQ:42", content = "failed", room = MemoryRoom.EVENT_ROOM,
             kind = MemoryKind.RAW, metadata = MemoryMetadata(BioVector.Neutral, 0.0f, VectorDelta.Zero, BioVector.Neutral, "u1"),
             semanticEmbedding = emptyList(), emotionalEmbedding = emptyList(),
         )
-        runCatching { repository.write(entry, modelId = "") }
+        runCatching { repository.write(entry, modelId = "local-v1") }
         repository.close()
+        SqlDelightMemoryRepository.open(dbPath).use { reopened ->
+            assertEquals(null, reopened.readById(entry.id))
+        }
         MemoryVectorProjectionStore.open(dbPath).use { projection ->
             assertEquals(null, projection.read(entry.id))
+        }
+    }
+
+    @Test
+    fun `wake failure does not fail committed write`() = runTest {
+        val entry = MemoryEntry(
+            id = "QQ:42:1000:raw", sessionId = "QQ:42", content = "wake", room = MemoryRoom.EVENT_ROOM,
+            kind = MemoryKind.RAW, metadata = MemoryMetadata(BioVector.Neutral, 0.0f, VectorDelta.Zero, BioVector.Neutral, "u1"),
+            semanticEmbedding = emptyList(), emotionalEmbedding = emptyList(),
+        )
+        SqlDelightMemoryRepository.open(dbPath, projectionWake = { error("wake failure") }).use { repository ->
+            repository.write(entry, modelId = "local-v1")
+        }
+        MemoryVectorProjectionStore.open(dbPath).use { projection ->
+            assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, projection.read(entry.id)?.status)
         }
     }
 

@@ -43,6 +43,7 @@ class SqlDelightMemoryRepository(
     private val json: Json = Json,
     private val activeModelId: String = "local-v1",
     private val projectionWake: () -> Unit = {},
+    private val transactionFailureHook: (() -> Unit)? = null,
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
     private val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
@@ -57,9 +58,10 @@ class SqlDelightMemoryRepository(
                 queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
                 val nowMs = createdAtMsFromId(entry.id)
                 queries.upsertVectorSync(entry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
+                transactionFailureHook?.invoke()
             }
-            projectionWake()
             try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
+            runCatching { projectionWake() }
             setOf(io.openeden.trace.TraceTag.MemoryWritten)
         }
     }
@@ -212,10 +214,11 @@ class SqlDelightMemoryRepository(
             embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
             activeModelId: String = "local-v1",
             projectionWake: () -> Unit = {},
+            transactionFailureHook: (() -> Unit)? = null,
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake)
+            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake, transactionFailureHook)
         }
     }
 }
