@@ -83,7 +83,7 @@ class MemoryVectorProjectionStore(
         require(baseDelayMs > 0) { "baseDelayMs must be positive" }
         val existing = queries.selectVectorSync(memoryId, ::map).executeAsOneOrNull() ?: return@withContext
         val attempts = existing.attempts + 1
-        val exponentialDelayMs = min(300_000L, baseDelayMs * (1L shl min(attempts, 8)))
+        val exponentialDelayMs = min(300_000L, baseDelayMs * (1L shl min((attempts - 1).coerceAtLeast(0), 8)))
         val delayMs = min(300_000L, exponentialDelayMs + jitterMs)
         queries.rescheduleVectorSync(attempts.toLong(), nowMs + delayMs, sanitizeError(error), nowMs, memoryId)
     }

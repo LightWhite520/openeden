@@ -67,6 +67,17 @@ class ResilientVectorIndexTest {
         assertEquals(ResilientVectorIndex.TRACE_RECOVERED, resilient.status().lastTraceTag)
     }
 
+    @Test
+    fun `one shot rebuild is consumed by fallback then replayed to primary`() = runTest {
+        val primary = FakeIndex()
+        val resilient = ResilientVectorIndex(primary, RebuildableInMemoryVectorIndex(), QdrantCircuitBreaker())
+        val oneShot = sequenceOf(entry("m1"), entry("m2")).asIterable()
+
+        resilient.rebuild(oneShot)
+
+        assertEquals(listOf("m1", "m2"), primary.rebuildInput?.map { it.id })
+    }
+
     private fun entry(id: String) = MemoryEntry(
         id = id, sessionId = "session", content = id, room = MemoryRoom.EVENT_ROOM, kind = MemoryKind.RAW,
         semanticEmbedding = listOf(1f), emotionalEmbedding = listOf(1f),

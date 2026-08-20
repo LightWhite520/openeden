@@ -33,9 +33,14 @@ class ResilientVectorIndex(
     }
 
     override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
-        val snapshot: Iterable<MemoryEntry> = if (entries is Collection<MemoryEntry>) entries else entries.toList()
-        fallback.rebuild(snapshot, batchSize)
-        runPrimary { primary.rebuild(snapshot, batchSize) }
+        if (entries is Collection<MemoryEntry>) {
+            fallback.rebuild(entries, batchSize)
+            runPrimary { primary.rebuild(entries, batchSize) }
+        } else {
+            fallback.rebuild(entries, batchSize)
+            val replay = fallback.snapshotEntries()
+            runPrimary { primary.rebuild(replay, batchSize) }
+        }
     }
 
     override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {

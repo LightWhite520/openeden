@@ -103,6 +103,60 @@ class QdrantProjectionSynchronizerTest {
         assertEquals(listOf("a"), store.rescheduled)
     }
 
+    @Test
+    fun `collection loss drains all ready requeue batches`() = runTest {
+        val store = FakeStore(work("a"))
+        store.resetBatches = mutableListOf(listOf("ready-1"), listOf("ready-2"), emptyList())
+        val synchronizer = QdrantProjectionSynchronizer(
+            store = store,
+            loadEntry = { entry(it) },
+            project = { throw io.openeden.server.vector.qdrant.QdrantClientException(io.openeden.server.vector.qdrant.QdrantErrorCategory.HTTP, 404, "missing") },
+            modelId = "model",
+            nowMs = { 10L },
+            retryJitterMs = { 0L },
+        )
+
+        synchronizer.drainOnce()
+
+        assertEquals(3, store.resetCalls)
+    }
+
+    @Test
+    fun `loaded id mismatch is retried and never acknowledged`() = runTest {
+        val store = FakeStore(work("expected"))
+        val synchronizer = QdrantProjectionSynchronizer(
+            store = store,
+            loadEntry = { entry("different") },
+            project = { _: List<MemoryEntry> -> error("must not project") },
+            modelId = "model",
+            nowMs = { 10L },
+            retryJitterMs = { 0L },
+        )
+
+        synchronizer.drainOnce()
+
+        assertEquals(emptyList<String>(), store.ready)
+        assertEquals(listOf("expected"), store.rescheduled)
+        assertEquals(listOf<String?>("MemoryIdentityMismatch"), store.errors)
+    }
+
+    @Test
+    fun `retry persists only exception category rather than upstream message`() = runTest {
+        val store = FakeStore(work("a"))
+        val synchronizer = QdrantProjectionSynchronizer(
+            store = store,
+            loadEntry = { entry(it) },
+            project = { _: List<MemoryEntry> -> error("secret token and memory body") },
+            modelId = "model",
+            nowMs = { 10L },
+            retryJitterMs = { 0L },
+        )
+
+        synchronizer.drainOnce()
+
+        assertEquals(listOf<String?>("IllegalStateException"), store.errors)
+    }
+
     private fun work(id: String) = MemoryVectorProjectionStore.ProjectionWork(
         id, "model", MemoryVectorProjectionStore.ProjectionStatus.PENDING, 0, 0L, null, 0L,
     )
@@ -118,13 +172,21 @@ class QdrantProjectionSynchronizerTest {
         val ready = mutableListOf<String>()
         val rescheduled = mutableListOf<String>()
         val resetModels = mutableListOf<String>()
+        var resetBatches = mutableListOf<List<String>>()
+        var resetCalls = 0
+        val errors = mutableListOf<String?>()
         override suspend fun recoverRunning(nowMs: Long) = Unit
         override suspend fun claimDue(nowMs: Long, batchSize: Int, activeModelId: String) = pending.toList().also { pending.clear() }
         override suspend fun markReady(memoryIds: Collection<String>, nowMs: Long) { ready += memoryIds }
-        override suspend fun reschedule(memoryId: String, nowMs: Long, error: String?) { rescheduled += memoryId }
+        override suspend fun reschedule(memoryId: String, nowMs: Long, error: String?) { rescheduled += memoryId; errors += error }
+        override suspend fun rescheduleWithJitter(memoryId: String, nowMs: Long, error: String?, jitterMs: Long, baseDelayMs: Long) {
+            rescheduled += memoryId
+            errors += error
+        }
         override suspend fun resetReady(modelId: String, nowMs: Long, batchSize: Int): List<String> {
             resetModels += modelId
-            return emptyList()
+            resetCalls += 1
+            return if (resetBatches.isNotEmpty()) resetBatches.removeAt(0) else emptyList()
         }
     }
 }

@@ -156,6 +156,19 @@ class MemoryVectorProjectionStoreTest {
         }
     }
 
+    @Test
+    fun `jittered retry uses configured interval as the exponential base`() = runTest {
+        MemoryVectorProjectionStore.open(dbPath).use { store ->
+            store.enqueue("a", "model", 10L)
+            store.claimDue(10L, 1, "model")
+            store.rescheduleWithJitter("a", 10L, "failure", jitterMs = 0L, baseDelayMs = 30_000L)
+            assertEquals(30_010L, store.read("a")?.availableAtMs)
+            store.claimDue(30_010L, 1, "model")
+            store.rescheduleWithJitter("a", 30_010L, "failure", jitterMs = 0L, baseDelayMs = 30_000L)
+            assertEquals(90_010L, store.read("a")?.availableAtMs)
+        }
+    }
+
     private fun insertMemory(queries: io.openeden.server.db.MemoryQueries, id: String) {
         queries.insertEntry(
             id, "session", "user", "CLI", "event_room", "RAW", "content", "[]", 1L,

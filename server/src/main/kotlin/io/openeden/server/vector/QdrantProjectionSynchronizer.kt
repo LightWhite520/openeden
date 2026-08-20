@@ -93,10 +93,15 @@ class QdrantProjectionSynchronizer(
         if (claimed.isEmpty()) return 0
         val loaded = ArrayList<MemoryEntry>(claimed.size)
         val missing = ArrayList<MemoryVectorProjectionStore.ProjectionWork>()
+        val mismatched = ArrayList<MemoryVectorProjectionStore.ProjectionWork>()
         try {
             claimed.forEach { work ->
                 val entry = loadEntry(work.memoryId)
-                if (entry == null) missing += work else loaded += entry
+                when {
+                    entry == null -> missing += work
+                    entry.id != work.memoryId -> mismatched += work
+                    else -> loaded += entry
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -128,14 +133,9 @@ class QdrantProjectionSynchronizer(
 
         val completedAt = nowMs()
         missing.forEach { work ->
-            store.rescheduleWithJitter(
-                work.memoryId,
-                completedAt,
-                "memory source missing",
-                retryJitterMs(work).coerceAtLeast(0L),
-                intervalMs,
-            )
+            reschedule(work, completedAt, "MemorySourceMissing")
         }
+        mismatched.forEach { work -> reschedule(work, completedAt, "MemoryIdentityMismatch") }
         if (loaded.isNotEmpty()) store.markReady(loaded.map { it.id }, completedAt)
         return claimed.size
     }
@@ -145,20 +145,21 @@ class QdrantProjectionSynchronizer(
         atMs: Long,
         failure: Throwable,
     ) {
-        claimed.forEach { work ->
-            store.rescheduleWithJitter(
-                work.memoryId,
-                atMs,
-                failure.message ?: failure::class.simpleName,
-                retryJitterMs(work).coerceAtLeast(0L),
-                intervalMs,
-            )
-        }
+        val safeError = failure::class.simpleName ?: "ProjectionFailure"
+        claimed.forEach { work -> reschedule(work, atMs, safeError) }
+    }
+
+    private suspend fun reschedule(
+        work: MemoryVectorProjectionStore.ProjectionWork,
+        atMs: Long,
+        error: String,
+    ) {
+        store.rescheduleWithJitter(work.memoryId, atMs, error, retryJitterMs(work).coerceAtLeast(0L), intervalMs)
     }
 
     private suspend fun handleCollectionLoss() {
         try {
-            store.resetReady(modelId, nowMs(), batchSize)
+            while (store.resetReady(modelId, nowMs(), batchSize).isNotEmpty()) Unit
             onCollectionLoss?.invoke()
         } catch (cancelled: CancellationException) {
             throw cancelled
