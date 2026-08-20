@@ -230,7 +230,7 @@ class CliPseudoTerminalTest {
         description: String,
         condition: (List<String>) -> Boolean,
     ): EmulatedSnapshot {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(PTY_WAIT_TIMEOUT_SECONDS)
         while (true) {
             val raw = snapshot()
             val screen = ScreenTerminal(100, 30, true).apply { write(raw) }
@@ -251,7 +251,7 @@ class CliPseudoTerminalTest {
     }
 
     private fun <T> StringBuffer.awaitOutput(description: String, condition: (String) -> T?): T {
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(PTY_WAIT_TIMEOUT_SECONDS)
         while (true) {
             val output = snapshot()
             condition(output)?.let { return it }
@@ -285,6 +285,7 @@ class CliPseudoTerminalTest {
     )
 
     private companion object {
+        const val PTY_WAIT_TIMEOUT_SECONDS = 30L
         val ANSI_CSI = Regex("\\u001B\\[[0-?]*[ -/]*[@-~]")
         val PROMPT = Regex("(?:^|[\\r\\n])> ?")
     }

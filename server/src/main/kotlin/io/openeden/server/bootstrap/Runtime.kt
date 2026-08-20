@@ -80,6 +80,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.time.Duration.Companion.milliseconds
 
 /** The shared, durable-backed pipeline, published for [configureRouting] to consume. */
 val PipelineKey = AttributeKey<DevelopmentMessagePipeline>("openeden.pipeline")
@@ -325,7 +326,7 @@ private suspend fun Application.startRuntime(
     val elapsedDiaryJob = scope.launch {
         while (true) {
             diaryCoordinator.flushElapsedSessions(System.currentTimeMillis())
-            kotlinx.coroutines.delay(serverConfig.diaryScanIntervalMs)
+            kotlinx.coroutines.delay(serverConfig.diaryScanIntervalMs.milliseconds)
         }
     }
     val scheduler = HeartbeatScheduler(
