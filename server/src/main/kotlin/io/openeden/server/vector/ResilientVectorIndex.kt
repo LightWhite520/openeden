@@ -16,6 +16,7 @@ class ResilientVectorIndex(
     private val collection: String? = null,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) : VectorIndex {
+    private val operationMutex = Mutex()
     private val statusMutex = Mutex()
     private var fallbackActive = false
     private var lastTraceTag = TRACE_QDRANT
@@ -23,22 +24,23 @@ class ResilientVectorIndex(
     private var lastErrorAtMs: Long? = null
 
     override suspend fun insert(entry: MemoryEntry) {
-        fallback.insert(entry)
-        runPrimary { primary.insert(entry) }
+        operationMutex.withLock {
+            fallback.insert(entry)
+            runPrimary { primary.insert(entry) }
+        }
     }
 
     override suspend fun remove(memoryId: String) {
-        fallback.remove(memoryId)
-        runPrimary { primary.remove(memoryId) }
+        operationMutex.withLock {
+            fallback.remove(memoryId)
+            runPrimary { primary.remove(memoryId) }
+        }
     }
 
     override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
-        if (entries is Collection<MemoryEntry>) {
+        operationMutex.withLock {
             fallback.rebuild(entries, batchSize)
-            runPrimary { primary.rebuild(entries, batchSize) }
-        } else {
-            fallback.rebuild(entries, batchSize)
-            val replay = fallback.snapshotEntries()
+            val replay = fallback.entriesViewForRebuild()
             runPrimary { primary.rebuild(replay, batchSize) }
         }
     }
@@ -62,13 +64,15 @@ class ResilientVectorIndex(
     }
 
     override suspend fun markDirty() {
-        fallback.markDirty()
-        try {
-            primary.markDirty()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Throwable) {
-            markFallback(failure)
+        operationMutex.withLock {
+            fallback.markDirty()
+            try {
+                primary.markDirty()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                markFallback(failure)
+            }
         }
     }
 

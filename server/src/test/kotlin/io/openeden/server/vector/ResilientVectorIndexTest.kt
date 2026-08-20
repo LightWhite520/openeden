@@ -11,6 +11,10 @@ import io.openeden.memory.VectorIndex
 import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -49,7 +53,7 @@ class ResilientVectorIndexTest {
 
         resilient.rebuild(entries)
 
-        assertTrue(primary.rebuildInput === entries)
+        assertEquals(listOf("m1", "m2"), primary.rebuildInput?.map { it.id })
     }
 
     @Test
@@ -78,6 +82,29 @@ class ResilientVectorIndexTest {
         assertEquals(listOf("m1", "m2"), primary.rebuildInput?.map { it.id })
     }
 
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `insert waits while primary replays fallback view`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val primary = FakeIndex(
+            onRebuild = {
+                started.complete(Unit)
+                release.await()
+            },
+        )
+        val resilient = ResilientVectorIndex(primary, RebuildableInMemoryVectorIndex(), QdrantCircuitBreaker())
+        val rebuildJob = async { resilient.rebuild(sequenceOf(entry("m1"), entry("m2")).asIterable()) }
+        started.await()
+        val insertJob = async { resilient.insert(entry("m3")) }
+        runCurrent()
+        assertEquals(false, insertJob.isCompleted)
+        release.complete(Unit)
+        rebuildJob.await()
+        insertJob.await()
+        assertEquals(1, primary.insertCount)
+    }
+
     private fun entry(id: String) = MemoryEntry(
         id = id, sessionId = "session", content = id, room = MemoryRoom.EVENT_ROOM, kind = MemoryKind.RAW,
         semanticEmbedding = listOf(1f), emotionalEmbedding = listOf(1f),
@@ -87,12 +114,16 @@ class ResilientVectorIndexTest {
     private class FakeIndex(
         var failSearch: Boolean = false,
         private val cancelSearch: Boolean = false,
+        private val onRebuild: (suspend () -> Unit)? = null,
     ) : VectorIndex {
         var insertCount = 0
         var rebuildInput: Iterable<MemoryEntry>? = null
         override suspend fun insert(entry: MemoryEntry) { insertCount++ }
         override suspend fun remove(memoryId: String) = Unit
-        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) { rebuildInput = entries }
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
+            rebuildInput = entries
+            onRebuild?.invoke()
+        }
         override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
             if (cancelSearch) throw CancellationException("cancel")
             if (failSearch) error("remote down")

@@ -49,7 +49,7 @@ class RebuildableInMemoryVectorIndex(
         mutex.withLock { isDirty = true }
     }
 
-    suspend fun snapshotEntries(): List<MemoryEntry> = mutex.withLock { entries.values.toList() }
+    suspend fun entriesViewForRebuild(): Iterable<MemoryEntry> = mutex.withLock { entries.values }
 
     override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> =
         inferenceExecutor.run {
