@@ -185,7 +185,7 @@ class SqlDelightMemoryRepositoryTest {
 
             assertEquals(listOf(second.id, first.id), result.memories.map { it.id })
             assertEquals(1, remoteIndex.searchCount)
-            assertEquals(1, remoteIndex.rebuildCount)
+            assertEquals(0, remoteIndex.rebuildCount)
         }
     }
 
@@ -235,6 +235,25 @@ class SqlDelightMemoryRepositoryTest {
         }
     }
 
+    @Test
+    fun `writes never mutate the injected retrieval index`() = runTest {
+        val active = memoryEntry("QQ:42:1000:raw", "QQ:42", "active")
+        val old = memoryEntry("QQ:42:2000:raw", "QQ:42", "old")
+        val retrievalIndex = ThrowingMutationIndex()
+        var wakeCount = 0
+        SqlDelightMemoryRepository.open(
+            dbPath,
+            activeModelId = "local-v2",
+            projectionWake = { wakeCount += 1 },
+            index = retrievalIndex,
+        ).use { repository ->
+            repository.write(active, modelId = "local-v2")
+            repository.write(old, modelId = "local-v1")
+        }
+        assertEquals(2, wakeCount)
+        assertEquals(0, retrievalIndex.mutationCalls)
+    }
+
     private fun memoryEntry(id: String, sessionId: String, content: String) = MemoryEntry(
         id = id,
         sessionId = sessionId,
@@ -259,6 +278,24 @@ class SqlDelightMemoryRepositoryTest {
             searchCount += 1
             return hits.take(request.limit)
         }
+        override suspend fun markDirty() = Unit
+    }
+
+    private class ThrowingMutationIndex : VectorIndex {
+        var mutationCalls = 0
+
+        override suspend fun insert(entry: MemoryEntry): Unit {
+            mutationCalls += 1
+            error("retrieval index must not be mutated by writes")
+        }
+
+        override suspend fun remove(memoryId: String): Unit {
+            mutationCalls += 1
+            error("retrieval index must not be mutated by writes")
+        }
+
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) = Unit
+        override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> = emptyList()
         override suspend fun markDirty() = Unit
     }
 

@@ -49,8 +49,12 @@ class SqlDelightMemoryRepository(
     private val transactionFailureHook: (() -> Unit)? = null,
     private val index: VectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
     private val candidateLimit: Int = 128,
+    private val fallbackIndex: RebuildableInMemoryVectorIndex? = null,
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
+    private val localFallbackIndex = fallbackIndex
+        ?: (index as? RebuildableInMemoryVectorIndex)
+        ?: RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
     private val loadedSessions = mutableSetOf<String>()
     private val loadMutex = Mutex()
 
@@ -65,9 +69,9 @@ class SqlDelightMemoryRepository(
                 transactionFailureHook?.invoke()
             }
             if (modelId == activeModelId) {
-                try { index.insert(entry) } catch (_: Throwable) { index.markDirty() }
+                try { localFallbackIndex.insert(entry) } catch (_: Throwable) { localFallbackIndex.markDirty() }
             } else {
-                try { index.remove(entry.id) } catch (_: Throwable) { index.markDirty() }
+                try { localFallbackIndex.remove(entry.id) } catch (_: Throwable) { localFallbackIndex.markDirty() }
             }
             try {
                 projectionWake()
@@ -177,9 +181,9 @@ class SqlDelightMemoryRepository(
             }
             var indexed = true
             try {
-                index.rebuild(entries)
+                localFallbackIndex.rebuild(entries)
             } catch (_: Throwable) {
-                index.markDirty()
+                localFallbackIndex.markDirty()
                 indexed = false
             }
             if (indexed) loadedSessions += sessionId
@@ -258,10 +262,11 @@ class SqlDelightMemoryRepository(
             transactionFailureHook: (() -> Unit)? = null,
             index: VectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
             candidateLimit: Int = 128,
+            fallbackIndex: RebuildableInMemoryVectorIndex? = null,
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake, transactionFailureHook, index, candidateLimit)
+            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake, transactionFailureHook, index, candidateLimit, fallbackIndex)
         }
     }
 }
