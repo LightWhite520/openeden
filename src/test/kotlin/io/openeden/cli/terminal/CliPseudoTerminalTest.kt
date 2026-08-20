@@ -241,6 +241,11 @@ class CliPseudoTerminalTest {
                 return EmulatedSnapshot(raw, lines, visibleLines)
             }
             if (System.nanoTime() >= deadline) {
+                System.err.println(
+                    "PTY timeout waiting for $description:\n" +
+                        "screen/history tail:\n${lines.takeLast(40).joinToString("\n")}\n" +
+                        "raw tail:\n${raw.boundedForFailure()}",
+                )
                 throw AssertionError(
                     "Timed out waiting for $description:\n" +
                         "screen/history tail:\n${lines.takeLast(40).joinToString("\n")}\n" +
