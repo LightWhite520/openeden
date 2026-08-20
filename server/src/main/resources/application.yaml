@@ -29,6 +29,16 @@ openeden:
     djlAffectModelPath: "$OPENEDEN_DJL_AFFECT_MODEL_PATH:data/models/thymos-6d"
     djlEngine: "$OPENEDEN_DJL_ENGINE:PyTorch"
     djlModelName: "$OPENEDEN_DJL_MODEL_NAME:model"
+  vectorDatabase:
+    enabled: "$OPENEDEN_VECTOR_DB_ENABLED:true"
+    url: "$OPENEDEN_QDRANT_URL:http://localhost:6333"
+    apiKey: "$OPENEDEN_QDRANT_API_KEY:"
+    collectionPrefix: "$OPENEDEN_QDRANT_COLLECTION:openeden_memory"
+    modelId: "$OPENEDEN_EMBEDDING_MODEL_ID:local-v1"
+    requestTimeoutMs: "$OPENEDEN_QDRANT_TIMEOUT_MS:2000"
+    syncIntervalSeconds: "$OPENEDEN_QDRANT_SYNC_INTERVAL_SECONDS:30"
+    syncBatchSize: "$OPENEDEN_QDRANT_SYNC_BATCH_SIZE:128"
+    failureThreshold: "$OPENEDEN_QDRANT_FAILURE_THRESHOLD:3"
   heartbeat:
     ownerPlatform: "$?OPENEDEN_OWNER_PLATFORM:"
     ownerUserId: "$?OPENEDEN_OWNER_USER_ID:"

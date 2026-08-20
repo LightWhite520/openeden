@@ -15,6 +15,7 @@ import io.openeden.memory.VectorSearchRequest
 import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import io.openeden.runtime.inference.RecordingInferenceExecutor
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -266,6 +267,35 @@ class SqlDelightMemoryRepositoryTest {
                 RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
             )
             assertEquals(emptyList(), result.memories)
+        }
+    }
+
+    @Test
+    fun `refreshes outdated embeddings in bounded inference batches and requeues projection`() = runTest {
+        val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "refresh me")
+        val embeddingModel = object : io.openeden.memory.MemoryEmbeddingModel {
+            override suspend fun embed(text: String): List<Float> = listOf(text.length.toFloat())
+            override suspend fun embed(vector: BioVector): List<Float> = listOf(vector.p.toFloat() + 10.0f)
+        }
+        val inference = RecordingInferenceExecutor()
+
+        SqlDelightMemoryRepository.open(
+            dbPath,
+            embeddingModel = embeddingModel,
+            activeModelId = "local-v2",
+        ).use { repository ->
+            repository.write(entry, modelId = "old-model")
+            assertEquals(1, repository.refreshOutdatedEmbeddings(inference, batchSize = 1))
+            val refreshed = assertNotNull(repository.readById(entry.id))
+            assertEquals("local-v2", refreshed.modelId)
+            assertEquals(listOf(entry.content.length.toFloat()), refreshed.entry.semanticEmbedding)
+            assertEquals(listOf(10.5f), refreshed.entry.emotionalEmbedding)
+        }
+
+        assertEquals(1, inference.calls)
+        MemoryVectorProjectionStore.open(dbPath).use { projection ->
+            assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, projection.read(entry.id)?.status)
+            assertEquals("local-v2", projection.read(entry.id)?.modelId)
         }
     }
 

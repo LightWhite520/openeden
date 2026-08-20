@@ -22,6 +22,7 @@ import io.openeden.memory.VectorIndex
 import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
 import io.openeden.runtime.inference.DirectInferenceExecutor
+import io.openeden.runtime.inference.InferenceExecutor
 import io.openeden.runtime.diary.DiaryRawMemoryCursor
 import io.openeden.runtime.diary.DiaryRawMemorySource
 import kotlinx.coroutines.sync.Mutex
@@ -29,6 +30,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
@@ -87,6 +89,60 @@ class SqlDelightMemoryRepository(
 
     suspend fun readById(id: String): StoredMemory? = withContext(Dispatchers.IO) {
         queries.selectById(id, ::mapRow).executeAsOneOrNull()
+    }
+
+    /** Rebuilds local embeddings whose model differs from [activeModelId], in bounded batches. */
+    suspend fun refreshOutdatedEmbeddings(
+        inferenceExecutor: InferenceExecutor,
+        batchSize: Int = 128,
+    ): Int = withContext(Dispatchers.IO) {
+        require(batchSize > 0) { "batchSize must be positive" }
+        var refreshedCount = 0
+        while (true) {
+            val candidates = queries.selectVectorSyncForModelRefresh(
+                activeModelId,
+                batchSize.toLong(),
+                ::mapRefreshCandidate,
+            ).executeAsList()
+            if (candidates.isEmpty()) break
+
+            val ids = candidates.map { it.memoryId }
+            val entries = queries.selectByIds(ids, ::mapRow).executeAsList()
+            val refreshed = inferenceExecutor.run {
+                entries.map { stored ->
+                    RefreshedEmbedding(
+                        memoryId = stored.entry.id,
+                        semantic = embeddingModel.embed(stored.entry.content),
+                        emotional = embeddingModel.embed(stored.entry.metadata.snapshot8D),
+                    )
+                }
+            }
+            val nowMs = System.currentTimeMillis()
+            database.transaction {
+                refreshed.forEach { embedding ->
+                    queries.upsertEmbedding(
+                        embedding.memoryId,
+                        activeModelId,
+                        json.encodeToString(embedding.semantic),
+                        json.encodeToString(embedding.emotional),
+                        "READY",
+                    )
+                    queries.upsertVectorSync(
+                        embedding.memoryId,
+                        activeModelId,
+                        MemoryVectorProjectionStore.ProjectionStatus.PENDING.name,
+                        0,
+                        nowMs,
+                        null,
+                        nowMs,
+                    )
+                }
+            }
+            refreshedCount += refreshed.size
+            localFallbackIndex.markDirty()
+            if (refreshed.size >= batchSize) yield()
+        }
+        refreshedCount
     }
 
     /** Ordered RAW-only cursor range, with an exclusive lower and inclusive upper bound. */
@@ -256,6 +312,32 @@ class SqlDelightMemoryRepository(
     private fun mapVector(
         l: Double, p: Double, e: Double, s: Double, tau: Double, v: Double, m: Double, f: Double,
     ): BioVector = BioVector(l.toFloat(), p.toFloat(), e.toFloat(), s.toFloat(), tau.toFloat(), v.toFloat(), m.toFloat(), f.toFloat())
+
+    private fun mapRefreshCandidate(
+        memoryId: String,
+        modelId: String,
+        status: String,
+        attempts: Long,
+        availableAtMs: Long,
+        lastError: String?,
+        updatedAtMs: Long,
+    ) = RefreshCandidate(memoryId, modelId, status, attempts, availableAtMs, lastError, updatedAtMs)
+
+    private data class RefreshCandidate(
+        val memoryId: String,
+        val modelId: String,
+        val status: String,
+        val attempts: Long,
+        val availableAtMs: Long,
+        val lastError: String?,
+        val updatedAtMs: Long,
+    )
+
+    private data class RefreshedEmbedding(
+        val memoryId: String,
+        val semantic: List<Float>,
+        val emotional: List<Float>,
+    )
 
     companion object {
         fun open(
