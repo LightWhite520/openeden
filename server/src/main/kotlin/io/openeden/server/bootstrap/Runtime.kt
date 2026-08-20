@@ -76,6 +76,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
@@ -374,12 +375,16 @@ private suspend fun Application.startRuntime(
         shutdown.stopping()
     }
     // Ktor raises ApplicationStopped only after disposeAndJoin has waited for Application children.
-    // These synchronous closes release already-quiesced resources; they perform no query or inference.
+    // Close database resources on their owning dispatchers without blocking the event callback.
+    val shutdownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     monitor.subscribe(ApplicationStopped) {
-        shutdown.stopped()?.let { failure ->
-            log.error("One or more OpenEden runtime resources failed to close", failure)
+        shutdownScope.launch {
+            shutdown.stopped()?.let { failure ->
+                log.error("One or more OpenEden runtime resources failed to close", failure)
+            }
+            shutdownScope.cancel()
+            log.info("OpenEden runtime stopped")
         }
-        log.info("OpenEden runtime stopped")
     }
     startupClosers.clear()
 }

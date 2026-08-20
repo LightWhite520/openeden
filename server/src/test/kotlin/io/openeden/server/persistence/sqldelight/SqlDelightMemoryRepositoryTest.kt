@@ -403,8 +403,8 @@ class SqlDelightMemoryRepositoryTest {
     }
 
 
-    private inline fun SqlDelightMemoryRepository.use(
-        block: (SqlDelightMemoryRepository) -> Unit,
+    private suspend inline fun SqlDelightMemoryRepository.use(
+        block: suspend (SqlDelightMemoryRepository) -> Unit,
     ) {
         try {
             block(this)

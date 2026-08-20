@@ -10,7 +10,7 @@ import io.openeden.runtime.lifecycle.IncarnationTerminationStore
 import io.openeden.runtime.lifecycle.TerminationReason
 import io.openeden.server.db.Database
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
@@ -23,7 +23,7 @@ class DiaryArchiveVerificationException(message: String) : IllegalStateException
 class SqlDelightIncarnationLifecycleRepository(
     private val database: Database,
     private val driver: SqlDriver,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
+    private val ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-lifecycle-sqlite"),
 ) : IncarnationTerminationStore, DiaryArchiveReader {
     override suspend fun read(): IncarnationLifecycle = withContext(ioDispatcher) {
         current().status
@@ -124,9 +124,10 @@ class SqlDelightIncarnationLifecycleRepository(
         )
     }
 
-    fun close() {
+    suspend fun close() = withContext(ioDispatcher) {
         if (driver is JdbcSqliteDriver) driver.closeCurrentThreadConnection()
         driver.close()
+        (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
     }
 
     private suspend fun transition(
@@ -230,7 +231,7 @@ class SqlDelightIncarnationLifecycleRepository(
 
         fun open(
             dbPath: Path,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
+            ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-lifecycle-sqlite"),
         ): SqlDelightIncarnationLifecycleRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)

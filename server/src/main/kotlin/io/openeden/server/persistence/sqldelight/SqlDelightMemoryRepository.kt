@@ -28,7 +28,8 @@ import io.openeden.runtime.diary.DiaryRawMemorySource
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
@@ -52,6 +53,7 @@ class SqlDelightMemoryRepository(
     private val index: VectorIndex? = null,
     private val candidateLimit: Int = 128,
     private val fallbackIndex: RebuildableInMemoryVectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
+    private val ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-memory-sqlite"),
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
     private val localFallbackIndex = fallbackIndex
@@ -60,7 +62,7 @@ class SqlDelightMemoryRepository(
     private val loadMutex = Mutex()
 
     suspend fun write(entry: MemoryEntry, modelId: String): Set<String> {
-        return withContext(Dispatchers.IO) {
+        return withContext(ioDispatcher) {
             require(modelId.isNotBlank()) { "modelId must not be blank" }
             database.transaction {
                 writeEntry(entry)
@@ -87,7 +89,7 @@ class SqlDelightMemoryRepository(
 
     override suspend fun write(entry: MemoryEntry): Set<String> = write(entry, activeModelId)
 
-    suspend fun readById(id: String): StoredMemory? = withContext(Dispatchers.IO) {
+    suspend fun readById(id: String): StoredMemory? = withContext(ioDispatcher) {
         queries.selectById(id, ::mapRow).executeAsOneOrNull()
     }
 
@@ -95,7 +97,7 @@ class SqlDelightMemoryRepository(
     suspend fun refreshOutdatedEmbeddings(
         inferenceExecutor: InferenceExecutor,
         batchSize: Int = 128,
-    ): Int = withContext(Dispatchers.IO) {
+    ): Int = withContext(ioDispatcher) {
         require(batchSize > 0) { "batchSize must be positive" }
         var refreshedCount = 0
         while (true) {
@@ -154,7 +156,7 @@ class SqlDelightMemoryRepository(
         limit: Int,
     ): List<MemoryEntry> {
         if (limit <= 0) return emptyList()
-        return withContext(Dispatchers.IO) {
+        return withContext(ioDispatcher) {
             val afterMs = afterId?.let(::createdAtMsFromId)
             val throughMs = throughId?.let(::createdAtMsFromId)
             queries.selectRawMemoryRange(sessionId, afterId ?: "", afterMs ?: 0L, afterMs ?: 0L, afterId ?: "", throughId ?: "", throughMs ?: 0L, throughMs ?: 0L, throughId ?: "", limit.toLong(), ::mapRow)
@@ -162,12 +164,12 @@ class SqlDelightMemoryRepository(
         }
     }
 
-    override suspend fun sessionsWithRawMemories(): Set<String> = withContext(Dispatchers.IO) {
+    override suspend fun sessionsWithRawMemories(): Set<String> = withContext(ioDispatcher) {
         queries.selectRawSessions().executeAsList().toSet()
     }
 
     override suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor? =
-        withContext(Dispatchers.IO) { queries.selectLatestRawMemory(sessionId, ::mapRow).executeAsOneOrNull()?.entry }?.let {
+        withContext(ioDispatcher) { queries.selectLatestRawMemory(sessionId, ::mapRow).executeAsOneOrNull()?.entry }?.let {
             DiaryRawMemoryCursor(it.id, createdAtMsFromId(it.id))
         }
 
@@ -176,11 +178,11 @@ class SqlDelightMemoryRepository(
             DiaryRawMemoryCursor(it.id, createdAtMsFromId(it.id))
         }
 
-    override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> = withContext(Dispatchers.IO) {
+    override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> = withContext(ioDispatcher) {
         queries.selectStable(sessionId, limit.toLong(), ::mapVector).executeAsList()
     }
 
-    override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> = withContext(Dispatchers.IO) {
+    override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> = withContext(ioDispatcher) {
         queries.selectRecent(sessionId, limit.toLong(), ::mapRow)
             .executeAsList()
             .map { stored -> MemorySnippet(id = stored.entry.id, content = stored.entry.content, metadata = stored.entry.metadata) }
@@ -222,7 +224,7 @@ class SqlDelightMemoryRepository(
             .take(candidateLimit.coerceAtLeast(0))
             .toList()
         if (ids.isEmpty()) return emptyMap()
-        return withContext(Dispatchers.IO) {
+        return withContext(ioDispatcher) {
             queries.selectByIds(ids, ::mapRow).executeAsList()
                 .asSequence()
                 .filter { it.entry.sessionId == sessionId && it.modelId == activeModelId }
@@ -230,12 +232,16 @@ class SqlDelightMemoryRepository(
         }
     }
 
-    fun close() = driver.close()
+    suspend fun close() = withContext(ioDispatcher) {
+        if (driver is JdbcSqliteDriver) driver.closeCurrentThreadConnection()
+        driver.close()
+        (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
+    }
 
     private suspend fun ensureIndexed(sessionId: String) {
         loadMutex.withLock {
             if (sessionId in loadedSessions) return
-            val entries = withContext(Dispatchers.IO) {
+            val entries = withContext(ioDispatcher) {
                 queries.selectBySession(sessionId, ::mapRow).executeAsList()
                     .filter { it.modelId == activeModelId }
                     .map { it.entry }
@@ -353,7 +359,12 @@ class SqlDelightMemoryRepository(
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
+            driver.closeCurrentThreadConnection()
             return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake, transactionFailureHook, index, candidateLimit, fallbackIndex)
+        }
+
+        private fun JdbcSqliteDriver.closeCurrentThreadConnection() {
+            closeConnection(getConnection())
         }
     }
 }

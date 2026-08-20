@@ -13,7 +13,7 @@ import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InvalidHistoryCursorException
 import io.openeden.transcript.TranscriptStore
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -87,8 +87,10 @@ class SqlDelightTranscriptStore private constructor(
         )
     }
 
-    fun close() {
+    suspend fun close() = withContext(ioDispatcher) {
+        if (driver is JdbcSqliteDriver) driver.closeCurrentThreadConnection()
         driver.close()
+        (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
     }
 
     private fun ConversationTurn.toCursor(incarnationId: String) = HistoryCursor(
@@ -103,13 +105,13 @@ class SqlDelightTranscriptStore private constructor(
 
         suspend fun open(
             dbPath: Path,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-transcript-sqlite"),
         ): SqlDelightTranscriptStore = open(dbPath, Database.Schema, ioDispatcher)
 
         internal suspend fun open(
             dbPath: Path,
             schema: SqlSchema<QueryResult.Value<Unit>>,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-transcript-sqlite"),
         ): SqlDelightTranscriptStore = withContext(ioDispatcher) {
             val resolvedPath = dbPath.resolveForInitialization()
             initializationMutex.withLock {
@@ -139,6 +141,7 @@ class SqlDelightTranscriptStore private constructor(
                                 active_incarnation_id = UUID.randomUUID().toString(),
                                 created_at_ms = System.currentTimeMillis(),
                             )
+                            driver.closeCurrentThreadConnection()
                             SqlDelightTranscriptStore(database, driver, ioDispatcher)
                         } catch (failure: Throwable) {
                             runCatching { driver.closeCurrentThreadConnection() }

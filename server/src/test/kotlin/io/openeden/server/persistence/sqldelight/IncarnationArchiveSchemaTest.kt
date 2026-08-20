@@ -1,5 +1,7 @@
 package io.openeden.server.persistence.sqldelight
 
+import io.openeden.server.db.Database
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.sql.DriverManager
@@ -15,7 +17,7 @@ class IncarnationArchiveSchemaTest {
 
     @AfterTest
     fun cleanup() {
-        store?.close()
+        runBlocking { store?.close() }
         Files.deleteIfExists(dbPath)
         Files.deleteIfExists(dbPath.resolveSibling("openeden.db.init.lock"))
         Files.deleteIfExists(tempDir)
@@ -29,7 +31,7 @@ class IncarnationArchiveSchemaTest {
             connection.createStatement().use { statement ->
                 statement.executeQuery("PRAGMA user_version").use { result ->
                     assertEquals(true, result.next())
-                    assertEquals(8, result.getInt(1))
+                    assertEquals(Database.Schema.version, result.getLong(1))
                 }
                 statement.executeQuery(
                     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'diary_archive'",

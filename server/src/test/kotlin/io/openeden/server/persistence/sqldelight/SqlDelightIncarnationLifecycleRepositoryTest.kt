@@ -9,6 +9,7 @@ import io.openeden.memory.MemoryRoom
 import io.openeden.runtime.lifecycle.IncarnationLifecycle
 import io.openeden.runtime.lifecycle.TerminationReason
 import io.openeden.transcript.ConversationTurn
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.sql.DriverManager
@@ -26,9 +27,11 @@ class SqlDelightIncarnationLifecycleRepositoryTest {
 
     @AfterTest
     fun cleanup() {
-        repository?.close()
-        memory?.close()
-        transcript?.close()
+        runBlocking { repository?.close() }
+        runBlocking {
+            memory?.close()
+            transcript?.close()
+        }
         Files.deleteIfExists(dbPath)
         Files.deleteIfExists(dbPath.resolveSibling("openeden.db.init.lock"))
         Files.deleteIfExists(tempDir)
@@ -84,6 +87,37 @@ class SqlDelightIncarnationLifecycleRepositoryTest {
         assertEquals(IncarnationLifecycle.TERMINATING, repo.read())
         assertEquals(1, count("conversation_turns"))
         assertEquals(2, count("memory_entries"))
+    }
+
+    @Test
+    fun `close releases the sqlite connection used by the repository dispatcher`() = runTest {
+        seedIncarnation()
+        val repo = openRepository()
+        repo.read()
+
+        repo.close()
+        repository = null
+        Files.deleteIfExists(dbPath)
+    }
+
+    @Test
+    fun `transcript close releases its sqlite connection`() = runTest {
+        val store = SqlDelightTranscriptStore.open(dbPath)
+        store.activeIncarnation()
+        store.close()
+
+        Files.deleteIfExists(dbPath)
+    }
+
+    @Test
+    fun `memory close releases its sqlite connection`() = runTest {
+        val store = SqlDelightTranscriptStore.open(dbPath)
+        store.close()
+        val memoryStore = SqlDelightMemoryRepository.open(dbPath)
+        memoryStore.write(memoryEntry("QQ:42:1000:raw", MemoryKind.RAW, "raw text"))
+        memoryStore.close()
+
+        Files.deleteIfExists(dbPath)
     }
 
     private suspend fun seedIncarnation(): String {

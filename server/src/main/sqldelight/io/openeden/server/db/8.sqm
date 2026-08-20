@@ -1,3 +1,13 @@
+-- Some pre-v2 fixtures only persisted session state. Keep this optional table
+-- available so the migration can still complete before attempting its backfill.
+CREATE TABLE IF NOT EXISTS memory_embeddings (
+    memory_id TEXT NOT NULL PRIMARY KEY,
+    model_id TEXT NOT NULL,
+    semantic_json TEXT NOT NULL,
+    emotional_json TEXT NOT NULL,
+    status TEXT NOT NULL
+);
+
 CREATE TABLE memory_vector_sync (
     memory_id TEXT NOT NULL PRIMARY KEY REFERENCES memory_entries(id) ON DELETE CASCADE,
     model_id TEXT NOT NULL,

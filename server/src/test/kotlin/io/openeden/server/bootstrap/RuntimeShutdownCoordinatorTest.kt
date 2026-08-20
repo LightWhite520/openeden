@@ -92,7 +92,7 @@ class RuntimeShutdownCoordinatorTest {
     }
 
     @Test
-    fun `stopped tolerates the same failure instance and still closes later resources`() {
+    fun `stopped tolerates the same failure instance and still closes later resources`() = runTest {
         val events = mutableListOf<String>()
         val sharedFailure = IllegalStateException("shared")
         val coordinator = RuntimeShutdownCoordinator(
