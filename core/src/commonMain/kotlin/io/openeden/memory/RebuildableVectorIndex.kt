@@ -61,6 +61,7 @@ class RebuildableInMemoryVectorIndex(
             snapshot.asSequence()
                 .map { entry ->
                     VectorSearchHit(
+                        memoryId = entry.id,
                         entry = entry,
                         semanticSimilarity = cosine(request.semanticEmbedding, entry.semanticEmbedding),
                         emotionalSimilarity = request.emotionalEmbedding?.let {
