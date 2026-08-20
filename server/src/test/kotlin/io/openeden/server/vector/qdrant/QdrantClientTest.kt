@@ -56,6 +56,9 @@ class QdrantClientTest {
         client.upsertPoints("eden", listOf(QdrantPoint("p1", mapOf("semantic" to floatArrayOf(.1f, .2f), "emotional" to floatArrayOf(.3f, .4f)), mapOf("user_id" to "u1"))))
         assertEquals("PUT", requests[0].method.value)
         assertTrue(requests[0].url.encodedPath.endsWith("/index"))
+        val indexBody = requests[0].jsonBody()
+        assertEquals("user_id", indexBody["field_name"]!!.jsonPrimitive.content)
+        assertEquals("keyword", indexBody["field_schema"]!!.jsonPrimitive.content)
         assertEquals("PUT", requests[1].method.value)
         val upsertBody = requests[1].jsonBody()
         val point = upsertBody["points"]!!.jsonArray.single().jsonObject
