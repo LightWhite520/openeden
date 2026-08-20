@@ -12,6 +12,11 @@ version = "1.0.0-SNAPSHOT"
 
 application {
     mainClass = "io.openeden.cli.MainKt"
+    applicationDefaultJvmArgs = listOf(
+        "-Dfile.encoding=UTF-8",
+        "-Dstdout.encoding=UTF-8",
+        "-Dstderr.encoding=UTF-8",
+    )
 }
 
 tasks.named<JavaExec>("run") {

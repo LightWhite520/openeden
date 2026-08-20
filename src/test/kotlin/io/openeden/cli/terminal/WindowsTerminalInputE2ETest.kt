@@ -40,7 +40,7 @@ class WindowsTerminalInputE2ETest {
         assumeWindows()
 
         val result = runInCurrentConsole(
-            input = "\u4E2D\u6587\uD83D\uDE00\b\r",
+            input = "\u4E2D\u6587\uD83D\uDE00\u007F\r",
         )
 
         assertEquals("\u4E2D\u6587", result.submitted)
@@ -63,7 +63,9 @@ class WindowsTerminalInputE2ETest {
         }
         val repository = Path.of("").toAbsolutePath().normalize()
         val script = repository.resolve("build/install/openeden/bin/openeden.bat").toString()
-        val process = PtyProcessBuilder(arrayOf("cmd.exe", "/d", "/c", script))
+        val process = PtyProcessBuilder(
+            arrayOf("cmd.exe", "/d", "/c", "chcp 65001>nul & \"$script\""),
+        )
             .setDirectory(repository.toString())
             .setEnvironment(environment)
             .setUseWinConPty(true)
