@@ -466,6 +466,56 @@ class MessagePipelineTest {
         assertEquals(true, executor.policyTraceAppendedInsideRun)
     }
 
+    @Test
+    fun `pre tick trace append runs inside inference executor`() = runTest {
+        val executor = BoundaryRecordingInferenceExecutor()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            inferenceExecutor = executor,
+            traceStore = object : TraceStore {
+                override suspend fun append(span: TraceSpan) {
+                    if (span.stage == "pre_tick") {
+                        executor.preTickTraceAppendedInsideRun = executor.inferenceRunning
+                    }
+                }
+            },
+        )
+
+        pipeline.handle(
+            testRequest().copy(
+                emotionConfidence = 0.8f,
+                emotionDelta = VectorDelta(p = -0.1f),
+            ),
+        )
+
+        assertEquals(true, executor.preTickTraceAppendedInsideRun)
+    }
+
+    @Test
+    fun `user affect mapping trace append runs inside inference executor`() = runTest {
+        val executor = BoundaryRecordingInferenceExecutor()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            inferenceExecutor = executor,
+            traceStore = object : TraceStore {
+                override suspend fun append(span: TraceSpan) {
+                    if (span.stage == "user_affect_mapping") {
+                        executor.affectMappingTraceAppendedInsideRun = executor.inferenceRunning
+                    }
+                }
+            },
+        )
+
+        pipeline.handle(
+            testRequest().copy(
+                emotionConfidence = 0.0f,
+                emotionDelta = VectorDelta.Zero,
+            ),
+        )
+
+        assertEquals(true, executor.affectMappingTraceAppendedInsideRun)
+    }
+
     private fun testPersonaConfig(
         startSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
         mode: PersonaMode = PersonaMode.GROWTH,
@@ -506,6 +556,8 @@ private fun validDelta(): Map<String, Float> = mapOf(
     private class BoundaryRecordingInferenceExecutor : InferenceExecutor {
         var inferenceRunning = false
         var policyTraceAppendedInsideRun = false
+        var preTickTraceAppendedInsideRun = false
+        var affectMappingTraceAppendedInsideRun = false
 
         override suspend fun <T> run(block: suspend () -> T): T {
             inferenceRunning = true

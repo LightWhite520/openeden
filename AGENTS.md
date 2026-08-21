@@ -18,6 +18,19 @@ It is:
  * NOT a persona definition file
 It enforces **architecture, constraints, and system invariants**.
 
+### 0.1 Git Commit Convention
+All commits MUST use the Conventional Commits format:
+```
+<type>(<scope>): <imperative summary>
+```
+
+ * `<type>` MUST be one of: `feat`, `fix`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`, or `revert`.
+ * `<scope>` MUST identify the affected subsystem, such as `runtime`, `server`, `persona`, `memory`, or `onebot`.
+ * The summary MUST be concise, written in the imperative mood, and use normal spaces instead of replacing words with hyphens.
+ * The summary MUST NOT end with a period and MUST describe the actual changes in the commit.
+ * Breaking changes MUST append `!` after the type or scope and include a `BREAKING CHANGE:` footer in the commit body.
+ * Before pushing, agents MUST verify the title with `git log -1 --format=%s` and run the relevant test suite.
+
 ---
 
 ## 1. Core Architecture Principle

@@ -4,8 +4,8 @@ import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaFileLoader
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.heartbeat.HeartbeatScheduler
-import io.openeden.runtime.heartbeat.LoggingHeartbeatDelivery
 import io.openeden.runtime.heartbeat.HeartbeatOwner
+import io.openeden.runtime.heartbeat.NoopHeartbeatDelivery
 import io.openeden.runtime.inference.JvmInferenceExecutor
 import io.openeden.runtime.heartbeat.OwnerHeartbeatRouteResolver
 import io.openeden.runtime.state.RuntimeConfig
@@ -157,6 +157,7 @@ private suspend fun Application.startRuntime(
     }
     startupClosers.addFirst { traceStore.close() }
     val inferenceExecutor = JvmInferenceExecutor()
+    startupClosers.addFirst { inferenceExecutor.close() }
     // One VectorWriteService shared by the pipeline and the scheduler so all per-session writes
     // (user deltas + shock-heartbeat latch) serialize on the same Mutex registry (§14.2).
     val writer = VectorWriteService(store, inferenceExecutor = inferenceExecutor)
@@ -213,6 +214,7 @@ private suspend fun Application.startRuntime(
             projectionWake = { projectionWake() },
             index = resilientIndex,
             fallbackIndex = fallbackIndex,
+            inferenceExecutor = inferenceExecutor,
         )
     }
     startupClosers.addFirst { memoryStore.close() }
@@ -334,9 +336,15 @@ private suspend fun Application.startRuntime(
         pipeline = pipeline,
         store = store,
         writer = writer,
-        delivery = LoggingHeartbeatDelivery { log.info(it) },
+        delivery = NoopHeartbeatDelivery,
         interval = SecureRandomHeartbeatInterval(),
         routeResolver = OwnerHeartbeatRouteResolver(runtimeConfig.owner),
+        onDeliveryDropped = { sessionId, target, failure ->
+            log.warn(
+                "heartbeat=DELIVERY_DROPPED session=$sessionId platform=${target.platform} user=${target.userId}",
+                failure,
+            )
+        },
     )
     val heartbeatJob = scheduler.start(scope)
     val tickJob = RuntimeTickScheduler(
@@ -369,6 +377,7 @@ private suspend fun Application.startRuntime(
             { relationshipStore.close() },
             { llmClient.close() },
             { models.close() },
+            { inferenceExecutor.close() },
         ),
     )
     monitor.subscribe(ApplicationStopping) {

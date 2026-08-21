@@ -52,11 +52,12 @@ class SqlDelightMemoryRepository(
     private val transactionFailureHook: (() -> Unit)? = null,
     private val index: VectorIndex? = null,
     private val candidateLimit: Int = 128,
-    private val fallbackIndex: RebuildableInMemoryVectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
+    private val fallbackIndex: RebuildableInMemoryVectorIndex? = null,
     private val ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-memory-sqlite"),
+    private val inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
-    private val localFallbackIndex = fallbackIndex
+    private val localFallbackIndex = fallbackIndex ?: RebuildableInMemoryVectorIndex(inferenceExecutor)
     private val retrievalIndex = index ?: localFallbackIndex
     private val loadedSessions = mutableSetOf<String>()
     private val loadMutex = Mutex()
@@ -189,7 +190,7 @@ class SqlDelightMemoryRepository(
             .asReversed()
     }
 
-    override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
+    override suspend fun retrieve(request: RetrievalRequest): RetrievalResult = inferenceExecutor.run {
         ensureIndexed(request.sessionId)
         val hits = retrievalIndex.search(
             VectorSearchRequest(
@@ -207,9 +208,9 @@ class SqlDelightMemoryRepository(
                 hydrated[hit.memoryId]
             }
         }
-        val palace = InMemoryMemoryPalace(DirectInferenceExecutor, embeddingModel = embeddingModel)
+        val palace = InMemoryMemoryPalace(inferenceExecutor, embeddingModel = embeddingModel)
         candidates.forEach { palace.write(it) }
-        return palace.retrieve(request)
+        palace.retrieve(request)
     }
 
     private suspend fun hydrateRemoteCandidates(
@@ -355,12 +356,24 @@ class SqlDelightMemoryRepository(
             transactionFailureHook: (() -> Unit)? = null,
             index: VectorIndex? = null,
             candidateLimit: Int = 128,
-            fallbackIndex: RebuildableInMemoryVectorIndex = RebuildableInMemoryVectorIndex(DirectInferenceExecutor),
+            fallbackIndex: RebuildableInMemoryVectorIndex? = null,
+            inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
             driver.closeCurrentThreadConnection()
-            return SqlDelightMemoryRepository(Database(driver), driver, embeddingModel, Json, activeModelId, projectionWake, transactionFailureHook, index, candidateLimit, fallbackIndex)
+            return SqlDelightMemoryRepository(
+                database = Database(driver),
+                driver = driver,
+                embeddingModel = embeddingModel,
+                activeModelId = activeModelId,
+                projectionWake = projectionWake,
+                transactionFailureHook = transactionFailureHook,
+                index = index,
+                candidateLimit = candidateLimit,
+                fallbackIndex = fallbackIndex,
+                inferenceExecutor = inferenceExecutor,
+            )
         }
 
         private fun JdbcSqliteDriver.closeCurrentThreadConnection() {

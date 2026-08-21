@@ -6,11 +6,14 @@ import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.bio.BioVector
 import io.openeden.llm.LlmOutput
 import io.openeden.llm.LlmClient
+import io.openeden.memory.MemoryStore
+import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
+import io.openeden.runtime.inference.RecordingInferenceExecutor
 import io.openeden.trace.TraceTag
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -96,6 +99,56 @@ class RuntimePipelineTest {
         assertEquals(2, prompts.size)
         assertTrue(prompts[1].systemText.contains("first question"))
         assertTrue(prompts[1].systemText.contains("first response"))
+    }
+
+    @Test
+    fun `local runtime wires default vector writer to supplied inference executor`() = runTest {
+        val executor = RecordingInferenceExecutor()
+        val pipeline = OpenEdenRuntimePipeline.local(
+            personaConfig = testPersonaConfig(),
+            inferenceExecutor = executor,
+            memoryStore = emptyMemoryStore(),
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "local runtime wiring test references HEURISTIC_FALLBACK",
+                    vectorDelta = mapOf(
+                        "L" to 0.0f,
+                        "P" to 0.1f,
+                        "E" to 0.0f,
+                        "S" to 0.0f,
+                        "tau" to 0.0f,
+                        "V" to 0.0f,
+                        "M" to 0.0f,
+                        "F" to 0.0f,
+                    ),
+                    response = "ok",
+                )
+            },
+        )
+
+        pipeline.handle(
+            LocalRuntimeRequest(
+                turnId = "runtime-wiring-1",
+                userId = "owner",
+                text = "hello",
+                emotionConfidence = 0.0f,
+            ),
+        )
+
+        assertTrue(executor.calls >= 10, "inference calls=${executor.calls}")
+    }
+
+    private fun emptyMemoryStore(): MemoryStore = object : MemoryStore {
+        override suspend fun write(entry: io.openeden.memory.MemoryEntry): Set<String> = emptySet()
+
+        override suspend fun retrieve(request: io.openeden.memory.RetrievalRequest): RetrievalResult =
+            RetrievalResult(
+                mode = request.mode,
+                injectionLabel = "",
+                memories = emptyList(),
+            )
+
+        override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> = emptyList()
     }
 
     private fun zeroDelta(): Map<String, Float> = mapOf(

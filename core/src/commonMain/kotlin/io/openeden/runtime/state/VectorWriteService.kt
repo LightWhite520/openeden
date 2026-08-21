@@ -39,8 +39,10 @@ class VectorWriteService(
         delta: VectorDelta,
     ): VectorWriteResult {
         val latest = store.read(sessionId)
-        val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
-        val updatedVector = latest.vector.apply(relativePreTickDelta).apply(delta)
+        val updatedVector = inferenceExecutor.run {
+            val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
+            latest.vector.apply(relativePreTickDelta).apply(delta)
+        }
         val updated = latest.copy(
             vector = updatedVector,
             evolutionIndex = latest.evolutionIndex + 1,
@@ -63,8 +65,10 @@ class VectorWriteService(
         turn: ConversationTurn? = null,
     ): VectorWriteResult {
         val latest = store.read(sessionId)
-        val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
-        val updatedVector = latest.vector.apply(relativePreTickDelta).apply(delta)
+        val updatedVector = inferenceExecutor.run {
+            val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
+            latest.vector.apply(relativePreTickDelta).apply(delta)
+        }
         val shockMerge = shockSignal?.let { signal ->
             inferenceExecutor.run { ShockStateEngine.merge(latest.shockState, signal) }
         }
@@ -170,7 +174,9 @@ class VectorWriteService(
         val mutex = mutexRegistry.forSession(sessionId)
         return mutex.withLock {
             val latest = store.read(sessionId)
-            val updated = latest.copy(vector = latest.vector.apply(delta))
+            val updated = inferenceExecutor.run {
+                latest.copy(vector = latest.vector.apply(delta))
+            }
             store.write(updated)
             VectorWriteResult(
                 state = updated,

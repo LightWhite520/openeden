@@ -18,8 +18,10 @@ import io.openeden.prompt.PromptSectionKeys
 import io.openeden.trace.TraceTag
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlin.time.Instant
 
@@ -124,12 +126,211 @@ class HeartbeatSchedulerTest {
         assertEquals(1, store.read("QQ:shared").evolutionIndex)
     }
 
+    @Test
+    fun `disconnected owner is skipped after heartbeat state evolves`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
+        val delivery = RecordingDelivery(connected = false)
+
+        scheduler(store, delivery).evaluateOnce(now)
+
+        assertEquals(1, delivery.connectionChecks)
+        assertEquals(emptyList(), delivery.calls)
+        assertEquals(1, store.read("QQ:shared").evolutionIndex)
+    }
+
+    @Test
+    fun `ordinary send failure is dropped after state evolution and later sessions continue`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(
+            neutral("QQ:failing").copy(
+                lastUserActivityMs = thirtyOneMinAgo,
+                shockState = ShockState(
+                    active = true,
+                    intensity = 0.8f,
+                    description = "x",
+                    triggeredAt = Instant.fromEpochMilliseconds(thirtyOneMinAgo),
+                    decayLambda = 0.001f,
+                ),
+            ),
+        )
+        store.write(neutral("QQ:succeeding").copy(lastUserActivityMs = sixMinAgo))
+        val successfulSessions = mutableListOf<String>()
+        val delivery = object : HeartbeatDelivery {
+            override fun isConnected(target: HeartbeatTarget): Boolean = true
+
+            override suspend fun deliver(
+                sessionId: String,
+                target: HeartbeatTarget,
+                shock: Boolean,
+                response: String?,
+            ) {
+                if (sessionId == "QQ:failing") error("send failed")
+                successfulSessions += sessionId
+            }
+        }
+
+        scheduler(store, delivery).evaluateOnce(now)
+
+        assertEquals(1, store.read("QQ:failing").evolutionIndex)
+        assertTrue(store.read("QQ:failing").shockState!!.shockHeartbeatFired)
+        assertEquals(1, store.read("QQ:succeeding").evolutionIndex)
+        assertEquals(listOf("QQ:succeeding"), successfulSessions)
+    }
+
+    @Test
+    fun `connection probe failure is isolated after state evolution and later target continues`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
+        val deliveredUsers = mutableListOf<String>()
+        val delivery = object : HeartbeatDelivery {
+            override fun isConnected(target: HeartbeatTarget): Boolean {
+                if (target.userId == "failing") error("probe failed")
+                return true
+            }
+
+            override suspend fun deliver(
+                sessionId: String,
+                target: HeartbeatTarget,
+                shock: Boolean,
+                response: String?,
+            ) {
+                deliveredUsers += target.userId
+            }
+        }
+        val router = HeartbeatRouteResolver { _, _ ->
+            listOf(HeartbeatTarget("QQ", "failing"), HeartbeatTarget("QQ", "succeeding"))
+        }
+
+        scheduler(store, delivery, routeResolver = router).evaluateOnce(now)
+
+        assertEquals(1, store.read("QQ:shared").evolutionIndex)
+        assertEquals(listOf("succeeding"), deliveredUsers)
+    }
+
+    @Test
+    fun `send failure for first target does not prevent delivery to second target`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
+        val deliveredUsers = mutableListOf<String>()
+        val failure = IllegalStateException("send failed")
+        var dropped: Triple<String, HeartbeatTarget, Exception>? = null
+        val delivery = object : HeartbeatDelivery {
+            override fun isConnected(target: HeartbeatTarget): Boolean = true
+
+            override suspend fun deliver(
+                sessionId: String,
+                target: HeartbeatTarget,
+                shock: Boolean,
+                response: String?,
+            ) {
+                if (target.userId == "failing") throw failure
+                deliveredUsers += target.userId
+            }
+        }
+        val router = HeartbeatRouteResolver { _, _ ->
+            listOf(HeartbeatTarget("QQ", "failing"), HeartbeatTarget("QQ", "succeeding"))
+        }
+
+        scheduler(
+            store = store,
+            delivery = delivery,
+            routeResolver = router,
+            onDeliveryDropped = { sessionId, target, cause -> dropped = Triple(sessionId, target, cause) },
+        ).evaluateOnce(now)
+
+        assertEquals(listOf("succeeding"), deliveredUsers)
+        assertEquals(Triple("QQ:shared", HeartbeatTarget("QQ", "failing"), failure), dropped)
+    }
+
+    @Test
+    fun `ordinary drop callback failure does not prevent delivery to second target`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
+        val deliveredUsers = mutableListOf<String>()
+        val delivery = object : HeartbeatDelivery {
+            override fun isConnected(target: HeartbeatTarget): Boolean = true
+
+            override suspend fun deliver(
+                sessionId: String,
+                target: HeartbeatTarget,
+                shock: Boolean,
+                response: String?,
+            ) {
+                if (target.userId == "failing") error("send failed")
+                deliveredUsers += target.userId
+            }
+        }
+        val router = HeartbeatRouteResolver { _, _ ->
+            listOf(HeartbeatTarget("QQ", "failing"), HeartbeatTarget("QQ", "succeeding"))
+        }
+
+        scheduler(
+            store = store,
+            delivery = delivery,
+            routeResolver = router,
+            onDeliveryDropped = { _, _, _ -> error("observer failed") },
+        ).evaluateOnce(now)
+
+        assertEquals(listOf("succeeding"), deliveredUsers)
+    }
+
+    @Test
+    fun `drop callback cancellation propagates`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
+        val delivery = object : HeartbeatDelivery {
+            override fun isConnected(target: HeartbeatTarget): Boolean = true
+
+            override suspend fun deliver(
+                sessionId: String,
+                target: HeartbeatTarget,
+                shock: Boolean,
+                response: String?,
+            ) {
+                error("send failed")
+            }
+        }
+
+        assertFailsWith<CancellationException> {
+            scheduler(
+                store = store,
+                delivery = delivery,
+                onDeliveryDropped = { _, _, _ -> throw CancellationException("cancelled") },
+            ).evaluateOnce(now)
+        }
+    }
+
+    @Test
+    fun `delivery cancellation propagates after heartbeat state evolves`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
+        val delivery = object : HeartbeatDelivery {
+            override fun isConnected(target: HeartbeatTarget): Boolean = true
+
+            override suspend fun deliver(
+                sessionId: String,
+                target: HeartbeatTarget,
+                shock: Boolean,
+                response: String?,
+            ) {
+                throw CancellationException("cancelled")
+            }
+        }
+
+        assertFailsWith<CancellationException> {
+            scheduler(store, delivery).evaluateOnce(now)
+        }
+        assertEquals(1, store.read("QQ:shared").evolutionIndex)
+    }
+
     private fun neutral(id: String) = SessionStateStore.neutral(id)
 
     private fun scheduler(
         store: MutableSessionStateStore,
-        delivery: RecordingDelivery,
+        delivery: HeartbeatDelivery,
         routeResolver: HeartbeatRouteResolver = OwnerHeartbeatRouteResolver(HeartbeatOwner("QQ", "owner")),
+        onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
     ): HeartbeatScheduler {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = personaConfig(),
@@ -142,6 +343,7 @@ class HeartbeatSchedulerTest {
             writer = VectorWriteService(store),
             delivery = delivery,
             routeResolver = routeResolver,
+            onDeliveryDropped = onDeliveryDropped,
         )
     }
 
@@ -171,10 +373,18 @@ class HeartbeatSchedulerTest {
     )
 }
 
-private class RecordingDelivery : HeartbeatDelivery {
+private class RecordingDelivery(
+    private val connected: Boolean = true,
+) : HeartbeatDelivery {
     data class Call(val sessionId: String, val platform: String, val userId: String, val shock: Boolean, val response: String?)
 
     val calls = mutableListOf<Call>()
+    var connectionChecks = 0
+
+    override fun isConnected(target: HeartbeatTarget): Boolean {
+        connectionChecks += 1
+        return connected
+    }
 
     override suspend fun deliver(sessionId: String, target: HeartbeatTarget, shock: Boolean, response: String?) {
         calls += Call(sessionId, target.platform, target.userId, shock, response)

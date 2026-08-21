@@ -6,6 +6,7 @@ import io.openeden.runtime.affect.PreTickEngine
 import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.affect.ShockStateEngine
 import io.openeden.runtime.affect.ShockSignal
+import io.openeden.runtime.inference.RecordingInferenceExecutor
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
@@ -162,6 +163,42 @@ class RuntimeInvariantTest {
         assertEquals(0.7f, result.state.vector.f, absoluteTolerance = 0.0001f)
         assertEquals(1, result.state.evolutionIndex)
         assertContains(result.traceTags, TraceTag.VectorWriteSerialized)
+    }
+
+    @Test
+    fun `commit turn vector math runs inside inference executor without shock signal`() = runTest {
+        val store = InMemorySessionStateStore(
+            SessionStateStore.neutral("QQ:commit-math"),
+        )
+        val executor = RecordingInferenceExecutor()
+        val service = VectorWriteService(store, inferenceExecutor = executor)
+
+        service.commitTurnLocked(
+            sessionId = "QQ:commit-math",
+            preTickedSnapshot = BioVector.Neutral.copy(p = 0.3f),
+            originSnapshot = BioVector.Neutral,
+            delta = VectorDelta(p = -0.1f),
+            shock = null,
+            lastUserActivityMs = null,
+        )
+
+        assertEquals(1, executor.calls)
+    }
+
+    @Test
+    fun `background drift vector math runs inside inference executor`() = runTest {
+        val store = InMemorySessionStateStore(
+            SessionStateStore.neutral("QQ:background-drift"),
+        )
+        val executor = RecordingInferenceExecutor()
+        val service = VectorWriteService(store, inferenceExecutor = executor)
+
+        service.applyBackgroundDrift(
+            sessionId = "QQ:background-drift",
+            delta = VectorDelta(s = 0.1f),
+        )
+
+        assertEquals(1, executor.calls)
     }
 
     @Test

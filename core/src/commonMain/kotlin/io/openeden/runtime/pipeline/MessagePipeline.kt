@@ -164,7 +164,12 @@ class DevelopmentMessagePipeline(
         )
         trace(traceContext, "state_load")
         val centroid = inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
-        trace(traceContext, "centroid", attributes = mapOf("changed" to (centroid != initial.origin).toString()))
+        trace(
+            traceContext,
+            "centroid",
+            tags = if (centroid != initial.origin) setOf(TraceTag.CentroidUpdated) else emptySet(),
+            attributes = mapOf("changed" to (centroid != initial.origin).toString()),
+        )
         val current = initial.copy(origin = centroid)
         var relationshipDegraded = false
         val relationship = if (request.source == TurnSource.USER) {
@@ -193,10 +198,12 @@ class DevelopmentMessagePipeline(
         } else {
             UserAffectState.Uncertain
         }
-        val emotionSignal = if (request.emotionConfidence > 0.0f || request.emotionDelta != VectorDelta.Zero) {
-            EmotionSignal(request.emotionDelta, request.emotionConfidence)
-        } else {
-            observedAffect.toEmotionSignal(affectInfluenceMapper)
+        val emotionSignal = inferenceExecutor.run {
+            if (request.emotionConfidence > 0.0f || request.emotionDelta != VectorDelta.Zero) {
+                EmotionSignal(request.emotionDelta, request.emotionConfidence)
+            } else {
+                observedAffect.toEmotionSignal(affectInfluenceMapper)
+            }
         }
         trace(
             traceContext,
@@ -208,16 +215,21 @@ class DevelopmentMessagePipeline(
             },
             attributes = mapOf("confidence" to emotionSignal.confidence.toString()),
         )
-        trace(traceContext, "user_affect_mapping", tags = setOf(TraceTag.UserAffectMapped))
-        val preTick = PreTickEngine.apply(
-            original = current.vector,
-            signal = emotionSignal,
-        )
-        trace(
-            traceContext,
-            "pre_tick",
-            attributes = mapOf("skipped" to preTick.skipped.toString(), "confidence" to emotionSignal.confidence.toString()),
-        )
+        inferenceExecutor.run {
+            trace(traceContext, "user_affect_mapping", tags = setOf(TraceTag.UserAffectMapped))
+        }
+        val preTick = inferenceExecutor.run {
+            val result = PreTickEngine.apply(
+                original = current.vector,
+                signal = emotionSignal,
+            )
+            trace(
+                traceContext,
+                "pre_tick",
+                attributes = mapOf("skipped" to result.skipped.toString(), "confidence" to emotionSignal.confidence.toString()),
+            )
+            result
+        }
         val inference = inferenceExecutor.run {
             val dissonance = preTick.preTicked.derivedDissonance()
             val quantization = quantizer.quantize(preTick.preTicked, dissonance).let { result ->
@@ -455,10 +467,23 @@ class DevelopmentMessagePipeline(
         } else {
             MemoryWriteOutcome(null, emptySet())
         }
-        if (validation.isValid && validation.delta != null && validation.delta.toList().any { kotlin.math.abs(it) > 0.0f } && validation.output != null && memoryTraceTags.rawMemoryId != null) {
-            val tags = diaryTriggerCoordinator?.onVectorDelta(sessionId, memoryTraceTags.rawMemoryId, validation.delta, nowMs())
-                ?: diaryQueue.tryEnqueue(DiaryEvent(sessionId, "development", "vector_delta"))
-            diaryOutcome = DiaryOutcome(if (tags.isEmpty()) "enqueued" else "overflow", tags)
+        val diaryDelta = validation.delta
+        val diaryMemoryId = memoryTraceTags.rawMemoryId
+        if (validation.isValid && diaryDelta != null && validation.output != null && diaryMemoryId != null) {
+            val diaryResult = inferenceExecutor.run {
+                val triggered = diaryDelta.toList().any { kotlin.math.abs(it) > 0.0f }
+                val tags = if (triggered) {
+                    diaryTriggerCoordinator?.onVectorDelta(sessionId, diaryMemoryId, diaryDelta, nowMs())
+                        ?: diaryQueue.tryEnqueue(DiaryEvent(sessionId, "development", "vector_delta"))
+                } else {
+                    emptySet()
+                }
+                triggered to tags
+            }
+            if (diaryResult.first) {
+                val tags = diaryResult.second
+                diaryOutcome = DiaryOutcome(if (tags.isEmpty()) "enqueued" else "overflow", tags)
+            }
         }
         trace(traceContext, "memory_write", tags = memoryTraceTags.traceTags)
         val shouldUpdatePostCentroid =
@@ -472,13 +497,14 @@ class DevelopmentMessagePipeline(
         } else {
             emptySet<String>()
         }
+        trace(traceContext, "centroid_update", tags = centroidTags)
         trace(traceContext, "diary_publish", tags = diaryOutcome.traceTags, attributes = mapOf("outcome" to diaryOutcome.label))
 
         trace(
             traceContext,
             "turn",
             status = if (validation.isValid) TraceStatus.OK else TraceStatus.FAILED,
-            tags = inference.quantization.traceTags + retrievalResult.traceTags + sourceTags,
+            tags = inference.quantization.traceTags + retrievalResult.traceTags + centroidTags + sourceTags,
             attributes = mapOf("source" to request.source.name, "retrieval_mode" to retrievalResult.mode.name),
         )
 

@@ -81,7 +81,7 @@ class OpenEdenRuntimePipeline private constructor(
             personaConfig: PersonaConfig,
             llmClient: LlmClient,
             store: SessionStateStore = MutableSessionStateStore(),
-            vectorWriteService: VectorWriteService = VectorWriteService(store),
+            vectorWriteService: VectorWriteService? = null,
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
             quantizer: CodebookQuantizer = HeuristicCodebookFallback(),
             memoryEmbeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
@@ -89,11 +89,13 @@ class OpenEdenRuntimePipeline private constructor(
             diaryTaskStore: DiaryTaskStore? = null,
             traceStore: io.openeden.trace.TraceStore? = null,
         ): OpenEdenRuntimePipeline {
+            val resolvedVectorWriteService = vectorWriteService
+                ?: VectorWriteService(store, inferenceExecutor = inferenceExecutor)
             val pipeline = DevelopmentMessagePipeline.create(
                 personaConfig = personaConfig,
                 llmClient = llmClient,
                 store = store,
-                vectorWriteService = vectorWriteService,
+                vectorWriteService = resolvedVectorWriteService,
                 inferenceExecutor = inferenceExecutor,
                 quantizer = quantizer,
                 memoryStore = memoryStore,

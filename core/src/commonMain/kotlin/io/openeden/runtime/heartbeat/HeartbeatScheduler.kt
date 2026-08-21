@@ -11,6 +11,7 @@ import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -26,6 +27,7 @@ class HeartbeatScheduler(
     private val interval: HeartbeatIntervalStrategy = RandomHeartbeatInterval(),
     private val routeResolver: HeartbeatRouteResolver = OwnerHeartbeatRouteResolver(owner = null),
     private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
 ) {
     fun decide(state: SessionState, now: Long): HeartbeatDecision {
         val silenceMs = state.lastUserActivityMs?.let { now - it } ?: Long.MAX_VALUE
@@ -59,7 +61,20 @@ class HeartbeatScheduler(
             )
             if (shock) writer.markShockHeartbeatFired(sessionId)
             for (target in routeResolver.targetsFor(sessionId, now)) {
-                delivery.deliver(sessionId, target, shock, result.response)
+                try {
+                    if (!delivery.isConnected(target)) continue
+                    delivery.deliver(sessionId, target, shock, result.response)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    try {
+                        onDeliveryDropped(sessionId, target, failure)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Delivery-drop observation is best-effort and must not stop later heartbeats.
+                    }
+                }
             }
         }
     }

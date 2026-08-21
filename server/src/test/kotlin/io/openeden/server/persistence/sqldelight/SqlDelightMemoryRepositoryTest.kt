@@ -25,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class SqlDelightMemoryRepositoryTest {
     private val tempDir = Files.createTempDirectory("openeden-memory-test")
@@ -204,6 +205,24 @@ class SqlDelightMemoryRepositoryTest {
             )
             assertEquals(listOf(entry.id), result.memories.map { it.id })
         }
+    }
+
+    @Test
+    fun `retrieval uses the injected inference executor`() = runTest {
+        val executor = RecordingInferenceExecutor()
+        val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "isolated")
+
+        SqlDelightMemoryRepository.open(
+            dbPath,
+            inferenceExecutor = executor,
+        ).use { repository ->
+            repository.write(entry, modelId = "local-v1")
+            repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+            )
+        }
+
+        assertTrue(executor.calls > 0)
     }
 
     @Test
