@@ -13,7 +13,7 @@ ktor:
 openeden:
   llm:
     apiKey: "$OPENEDEN_OPENAI_API_KEY:replace-with-your-api-key"
-    model: "$OPENEDEN_OPENAI_MODEL:gpt-5.5"
+    model: "$OPENEDEN_OPENAI_MODEL:gpt-5.6-luna"
     baseUrl: "$OPENEDEN_OPENAI_BASE_URL:https://api.openai.com/v1"
     reasoningEffort: "$OPENEDEN_LLM_REASONING_EFFORT:medium"
     temperatureMin: "$OPENEDEN_LLM_TEMPERATURE_MIN:0.2"
