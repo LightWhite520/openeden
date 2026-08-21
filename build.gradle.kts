@@ -1,31 +1,13 @@
 import java.net.URI
 
 plugins {
-    application
     alias(libs.plugins.kotlin.multiplatform) apply false
-    alias(libs.plugins.kotlin.jvm)
-    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
 }
 
 group = "io.openeden"
 version = "1.0.0-SNAPSHOT"
-
-application {
-    mainClass = "io.openeden.cli.MainKt"
-    applicationDefaultJvmArgs = listOf(
-        "-Dfile.encoding=UTF-8",
-        "-Dstdout.encoding=UTF-8",
-        "-Dstderr.encoding=UTF-8",
-    )
-}
-
-tasks.named<JavaExec>("run") {
-    standardInput = System.`in`
-}
-
-tasks.named<Test>("test") {
-    dependsOn(tasks.named("installDist"))
-}
 
 val localModelArtifactPath = providers
     .environmentVariable("OPENEDEN_LOCAL_MODEL_ARTIFACT")
@@ -79,34 +61,6 @@ tasks.register("ensureThymosAffectModel") {
         }
         logger.lifecycle("Downloaded Thymos-6D affect model to ${modelDir.path}")
     }
-}
-
-kotlin {
-    jvmToolchain(21)
-}
-
-dependencies {
-    implementation("com.github.ajalt.clikt:clikt:5.0.3")
-    implementation(ktorLibs.client.contentNegotiation)
-    implementation(ktorLibs.client.core)
-    implementation(ktorLibs.client.cio)
-    implementation(ktorLibs.serialization.kotlinx.json)
-    implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlinx.serialization.json)
-    implementation(libs.logback.classic)
-    implementation(libs.jline.terminal)
-    implementation(libs.jline.terminal.jni)
-    implementation(libs.jline.reader)
-    implementation(libs.mordant)
-    implementation(libs.mordant.markdown)
-    implementation(project(":core"))
-
-    testImplementation(kotlin("test"))
-    testImplementation(ktorLibs.client.mock)
-    testImplementation(ktorLibs.server.testHost)
-    testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.pty4j)
-    testImplementation(project(":server"))
 }
 
 subprojects {
