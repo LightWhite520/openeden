@@ -6,28 +6,23 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.io.ByteArrayOutputStream
 
 class SseEventParser(
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) {
     fun parse(chunks: Flow<ByteArray>): Flow<ChatStreamEvent> = flow {
-        val pending = ByteArrayOutputStream()
+        var pending = ByteArray(0)
         chunks.collect { chunk ->
-            pending.write(chunk)
-            val bytes = pending.toByteArray()
+            val bytes = pending + chunk
             var frameStart = 0
             while (true) {
                 val boundary = findFrameBoundary(bytes, frameStart) ?: break
                 decodeFrame(bytes.copyOfRange(frameStart, boundary.frameEnd).decodeToString())?.let { emit(it) }
                 frameStart = boundary.nextFrameStart
             }
-            if (frameStart > 0) {
-                pending.reset()
-                pending.write(bytes, frameStart, bytes.size - frameStart)
-            }
+            pending = bytes.copyOfRange(frameStart, bytes.size)
         }
-        val trailing = pending.toByteArray().decodeToString()
+        val trailing = pending.decodeToString()
         if (trailing.isNotBlank()) decodeFrame(trailing)?.let { emit(it) }
     }
 
