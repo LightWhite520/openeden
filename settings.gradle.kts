@@ -24,5 +24,6 @@ rootProject.name = "openeden"
 include(":client")
 include(":cli")
 include(":core")
+include(":onebot")
 include(":server")
 include(":trainer")
