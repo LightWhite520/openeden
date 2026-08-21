@@ -41,8 +41,10 @@ dependencies {
     implementation(libs.logback.classic)
     implementation(libs.sqldelight.sqlite.driver)
     implementation(project(":core"))
+    implementation(project(":onebot"))
 
     testImplementation(kotlin("test"))
     testImplementation(ktorLibs.client.mock)
+    testImplementation(ktorLibs.client.websockets)
     testImplementation(ktorLibs.server.testHost)
 }

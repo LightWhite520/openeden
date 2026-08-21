@@ -67,6 +67,13 @@ import io.openeden.runtime.lifecycle.IncarnationLifecycle
 import io.openeden.runtime.lifecycle.IncarnationLifecycleGate
 import io.openeden.runtime.lifecycle.TerminationReason
 import io.openeden.transcript.TranscriptStore
+import io.openeden.onebot.config.OneBotConfig
+import io.openeden.onebot.connection.OneBotConnectionRegistry
+import io.openeden.onebot.egress.OneBotActionSender
+import io.openeden.onebot.heartbeat.OneBotHeartbeatDelivery
+import io.openeden.onebot.ingress.OneBotAdapter
+import io.openeden.onebot.ingress.OneBotMessageHandler
+import io.openeden.onebot.ingress.OneBotMessageResult
 import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CoroutineScope
@@ -89,6 +96,7 @@ val SessionStateStoreKey = AttributeKey<SessionStateStore>("openeden.session-sta
 val TranscriptStoreKey = AttributeKey<TranscriptStore>("openeden.transcript-store")
 val VectorDatabaseStatusKey = AttributeKey<VectorDatabaseStatusProvider>("openeden.vector-database-status")
 val IncarnationTerminationCoordinatorKey = AttributeKey<IncarnationTerminationCoordinator>("openeden.incarnation-termination-coordinator")
+val OneBotAdapterKey = AttributeKey<OneBotAdapter>("openeden.onebot-adapter")
 
 /**
  * Boots the persona runtime: durable SQLite store → pipeline → heartbeat scheduler. Runs before
@@ -258,6 +266,11 @@ private suspend fun Application.startRuntime(
     val runtimeJob = SupervisorJob(requireNotNull(applicationContext[Job]))
     val scope = CoroutineScope(applicationContext + runtimeJob + Dispatchers.IO)
     startupClosers.addFirst { runtimeJob.cancelAndJoin() }
+    val oneBotAdapter = createOneBotAdapter(serverConfig.oneBot, pipeline, scope)
+    if (oneBotAdapter != null) {
+        attributes.put(OneBotAdapterKey, oneBotAdapter)
+        startupClosers.addFirst { oneBotAdapter.shutdown() }
+    }
     val projectionJob = qdrantRuntime?.let { runtime ->
         projectionSynchronizer = QdrantProjectionSynchronizer(
             store = projectionStore.asProjectionWorkStore(),
@@ -336,12 +349,13 @@ private suspend fun Application.startRuntime(
         pipeline = pipeline,
         store = store,
         writer = writer,
-        delivery = NoopHeartbeatDelivery,
+        delivery = oneBotAdapter?.let { OneBotHeartbeatDelivery(it.registry, it.actions) }
+            ?: NoopHeartbeatDelivery,
         interval = SecureRandomHeartbeatInterval(),
         routeResolver = OwnerHeartbeatRouteResolver(runtimeConfig.owner),
         onDeliveryDropped = { sessionId, target, failure ->
             log.warn(
-                "heartbeat=DELIVERY_DROPPED session=$sessionId platform=${target.platform} user=${target.userId}",
+                "onebot=HEARTBEAT_DROPPED session=$sessionId platform=${target.platform} user=${target.userId}",
                 failure,
             )
         },
@@ -375,6 +389,7 @@ private suspend fun Application.startRuntime(
             { diaryTaskStore.close() },
             { traceStore.close() },
             { relationshipStore.close() },
+            { oneBotAdapter?.shutdown() },
             { llmClient.close() },
             { models.close() },
             { inferenceExecutor.close() },
@@ -511,6 +526,7 @@ private data class ServerRuntimeConfig(
     val diaryMaxRawMemories: Int,
     val diagnosticsAccess: DiagnosticsAccess,
     val vectorDatabase: VectorDatabaseConfig,
+    val oneBot: OneBotConfig,
 )
 
 private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationConfig): ServerRuntimeConfig {
@@ -519,14 +535,13 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         config.propertyOrNull(path)?.getString()?.takeIf { it.isNotBlank() } ?: default
     fun rootPath(path: String, default: String): Path =
         resolveFromRoot(Path.of(optional(path, default)))
-    val ownerPlatform = config.propertyOrNull("openeden.heartbeat.ownerPlatform")?.getString()
-        ?.takeIf { it.isNotBlank() }
-    val ownerUserId = config.propertyOrNull("openeden.heartbeat.ownerUserId")?.getString()
-        ?.takeIf { it.isNotBlank() }
     val diagnosticsEnabled = optional("openeden.diagnostics.enabled", "false").equals("true", ignoreCase = true)
     val diagnosticsToken = config.propertyOrNull("openeden.diagnostics.token")?.getString()
         ?.takeIf { it.isNotBlank() }
     val hostIdentity = loadHostIdentity(config)
+    val oneBot = loadOneBotConfig(config)
+    val heartbeatOwner = loadHeartbeatOwner(config)
+    validateOneBotHeartbeatOwner(oneBot.enabled, heartbeatOwner)
     return ServerRuntimeConfig(
         apiKey = required("openeden.llm.apiKey"),
         model = required("openeden.llm.model"),
@@ -543,11 +558,7 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         djlAffectModelPath = rootPath("openeden.runtime.djlAffectModelPath", "data/models/thymos-6d"),
         djlEngine = optional("openeden.runtime.djlEngine", "PyTorch"),
         djlModelName = optional("openeden.runtime.djlModelName", "model"),
-        heartbeatOwner = if (ownerPlatform != null && ownerUserId != null) {
-            HeartbeatOwner(ownerPlatform, ownerUserId)
-        } else {
-            null
-        },
+        heartbeatOwner = heartbeatOwner,
         hostIdentity = hostIdentity,
         hostAddress = loadHostAddress(config, hostIdentity),
         diaryDeltaThreshold = optional("openeden.diary.deltaThreshold", "0.25").toFloat(),
@@ -560,5 +571,34 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
             DiagnosticsAccess.disabled()
         },
         vectorDatabase = loadVectorDatabaseConfig(config),
+        oneBot = oneBot,
+    )
+}
+
+private fun createOneBotAdapter(
+    config: OneBotConfig,
+    pipeline: DevelopmentMessagePipeline,
+    scope: CoroutineScope,
+): OneBotAdapter? {
+    if (!config.enabled) return null
+    val registry = OneBotConnectionRegistry(config.botSelfId)
+    val actions = OneBotActionSender(
+        registry = registry,
+        timeoutMs = config.actionTimeoutMs,
+        maxRetries = config.maxActionRetries,
+    )
+    return OneBotAdapter(
+        config = config,
+        registry = registry,
+        actions = actions,
+        handler = OneBotMessageHandler { request ->
+            pipeline.handle(request).let { result ->
+                OneBotMessageResult(result.response.takeIf { result.validationErrors.isEmpty() })
+            }
+        },
+        scope = scope,
+        onTrace = { tag ->
+            org.slf4j.LoggerFactory.getLogger("io.openeden.onebot").info("OneBot trace tag={}", tag)
+        },
     )
 }
