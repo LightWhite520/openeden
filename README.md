@@ -374,6 +374,7 @@ remain runtime-internal diagnostics.
 | --------- | ------------------------------------------------------------ |
 | `core`    | Pure domain types and async contracts for the 8D vector, VQ-VAE/codebook boundary, prompt inputs, retrieval modes, Omega, ShockState, diary queues, and serialized vector writes. |
 | `server`  | Ktor API, runtime bootstrap, SQLite persistence, background workers, WebSocket installation, and public HTTP endpoints. |
+| `onebot`  | NapCat/OneBot v11 reverse WebSocket protocol adapter, connection lifecycle, and QQ message delivery. |
 | `client`  | Shared HTTP client helpers for the CLI and future platform frontends. |
 | `trainer` | Training and model-related project entry points.             |
 | `persona` | Data-only persona, explicit playthrough starting points, heartbeat text, and prompt sections. |

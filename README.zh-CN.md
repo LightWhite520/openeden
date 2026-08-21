@@ -324,6 +324,7 @@ OpenEden 用更高的实现复杂度换取连续性、可观察性和可控降�
 | :-------: | :----------------------------------------------------------- |
 |  `core`   | 纯领域类型和异步契约，包括 8D 向量、VQ-VAE/Codebook 边界、Prompt 输入、检索模式、Omega、ShockState、日记队列和序列化写入。 |
 | `server`  | Ktor 服务端、运行时启动、SQLite 持久化、后台 worker、WebSocket 和公共 HTTP API。 |
+| `onebot`  | NapCat/OneBot v11 反向 WebSocket 协议适配、连接生命周期和 QQ 消息投递。 |
 | `client`  | 面向 CLI 和未来平台前端的 HTTP client 辅助代码。             |
 | `trainer` | 训练与模型相关的工程入口。                                   |
 | `persona` | 人格、显式周目起点、心跳文案等数据配置。运行时代码不能在 Kotlin 中硬编码人格。 |
