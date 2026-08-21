@@ -46,8 +46,8 @@ openeden:
   onebot:
     enabled: "$OPENEDEN_ONEBOT_ENABLED:false"
     path: "$OPENEDEN_ONEBOT_PATH:/onebot/v11"
-    accessToken: "$?OPENEDEN_ONEBOT_ACCESS_TOKEN:"
-    botSelfId: "$?OPENEDEN_ONEBOT_BOT_SELF_ID:"
+    accessToken: "$OPENEDEN_ONEBOT_ACCESS_TOKEN:"
+    botSelfId: "$OPENEDEN_ONEBOT_BOT_SELF_ID:"
     groupPolicy: "$OPENEDEN_ONEBOT_GROUP_POLICY:MENTION_ONLY"
     eventQueueCapacity: "$OPENEDEN_ONEBOT_EVENT_QUEUE_CAPACITY:64"
     eventWorkers: "$OPENEDEN_ONEBOT_EVENT_WORKERS:4"
