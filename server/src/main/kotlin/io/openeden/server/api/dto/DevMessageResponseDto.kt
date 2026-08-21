@@ -13,4 +13,5 @@ data class DevMessageResponseDto(
     val evolutionIndex: Long,
     val diaryOutcome: String,
     val validationErrors: List<String>,
+    val cacheMetrics: LlmCacheMetricsDto? = null,
 )

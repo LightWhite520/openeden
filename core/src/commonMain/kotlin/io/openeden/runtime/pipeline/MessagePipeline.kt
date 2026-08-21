@@ -9,6 +9,7 @@ import io.openeden.codebook.HeuristicCodebookFallback
 import io.openeden.codebook.QuantizationResult
 import io.openeden.llm.DevelopmentLlmStub
 import io.openeden.llm.LlmClient
+import io.openeden.llm.LlmCacheMetrics
 import io.openeden.llm.LlmGenerationPolicy
 import io.openeden.llm.LlmGenerationPolicyConfig
 import io.openeden.llm.LlmGenerationSettings
@@ -318,8 +319,15 @@ class DevelopmentMessagePipeline(
             )
         }
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.GENERATING))
+        val llmCacheMeasurements = mutableListOf<LlmCacheMetrics>()
         val firstOutput = collectLlmOutput(prompt, inference.generationSettings, emitEvent)
-        trace(traceContext, "llm_inference")
+        firstOutput.cacheMetrics?.let { llmCacheMeasurements += it }
+        trace(
+            traceContext,
+            "llm_inference",
+            tags = firstOutput.cacheMetrics?.let { setOf(TraceTag.LlmCacheMeasured) }.orEmpty(),
+            attributes = firstOutput.cacheMetrics?.traceAttributes().orEmpty(),
+        )
         val firstValidation = LlmOutputValidator.validate(firstOutput)
         var validation = firstValidation
         var groundingTraceTags = emptySet<String>()
@@ -338,7 +346,14 @@ class DevelopmentMessagePipeline(
                         inference.quantization.activeNodes.joinToString(", ") + ".",
                 )
                 val repairedOutput = collectLlmOutput(repairPrompt, inference.generationSettings, emitEvent)
-                trace(traceContext, "llm_regeneration", tags = setOf(TraceTag.LlmGroundingRegenerated))
+                repairedOutput.cacheMetrics?.let { llmCacheMeasurements += it }
+                trace(
+                    traceContext,
+                    "llm_regeneration",
+                    tags = setOf(TraceTag.LlmGroundingRegenerated) +
+                        repairedOutput.cacheMetrics?.let { setOf(TraceTag.LlmCacheMeasured) }.orEmpty(),
+                    attributes = repairedOutput.cacheMetrics?.traceAttributes().orEmpty(),
+                )
                 val repairedValidation = LlmOutputValidator.validate(repairedOutput)
                 if (!repairedValidation.isValid) {
                     validation = repairedValidation.copy(
@@ -373,6 +388,16 @@ class DevelopmentMessagePipeline(
             errorCode = if (validation.isValid) null else "TURN_REJECTED",
             errorSummary = validation.errors.joinToString("; "),
         )
+        val aggregatedCacheMetrics = llmCacheMeasurements.takeIf { it.isNotEmpty() }
+            ?.let(LlmCacheMetrics::aggregate)
+        if (aggregatedCacheMetrics != null) {
+            trace(
+                traceContext,
+                "llm_cache",
+                tags = setOf(TraceTag.LlmCacheMeasured),
+                attributes = aggregatedCacheMetrics.traceAttributes(),
+            )
+        }
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.FINALIZING))
         return withContext(NonCancellable) {
         val publicTurn = if (
@@ -531,6 +556,7 @@ class DevelopmentMessagePipeline(
             evolutionIndex = store.read(sessionId).evolutionIndex,
             diaryOutcome = diaryOutcome.label,
             validationErrors = validation.errors,
+            cacheMetrics = aggregatedCacheMetrics,
         )
         }
     }

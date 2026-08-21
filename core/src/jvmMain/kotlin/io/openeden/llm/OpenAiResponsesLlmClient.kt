@@ -116,7 +116,9 @@ class OpenAiResponsesLlmClient private constructor(
 
                 "response.completed" -> {
                     check(!completed) { "OpenAI response stream completed more than once" }
-                    val output = decoder.finish()
+                    val output = decoder.finish().copy(
+                        cacheMetrics = parseUsage(event["response"]?.jsonObject?.get("usage")),
+                    )
                     check(output.response.startsWith(emittedResponse.toString())) {
                         "Streamed response does not match completed structured output"
                     }
@@ -198,8 +200,13 @@ class OpenAiResponsesLlmClient private constructor(
             internalLogic = root.getValue("internal_logic").jsonPrimitive.content,
             vectorDelta = root.getValue("vector_delta").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.float },
             response = root.getValue("response").jsonPrimitive.content,
+            cacheMetrics = body.usage?.toCacheMetrics(),
         )
     }
+
+    private fun parseUsage(element: JsonElement?): LlmCacheMetrics? = runCatching {
+        element?.let { json.decodeFromJsonElement<ResponsesUsage>(it).toCacheMetrics() }
+    }.getOrNull()
 
     override fun close() = httpClient.close()
 
@@ -244,6 +251,22 @@ private data class JsonSchemaFormat(val type: String, val name: String, val sche
 private data class ResponsesResponse(
     @SerialName("output_text") val outputText: String? = null,
     val output: List<ResponseOutputItem>? = null,
+    val usage: ResponsesUsage? = null,
+)
+
+@Serializable
+private data class ResponsesUsage(
+    @SerialName("input_tokens") val inputTokens: Long? = null,
+    @SerialName("input_tokens_details") val inputTokensDetails: ResponsesInputTokensDetails? = null,
+) {
+    fun toCacheMetrics(): LlmCacheMetrics? = inputTokens?.let {
+        LlmCacheMetrics(it, inputTokensDetails?.cachedTokens ?: 0L)
+    }
+}
+
+@Serializable
+private data class ResponsesInputTokensDetails(
+    @SerialName("cached_tokens") val cachedTokens: Long = 0L,
 )
 
 @Serializable

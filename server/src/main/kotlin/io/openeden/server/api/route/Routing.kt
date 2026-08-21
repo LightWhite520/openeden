@@ -10,6 +10,7 @@ import io.openeden.server.api.dto.DiagnosticStateDto
 import io.openeden.server.api.dto.VectorDatabaseStatusDto
 import io.openeden.server.api.dto.DevMessageRequestDto
 import io.openeden.server.api.dto.DevMessageResponseDto
+import io.openeden.server.api.dto.LlmCacheMetricsDto
 import io.openeden.server.api.dto.HealthResponseDto
 import io.openeden.server.api.dto.PublicStateDto
 import io.openeden.server.bootstrap.PipelineKey
@@ -280,6 +281,15 @@ fun Application.configureRouting() {
                     evolutionIndex = result.evolutionIndex,
                     diaryOutcome = result.diaryOutcome,
                     validationErrors = result.validationErrors,
+                    cacheMetrics = result.cacheMetrics?.let {
+                        LlmCacheMetricsDto(
+                            inputTokens = it.inputTokens,
+                            cachedInputTokens = it.cachedInputTokens,
+                            uncachedInputTokens = it.uncachedInputTokens,
+                            cacheHitRate = it.cacheHitRate,
+                            requestCount = it.requestCount,
+                        )
+                    },
                 ),
             )
         }

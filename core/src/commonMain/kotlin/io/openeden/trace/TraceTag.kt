@@ -7,6 +7,7 @@ object TraceTag {
     const val LlmGroundingRegenerated = "llm=REGENERATED"
     const val LlmGroundingRepaired = "llm=GROUNDING_REPAIRED"
     const val LlmGroundingRejected = "llm=GROUNDING_REJECTED"
+    const val LlmCacheMeasured = "llm=CACHE_MEASURED"
     const val DiaryQueueOverflow = "diary=QUEUE_OVERFLOW"
     const val DiaryWritten = "diary=WRITTEN"
     const val VectorWriteSerialized = "vector=WRITE_SERIALIZED"

@@ -34,7 +34,7 @@ class OpenAiResponsesLlmClientTest {
                 content = buildString {
                     append("data: ${Json.encodeToString(mapOf("type" to "response.output_text.delta", "delta" to first))}\n\n")
                     append("data: ${Json.encodeToString(mapOf("type" to "response.output_text.delta", "delta" to second))}\n\n")
-                    append("data: {\"type\":\"response.completed\"}\n\n")
+                    append("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":9000,\"input_tokens_details\":{\"cached_tokens\":6500}}}}\n\n")
                 },
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Text.EventStream.toString()),
             )
@@ -55,6 +55,8 @@ class OpenAiResponsesLlmClientTest {
 
         assertEquals(listOf("你", "好"), events.filterIsInstance<LlmStreamEvent.ResponseDelta>().map { it.text })
         assertEquals("你好", assertIs<LlmStreamEvent.Completed>(events.last()).output.response)
+        assertEquals(9_000, assertIs<LlmStreamEvent.Completed>(events.last()).output.cacheMetrics?.inputTokens)
+        assertEquals(6_500, assertIs<LlmStreamEvent.Completed>(events.last()).output.cacheMetrics?.cachedInputTokens)
         val body = Json.parseToJsonElement(requestBody).jsonObject
         assertEquals(true, body.getValue("stream").jsonPrimitive.content.toBoolean())
         assertEquals(0.85f, body.getValue("temperature").jsonPrimitive.float)
@@ -103,6 +105,7 @@ class OpenAiResponsesLlmClientTest {
                 content = """
                     {
                       "output_text": "{\"internal_logic\":\"logic\",\"vector_delta\":{\"L\":0.0,\"P\":0.1,\"E\":0.0,\"S\":0.0,\"tau\":0.0,\"V\":0.0,\"M\":0.0,\"F\":0.0},\"response\":\"你好\"}"
+                      ,"usage":{"input_tokens":9000,"input_tokens_details":{"cached_tokens":6500}}
                     }
                 """.trimIndent(),
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
@@ -132,6 +135,8 @@ class OpenAiResponsesLlmClientTest {
         assertEquals("logic", output.internalLogic)
         assertEquals(0.1f, output.vectorDelta.getValue("P"))
         assertEquals("你好", output.response)
+        assertEquals(9_000, output.cacheMetrics?.inputTokens)
+        assertEquals(6_500, output.cacheMetrics?.cachedInputTokens)
 
         val body = Json.parseToJsonElement(requestBody).jsonObject
         assertEquals("https://relay.example.com/v1/responses", requestUrl)

@@ -20,6 +20,7 @@ import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.llm.LlmOutput
+import io.openeden.llm.LlmCacheMetrics
 import io.openeden.llm.LlmGenerationPolicyConfig
 import io.openeden.llm.LlmGenerationSettings
 import io.openeden.llm.LlmVerbosity
@@ -72,6 +73,35 @@ class MessagePipelineTest {
         assertEquals(1, result.evolutionIndex)
         assertContains(result.traceTags, TraceTag.LlmGroundingRegenerated)
         assertContains(result.traceTags, TraceTag.LlmGroundingRepaired)
+    }
+
+    @Test
+    fun `pipeline exposes aggregated cache metrics and traces weighted hit rate`() = runTest {
+        val traces = io.openeden.trace.InMemoryTraceStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            traceStore = traces,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "logic references NODE_12",
+                    vectorDelta = validDelta(),
+                    response = "response",
+                    cacheMetrics = LlmCacheMetrics(9_000, 6_500),
+                )
+            },
+            quantizer = object : CodebookQuantizer {
+                override suspend fun quantize(vector: BioVector, dissonance: Float): QuantizationResult =
+                    QuantizationResult(listOf("NODE_12"), listOf("node definition"), 0.9f)
+            },
+        )
+
+        val result = pipeline.handle(testRequest())
+
+        val metrics = assertNotNull(result.cacheMetrics)
+        assertEquals(6_500.0 / 9_000.0, metrics.cacheHitRate, 0.000001)
+        val cacheTrace = traces.snapshot().single { it.stage == "llm_cache" }
+        assertEquals("6500", cacheTrace.attributes["cached_input_count"])
+        assertEquals("0.7222222222222222", cacheTrace.attributes["cache_hit_rate"])
     }
 
     @Test

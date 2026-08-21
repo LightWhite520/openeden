@@ -179,7 +179,8 @@ class DefaultPromptBuilderTest {
     fun `heartbeat context is injected from persona data`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput(userInput = HEARTBEAT_TRIGGER))
 
-        assertContains(built.personaText, "heartbeat text from data")
+        assertContains(built.contextText, "heartbeat text from data")
+        assertTrue("heartbeat text from data" !in built.personaText)
     }
 
     @Test

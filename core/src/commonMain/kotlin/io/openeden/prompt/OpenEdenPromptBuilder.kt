@@ -64,12 +64,6 @@ object OpenEdenPromptDocumentFactory {
                 personaSection("sub_state_patch", input.personaConfig, subState.sectionKey())
                 styleSection(input.personaConfig, subState)
                 personaSection("output_layer_rules", input.personaConfig, PromptSectionKeys.OutputLayerRules)
-                when (input.userInput) {
-                    HEARTBEAT_TRIGGER ->
-                        personaSection("heartbeat_context", input.personaConfig, PromptSectionKeys.Heartbeat)
-                    HEARTBEAT_SHOCK_TRIGGER ->
-                        personaSection("shock_heartbeat_context", input.personaConfig, PromptSectionKeys.ShockHeartbeat)
-                }
             }
             "context" {
                 "bio_core_state" {
@@ -90,6 +84,12 @@ object OpenEdenPromptDocumentFactory {
                 "relationship_address" to input.relationshipAddress
                 "relationship_context" to relationshipObject(input.relationshipState)
                 "memory_retrieval" to memoryRetrievalObject(input)
+                when (input.userInput) {
+                    HEARTBEAT_TRIGGER ->
+                        personaSection("heartbeat_context", input.personaConfig, PromptSectionKeys.Heartbeat)
+                    HEARTBEAT_SHOCK_TRIGGER ->
+                        personaSection("shock_heartbeat_context", input.personaConfig, PromptSectionKeys.ShockHeartbeat)
+                }
                 "system_time" to input.systemTime
             }
             "user" {

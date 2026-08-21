@@ -3,6 +3,7 @@ package io.openeden.runtime.pipeline
 import io.openeden.bio.BioVector
 import io.openeden.memory.RetrievalMode
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.llm.LlmCacheMetrics
 
 data class DevelopmentMessageResult(
     val sessionId: String,
@@ -15,4 +16,5 @@ data class DevelopmentMessageResult(
     val evolutionIndex: Long,
     val diaryOutcome: String,
     val validationErrors: List<String>,
+    val cacheMetrics: LlmCacheMetrics? = null,
 )
