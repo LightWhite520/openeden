@@ -22,6 +22,7 @@ dependencyResolutionManagement {
 rootProject.name = "openeden"
 
 include(":client")
+include(":cli")
 include(":core")
 include(":server")
 include(":trainer")
