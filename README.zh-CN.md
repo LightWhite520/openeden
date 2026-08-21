@@ -439,23 +439,23 @@ $env:OPENEDEN_OPENAI_BASE_URL="https://api.openai.com/v1"
 另开一个 PowerShell 窗口启动 CLI：
 
 ```powershell
-.\gradlew.bat installDist
-.\build\install\openeden\bin\openeden.bat
+.\gradlew.bat :cli:installDist
+.\cli\build\install\openeden\bin\openeden.bat
 ```
 
-`gradlew run` 仅用于开发便利。Gradle 会通过管道代理终端流，因此它不是
+`gradlew :cli:run` 仅用于开发便利。Gradle 会通过管道代理终端流，因此它不是
 交互式行编辑的正式启动路径。
 
 也可以发送一次兼容 chat 请求：
 
 ```powershell
-.\gradlew.bat run --args="chat --message `"你好`""
+.\gradlew.bat :cli:run --args="chat --message `"你好`""
 ```
 
 查看本地 CLI 状态：
 
 ```powershell
-.\gradlew.bat run --args="state"
+.\gradlew.bat :cli:run --args="state"
 ```
 
 ## CLI 命令
@@ -574,9 +574,9 @@ Qdrant 降级时，带 token 的 `/api/v1/diagnostics` 会报告后端、集合�
 | ----------------------------------------------------- | --------------------------------------------------- |
 | `.\gradlew.bat ensureLocalModelArtifact`              | 如果缺少本地模型 artifact，则从 Hugging Face 下载。 |
 | `.\gradlew.bat :server:run`                           | 启动 Ktor server。                                  |
-| `.\gradlew.bat installDist`                           | 构建正式支持的打包交互 CLI。                        |
-| `.\gradlew.bat run --args="chat --message \"hello\""` | 发送一次兼容 chat 请求。                            |
-| `.\gradlew.bat run --args="state"`                    | 打印本地 CLI session 状态。                         |
+| `.\gradlew.bat :cli:installDist`                     | 构建正式支持的打包交互 CLI。                        |
+| `.\gradlew.bat :cli:run --args="chat --message \"hello\""` | 发送一次兼容 chat 请求。                            |
+| `.\gradlew.bat :cli:run --args="state"`                    | 打印本地 CLI session 状态。                         |
 | `.\gradlew.bat :server:test`                          | 运行 server 测试。                                  |
 | `.\gradlew.bat :server:build`                         | 构建 server 模块。                                  |
 

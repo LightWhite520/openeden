@@ -75,7 +75,7 @@ function Invoke-CliByteCase {
 
 $env:JAVA_HOME = $JdkHome
 $env:Path = "$JdkHome\bin;$env:Path"
-& "$PSScriptRoot\..\gradlew.bat" :installDist --no-daemon --console=plain
+& "$PSScriptRoot\..\gradlew.bat" :cli:installDist --no-daemon --console=plain
 if ($LASTEXITCODE -ne 0) { throw 'installDist failed' }
 
 $port = Get-FreeTcpPort
@@ -109,7 +109,7 @@ $server = Start-Job -ArgumentList $port -ScriptBlock {
 
 try {
     Start-Sleep -Milliseconds 300
-    $cli = (Resolve-Path "$PSScriptRoot\..\build\install\openeden\bin\openeden.bat").Path
+    $cli = (Resolve-Path "$PSScriptRoot\..\cli\build\install\openeden\bin\openeden.bat").Path
     $utf8 = [Text.UTF8Encoding]::new($false)
     Invoke-CliByteCase 'UTF-8 without BOM' $utf8 $false $cli $port
     Invoke-CliByteCase 'UTF-8 with BOM' $utf8 $true $cli $port

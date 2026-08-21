@@ -510,23 +510,23 @@ $env:OPENEDEN_OPENAI_BASE_URL="https://api.openai.com/v1"
 In another PowerShell window, start the CLI:
 
 ```powershell
-.\gradlew.bat installDist
-.\build\install\openeden\bin\openeden.bat
+.\gradlew.bat :cli:installDist
+.\cli\build\install\openeden\bin\openeden.bat
 ```
 
-`gradlew run` is a development convenience. Gradle proxies terminal streams
+`gradlew :cli:run` is a development convenience. Gradle proxies terminal streams
 through pipes, so it is not the supported path for interactive line editing.
 
 Send one compatibility chat request:
 
 ```powershell
-.\gradlew.bat run --args="chat --message `"hello`""
+.\gradlew.bat :cli:run --args="chat --message `"hello`""
 ```
 
 Print local CLI state:
 
 ```powershell
-.\gradlew.bat run --args="state"
+.\gradlew.bat :cli:run --args="state"
 ```
 
 ## CLI
@@ -655,9 +655,9 @@ Useful Gradle tasks:
 | ----------------------------------------------------- | ----------------------------------------------------------- |
 | `.\gradlew.bat ensureLocalModelArtifact`              | Download the default local model artifact if it is missing. |
 | `.\gradlew.bat :server:run`                           | Start the Ktor server.                                      |
-| `.\gradlew.bat installDist`                           | Build the supported packaged interactive CLI.               |
-| `.\gradlew.bat run --args="chat --message \"hello\""` | Send one compatibility chat request.                        |
-| `.\gradlew.bat run --args="state"`                    | Print local CLI session state.                              |
+| `.\gradlew.bat :cli:installDist`                     | Build the supported packaged interactive CLI.               |
+| `.\gradlew.bat :cli:run --args="chat --message \"hello\""` | Send one compatibility chat request.                        |
+| `.\gradlew.bat :cli:run --args="state"`                    | Print local CLI session state.                              |
 | `.\gradlew.bat :server:test`                          | Run server tests.                                           |
 | `.\gradlew.bat :server:build`                         | Build the server module.                                    |
 
