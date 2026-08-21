@@ -23,6 +23,7 @@ import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
+import io.openeden.prompt.PromptTime
 import io.openeden.relationship.*
 import io.openeden.runtime.affect.EmotionSignal
 import io.openeden.runtime.affect.OmegaState
@@ -286,6 +287,7 @@ class DevelopmentMessagePipeline(
                 omegaState = current.omega,
                 shockState = current.shockState,
                 userInput = request.text,
+                systemTime = PromptTime.format(nowMs()),
                 userAffect = observedAffect,
                 relationshipRole = resolvedRelationship.role,
                 relationshipAddress = resolvedRelationship.address,
@@ -521,7 +523,9 @@ class DevelopmentMessagePipeline(
                 centroidTags +
                 sourceTags,
             prompt = prompt,
-            promptPreview = listOf(prompt.systemText, prompt.personaText, prompt.userText).joinToString("\n\n"),
+            promptPreview = listOf(prompt.systemText, prompt.personaText, prompt.contextText, prompt.userText)
+                .filter(String::isNotEmpty)
+                .joinToString("\n\n"),
             response = validation.output?.response,
             updatedVector = store.read(sessionId).vector,
             evolutionIndex = store.read(sessionId).evolutionIndex,

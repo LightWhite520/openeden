@@ -105,6 +105,7 @@ class MessagePipelineTest {
     fun `runs one development message turn`() = runTest {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(),
+            nowMs = { 1_787_414_712_000L },
         )
 
         val result = pipeline.handle(
@@ -125,6 +126,7 @@ class MessagePipelineTest {
         assertEquals(1, result.evolutionIndex)
         assertEquals(BioVector.Neutral, result.updatedVector)
         assertContains(result.promptPreview, "\"bio_core_state\"")
+        assertContains(result.prompt.contextText, "\"system_time\": \"2026-08-23 00:05\"")
         assertEquals("not_triggered", result.diaryOutcome)
     }
 

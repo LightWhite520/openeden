@@ -21,6 +21,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class DefaultPromptBuilderTest {
@@ -28,13 +29,14 @@ class DefaultPromptBuilderTest {
     fun `build injects codebook state before user input`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput(userInput = "hello"))
 
-        val merged = listOf(built.systemText, built.personaText, built.userText).joinToString("\n")
+        val merged = listOf(built.systemText, built.personaText, built.contextText, built.userText).joinToString("\n")
 
-        assertTrue(merged.indexOf("\"bio_core_state\"") < merged.indexOf("\"input\": \"hello\""))
-        assertContains(built.systemText, "\"active_nodes\":")
-        assertContains(built.systemText, "\"NODE_088\"")
-        assertContains(built.systemText, "\"Definition A\"")
-        assertContains(built.userText, "hello")
+        assertTrue(merged.indexOf("\"bio_core_state\"") < merged.indexOf("hello"))
+        assertContains(built.contextText, "\"active_nodes\":")
+        assertContains(built.contextText, "\"NODE_088\"")
+        assertContains(built.contextText, "\"Definition A\"")
+        assertContains(built.contextText, "\"system_time\": \"1970-01-01 00:00\"")
+        assertEquals("hello", built.userText)
     }
 
     @Test
@@ -42,6 +44,20 @@ class DefaultPromptBuilderTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
         assertContains(built.personaText, "identity from data")
+    }
+
+    @Test
+    fun `runtime changes do not invalidate stable prompt layers`() = runTest {
+        val first = DefaultPromptBuilder().build(
+            promptInput(evolutionIndex = 1, systemTime = "2026-08-23 00:05"),
+        )
+        val later = DefaultPromptBuilder().build(
+            promptInput(evolutionIndex = 2, systemTime = "2026-08-23 00:06"),
+        )
+
+        assertEquals(first.systemText, later.systemText)
+        assertEquals(first.personaText, later.personaText)
+        assertNotEquals(first.contextText, later.contextText)
     }
 
     @Test
@@ -53,8 +69,8 @@ class DefaultPromptBuilderTest {
             ),
         )
 
-        assertContains(built.systemText, "\"relationship_role\": \"HOST\"")
-        assertContains(built.systemText, "\"relationship_address\": \"Captain\"")
+        assertContains(built.contextText, "\"relationship_role\": \"HOST\"")
+        assertContains(built.contextText, "\"relationship_address\": \"Captain\"")
         assertContains(built.systemText, "Do not assume the current user is the host")
         assertContains(built.systemText, "Use relationship_address only when relationship_role is HOST")
     }
@@ -63,8 +79,8 @@ class DefaultPromptBuilderTest {
     fun `build injects null address for interlocutor`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
-        assertContains(built.systemText, "\"relationship_role\": \"INTERLOCUTOR\"")
-        assertContains(built.systemText, "\"relationship_address\": null")
+        assertContains(built.contextText, "\"relationship_role\": \"INTERLOCUTOR\"")
+        assertContains(built.contextText, "\"relationship_address\": null")
     }
 
     @Test
@@ -91,8 +107,8 @@ class DefaultPromptBuilderTest {
     fun `pre command starting point keeps its patch and examples at high evolution index`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput(evolutionIndex = 500))
 
-        assertContains(built.systemText, "\"persona_start_sub_state\": \"PRE_COMMAND\"")
-        assertContains(built.systemText, "\"evolution_index\": 500")
+        assertContains(built.contextText, "\"persona_start_sub_state\": \"PRE_COMMAND\"")
+        assertContains(built.contextText, "\"evolution_index\": 500")
         assertContains(built.personaText, "behavior rules from data")
         assertContains(built.personaText, "pre command patch from data")
         assertContains(built.personaText, "COMMON_GENERATION")
@@ -129,7 +145,7 @@ class DefaultPromptBuilderTest {
             promptInput(evolutionIndex = 0, personaConfigOverride = persona),
         )
 
-        assertContains(built.systemText, "\"persona_start_sub_state\": \"TRUE_SELF\"")
+        assertContains(built.contextText, "\"persona_start_sub_state\": \"TRUE_SELF\"")
         assertContains(built.personaText, "true self patch from data")
         assertContains(built.personaText, "COMMON_GENERATION")
         assertContains(built.personaText, "COMMON_SIGNATURE")
@@ -149,8 +165,8 @@ class DefaultPromptBuilderTest {
             ),
         )
 
-        assertContains(built.systemText, "\"persona_start_sub_state\": \"AWAKENED\"")
-        assertContains(built.systemText, "\"evolution_index\": 0")
+        assertContains(built.contextText, "\"persona_start_sub_state\": \"AWAKENED\"")
+        assertContains(built.contextText, "\"evolution_index\": 0")
         assertContains(built.personaText, "awakened patch from data")
         assertContains(built.personaText, "COMMON_GENERATION")
         assertContains(built.personaText, "COMMON_SIGNATURE")
@@ -222,8 +238,13 @@ class DefaultPromptBuilderTest {
         val fieldNames = system.fields.map { it.name }
 
         assertEquals(
+            listOf("logical_core", "required_output_schema"),
+            fieldNames,
+        )
+
+        val context = document.root.fields.first { it.name == "context" }.value as PromptObject
+        assertEquals(
             listOf(
-                "logical_core",
                 "bio_core_state",
                 "runtime_state",
                 "observed_user_state",
@@ -231,9 +252,9 @@ class DefaultPromptBuilderTest {
                 "relationship_address",
                 "relationship_context",
                 "memory_retrieval",
-                "required_output_schema",
+                "system_time",
             ),
-            fieldNames,
+            context.fields.map { it.name },
         )
     }
 
@@ -242,6 +263,7 @@ class DefaultPromptBuilderTest {
         personaMode: PersonaMode = PersonaMode.GROWTH,
         personaStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
         userInput: String = "hello",
+        systemTime: String = "1970-01-01 00:00",
         personaConfigOverride: PersonaConfig? = null,
         relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
         relationshipAddress: String? = null,
@@ -297,6 +319,7 @@ class DefaultPromptBuilderTest {
         omegaState = OmegaState(0.1f),
         shockState = null,
         userInput = userInput,
+        systemTime = systemTime,
         relationshipRole = relationshipRole,
         relationshipAddress = relationshipAddress,
     )

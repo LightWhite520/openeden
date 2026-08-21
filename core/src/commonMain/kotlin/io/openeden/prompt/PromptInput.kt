@@ -20,12 +20,14 @@ data class PromptInput(
     val omegaState: OmegaState,
     val shockState: ShockState?,
     val userInput: String,
+    val systemTime: String = "1970-01-01 00:00",
     val userAffect: UserAffectState = UserAffectState.Uncertain,
     val relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
     val relationshipAddress: String? = null,
     val relationshipState: RelationshipState? = null,
 ) {
     init {
+        require(systemTime.isNotBlank()) { "System time must not be blank" }
         require(relationshipRole == RelationshipRole.HOST || relationshipAddress == null) {
             "Relationship address requires HOST role"
         }

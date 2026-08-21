@@ -146,8 +146,8 @@ class ArtifactBackedKernelSmokeTest {
                     )
                 }
 
-            val systemPrompt = Json.parseToJsonElement(result.prompt.systemText).jsonObject
-            val bioCoreState = systemPrompt.getValue("bio_core_state").jsonObject
+            val contextPrompt = Json.parseToJsonElement(result.prompt.contextText).jsonObject
+            val bioCoreState = contextPrompt.getValue("bio_core_state").jsonObject
             assertEquals(
                 neutralQuantization.activeNodes,
                 bioCoreState.getValue("active_nodes").jsonArray.map { it.jsonPrimitive.content },
@@ -159,10 +159,11 @@ class ArtifactBackedKernelSmokeTest {
             val mergedPrompt = listOf(
                 result.prompt.systemText,
                 result.prompt.personaText,
+                result.prompt.contextText,
                 result.prompt.userText,
             ).joinToString("\n\n")
             assertTrue(
-                mergedPrompt.indexOf("\"bio_core_state\"") < mergedPrompt.indexOf("\"input\": \"$userInput\""),
+                mergedPrompt.indexOf("\"bio_core_state\"") < mergedPrompt.indexOf(userInput),
                 "Expected codebook state before user input",
             )
 

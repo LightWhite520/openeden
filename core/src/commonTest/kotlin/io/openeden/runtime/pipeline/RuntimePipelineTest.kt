@@ -97,8 +97,8 @@ class RuntimePipelineTest {
         )
 
         assertEquals(2, prompts.size)
-        assertTrue(prompts[1].systemText.contains("first question"))
-        assertTrue(prompts[1].systemText.contains("first response"))
+        assertTrue(prompts[1].contextText.contains("first question"))
+        assertTrue(prompts[1].contextText.contains("first response"))
     }
 
     @Test

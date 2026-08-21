@@ -72,7 +72,7 @@ class OpenAiResponsesLlmClient private constructor(
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput = complete(prompt, defaultGenerationSettings)
 
     override suspend fun complete(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): LlmOutput {
-        log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
+        log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.contextText}\n${prompt.userText}")
         val response = execute(prompt, generationSettings, stream = false)
         requireSuccess(response)
         val llmOutput = parseBufferedResponse(response.bodyAsText())
@@ -82,7 +82,7 @@ class OpenAiResponsesLlmClient private constructor(
     override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = stream(prompt, defaultGenerationSettings)
 
     override fun stream(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): Flow<LlmStreamEvent> = flow {
-        log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.userText}")
+        log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.contextText}\n${prompt.userText}")
         val response = execute(prompt, generationSettings, stream = true)
         requireSuccess(response)
         if (response.contentType()?.withoutParameters() != ContentType.Text.EventStream) {
@@ -159,11 +159,14 @@ class OpenAiResponsesLlmClient private constructor(
                     temperature = generationSettings.temperature,
                     maxOutputTokens = generationSettings.maxOutputTokens,
                     reasoning = ResponsesReasoning(reasoningEffort.value),
-                    input = listOf(
-                        ResponsesInputMessage(role = "system", content = prompt.systemText),
-                        ResponsesInputMessage(role = "developer", content = prompt.personaText),
-                        ResponsesInputMessage(role = "user", content = prompt.userText),
-                    ),
+                    input = buildList {
+                        add(ResponsesInputMessage(role = "system", content = prompt.systemText))
+                        add(ResponsesInputMessage(role = "developer", content = prompt.personaText))
+                        if (prompt.contextText.isNotBlank()) {
+                            add(ResponsesInputMessage(role = "developer", content = prompt.contextText))
+                        }
+                        add(ResponsesInputMessage(role = "user", content = prompt.userText))
+                    },
                     text = TextFormat(
                         format = JsonSchemaFormat(
                             type = "json_schema",

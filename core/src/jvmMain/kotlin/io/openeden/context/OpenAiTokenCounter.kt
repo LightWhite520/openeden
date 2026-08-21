@@ -11,6 +11,8 @@ class OpenAiTokenCounter(
         .getEncoding(EncodingType.O200K_BASE),
 ) {
     fun count(prompt: BuiltPrompt): Int = encoding.countTokens(
-        listOf(prompt.systemText, prompt.personaText, prompt.userText).joinToString("\n\n"),
+        listOf(prompt.systemText, prompt.personaText, prompt.contextText, prompt.userText)
+            .filter(String::isNotEmpty)
+            .joinToString("\n\n"),
     )
 }

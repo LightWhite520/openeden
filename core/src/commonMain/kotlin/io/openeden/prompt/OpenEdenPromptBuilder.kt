@@ -16,7 +16,8 @@ class DefaultPromptBuilder(
         return BuiltPrompt(
             systemText = renderer.renderField(document, "system"),
             personaText = renderer.renderField(document, "persona"),
-            userText = renderer.renderField(document, "user"),
+            userText = input.userInput,
+            contextText = renderer.renderField(document, "context"),
         )
     }
 }
@@ -41,24 +42,6 @@ object OpenEdenPromptDocumentFactory {
                         "The response field is the only user-visible final output.",
                     )
                 }
-                "bio_core_state" {
-                    "active_nodes" to array(input.quantization.activeNodes)
-                    "definitions" to array(input.quantization.semanticDefinitions)
-                    "quantization_confidence" to input.quantization.confidence.promptFloat()
-                    "derived_dissonance" to input.derivedDissonance.promptFloat()
-                }
-                "runtime_state" {
-                    "persona_mode" to input.personaConfig.mode.name
-                    "persona_start_sub_state" to subState.name
-                    "evolution_index" to input.evolutionIndex
-                    "omega" to input.omegaState.value.promptFloat()
-                    "shock_state" to shockStateObject(input)
-                }
-                "observed_user_state" to userAffectObject(input.userAffect)
-                "relationship_role" to input.relationshipRole.name
-                "relationship_address" to input.relationshipAddress
-                "relationship_context" to relationshipObject(input.relationshipState)
-                "memory_retrieval" to memoryRetrievalObject(input)
                 "required_output_schema" {
                     "internal_logic" to "Traceable reasoning process based on current Codebook state"
                     "vector_delta" {
@@ -87,6 +70,27 @@ object OpenEdenPromptDocumentFactory {
                     HEARTBEAT_SHOCK_TRIGGER ->
                         personaSection("shock_heartbeat_context", input.personaConfig, PromptSectionKeys.ShockHeartbeat)
                 }
+            }
+            "context" {
+                "bio_core_state" {
+                    "active_nodes" to array(input.quantization.activeNodes)
+                    "definitions" to array(input.quantization.semanticDefinitions)
+                    "quantization_confidence" to input.quantization.confidence.promptFloat()
+                    "derived_dissonance" to input.derivedDissonance.promptFloat()
+                }
+                "runtime_state" {
+                    "persona_mode" to input.personaConfig.mode.name
+                    "persona_start_sub_state" to subState.name
+                    "evolution_index" to input.evolutionIndex
+                    "omega" to input.omegaState.value.promptFloat()
+                    "shock_state" to shockStateObject(input)
+                }
+                "observed_user_state" to userAffectObject(input.userAffect)
+                "relationship_role" to input.relationshipRole.name
+                "relationship_address" to input.relationshipAddress
+                "relationship_context" to relationshipObject(input.relationshipState)
+                "memory_retrieval" to memoryRetrievalObject(input)
+                "system_time" to input.systemTime
             }
             "user" {
                 "input" to input.userInput

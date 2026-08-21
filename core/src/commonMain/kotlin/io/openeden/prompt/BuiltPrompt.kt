@@ -4,4 +4,5 @@ data class BuiltPrompt(
     val systemText: String,
     val personaText: String,
     val userText: String,
+    val contextText: String = "",
 )

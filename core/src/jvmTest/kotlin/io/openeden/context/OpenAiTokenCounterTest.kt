@@ -9,8 +9,16 @@ class OpenAiTokenCounterTest {
     fun `counts prompt text with the OpenAI o200k tokenizer`() {
         val counter = OpenAiTokenCounter()
 
-        val count = counter.count(BuiltPrompt("system", "persona", "你好，ATRI"))
+        val count = counter.count(
+            BuiltPrompt(
+                systemText = "system",
+                personaText = "persona",
+                contextText = "dynamic context",
+                userText = "你好，ATRI",
+            ),
+        )
+        val withoutContext = counter.count(BuiltPrompt("system", "persona", "你好，ATRI"))
 
-        assertTrue(count > 0)
+        assertTrue(count > withoutContext)
     }
 }

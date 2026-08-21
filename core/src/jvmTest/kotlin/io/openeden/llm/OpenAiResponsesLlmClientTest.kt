@@ -116,7 +116,12 @@ class OpenAiResponsesLlmClientTest {
         )
 
         val output = client.complete(
-            prompt = BuiltPrompt("system", "persona", "user"),
+            prompt = BuiltPrompt(
+                systemText = "system",
+                personaText = "persona",
+                userText = "user",
+                contextText = "context",
+            ),
             generationSettings = LlmGenerationSettings(
                 temperature = 0.85f,
                 verbosity = LlmVerbosity.LOW,
@@ -132,12 +137,15 @@ class OpenAiResponsesLlmClientTest {
         assertEquals("https://relay.example.com/v1/responses", requestUrl)
         assertEquals("gpt-5.5", body.getValue("model").jsonPrimitive.content)
         val input = body.getValue("input").jsonArray
+        assertEquals(4, input.size)
         assertEquals("system", input[0].jsonObject.getValue("role").jsonPrimitive.content)
         assertEquals("system", input[0].jsonObject.getValue("content").jsonPrimitive.content)
         assertEquals("developer", input[1].jsonObject.getValue("role").jsonPrimitive.content)
         assertEquals("persona", input[1].jsonObject.getValue("content").jsonPrimitive.content)
-        assertEquals("user", input[2].jsonObject.getValue("role").jsonPrimitive.content)
-        assertEquals("user", input[2].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("developer", input[2].jsonObject.getValue("role").jsonPrimitive.content)
+        assertEquals("context", input[2].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("user", input[3].jsonObject.getValue("role").jsonPrimitive.content)
+        assertEquals("user", input[3].jsonObject.getValue("content").jsonPrimitive.content)
         val format = body.getValue("text").jsonObject.getValue("format").jsonObject
         assertEquals("json_schema", format.getValue("type").jsonPrimitive.content)
         assertEquals(0.85f, body.getValue("temperature").jsonPrimitive.float)
