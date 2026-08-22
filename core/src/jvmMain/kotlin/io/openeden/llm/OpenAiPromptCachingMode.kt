@@ -40,7 +40,7 @@ fun OpenAiPromptCachingMode.usesExplicitBreakpoint(model: String, baseUrl: Strin
 private fun isOfficialOpenAiBaseUrl(baseUrl: String): Boolean =
     runCatching {
         val uri = URI(baseUrl.trim())
-        uri.scheme.equals("https", ignoreCase = true) && uri.host == "api.openai.com"
+        uri.scheme.equals("https", ignoreCase = true) && uri.host.equals("api.openai.com", ignoreCase = true)
     }
         .getOrDefault(false)
 

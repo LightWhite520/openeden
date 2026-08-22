@@ -250,6 +250,10 @@ class OpenAiResponsesLlmClientTest {
             baseUrl = "https://api.openai.com/v1",
             mode = OpenAiPromptCachingMode.AUTO,
         )
+        val uppercaseOpenAiBody = captureCachingRequest(
+            baseUrl = "HTTPS://API.OPENAI.COM/v1",
+            mode = OpenAiPromptCachingMode.AUTO,
+        )
         val insecureOpenAiBody = captureCachingRequest(
             baseUrl = "http://api.openai.com/v1",
             mode = OpenAiPromptCachingMode.AUTO,
@@ -265,6 +269,14 @@ class OpenAiResponsesLlmClientTest {
         assertEquals(
             "explicit",
             exactPersonaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
+                .jsonObject.getValue("mode").jsonPrimitive.content,
+        )
+        val uppercasePersonaContent = uppercaseOpenAiBody.getValue("input").jsonArray[1].jsonObject
+            .getValue("content").jsonArray
+        assertEquals("input_text", uppercasePersonaContent[0].jsonObject.getValue("type").jsonPrimitive.content)
+        assertEquals(
+            "explicit",
+            uppercasePersonaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
                 .jsonObject.getValue("mode").jsonPrimitive.content,
         )
         val insecurePersonaContent = insecureOpenAiBody.getValue("input").jsonArray[1].jsonObject
