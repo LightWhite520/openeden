@@ -6,16 +6,16 @@ Expose when each retrieved memory occurred so the model can distinguish recent c
 
 ## Design
 
-- Keep `MemoryEntry.createdAtMs` and SQLite `created_at_ms` as the single source of truth.
+- Treat SQLite `created_at_ms` as the durable source of truth and carry it explicitly through `MemoryEntry` and `MemorySnippet`.
 - Extend each Prompt memory object with `created_at`.
 - Format the value with the existing Prompt time formatter as `yyyy-MM-dd HH:mm`.
 - Apply the field to both `recent_turns` and semantic `memories` because both are memory context exposed to the model.
 - Keep the raw memory content unchanged; do not duplicate timestamps into text.
-- Preserve compatibility for callers that construct `MemorySnippet` values with existing fields.
+- Preserve compatibility for existing test and adapter callers by defaulting the new domain field to `0L`; production persistence and write paths always provide the real timestamp.
 
 ## Data Flow
 
-`MemoryEntry.createdAtMs` -> `MemorySnippet.createdAtMs` -> `OpenEdenPromptBuilder.memorySnippetObject()` -> `created_at` in the JSON prompt object.
+SQLite `created_at_ms` -> `SqlDelightMemoryRepository` -> `MemoryEntry.createdAtMs` -> `MemorySnippet.createdAtMs` -> `OpenEdenPromptBuilder.memorySnippetObject()` -> `created_at` in the JSON prompt object.
 
 ## Verification
 
