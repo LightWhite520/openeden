@@ -38,6 +38,14 @@ class OpenAiResponsesLlmClientTest {
     }
 
     @Test
+    fun `retains model-only breakpoint compatibility for the official default endpoint`() {
+        assertTrue(OpenAiPromptCachingMode.AUTO.usesExplicitBreakpoint("gpt-5.6-luna"))
+        assertTrue(!OpenAiPromptCachingMode.AUTO.usesExplicitBreakpoint("gpt-5.5"))
+        assertTrue(OpenAiPromptCachingMode.EXPLICIT.usesExplicitBreakpoint("gpt-5.5"))
+        assertTrue(!OpenAiPromptCachingMode.DISABLED.usesExplicitBreakpoint("gpt-5.6-luna"))
+    }
+
+    @Test
     fun `streams strict structured output without exposing private fields`() = runTest {
         var requestBody = ""
         val first = """{"internal_logic":"private","vector_delta":{"L":0.0,"P":0.0,"E":0.0,"S":0.0,"tau":0.0,"V":0.0,"M":0.0,"F":0.0},"response":"你"""
@@ -242,6 +250,10 @@ class OpenAiResponsesLlmClientTest {
             baseUrl = "https://api.openai.com/v1",
             mode = OpenAiPromptCachingMode.AUTO,
         )
+        val insecureOpenAiBody = captureCachingRequest(
+            baseUrl = "http://api.openai.com/v1",
+            mode = OpenAiPromptCachingMode.AUTO,
+        )
         val lookalikeBody = captureCachingRequest(
             baseUrl = "https://api.openai.com.example.org/v1",
             mode = OpenAiPromptCachingMode.AUTO,
@@ -255,6 +267,10 @@ class OpenAiResponsesLlmClientTest {
             exactPersonaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
                 .jsonObject.getValue("mode").jsonPrimitive.content,
         )
+        val insecurePersonaContent = insecureOpenAiBody.getValue("input").jsonArray[1].jsonObject
+            .getValue("content")
+        assertIs<JsonPrimitive>(insecurePersonaContent)
+        assertEquals("stable persona", insecurePersonaContent.content)
         val lookalikeKey = assertIs<JsonPrimitive>(lookalikeBody.getValue("prompt_cache_key"))
         assertTrue(lookalikeKey.isString)
         assertTrue(lookalikeKey.content.isNotBlank())

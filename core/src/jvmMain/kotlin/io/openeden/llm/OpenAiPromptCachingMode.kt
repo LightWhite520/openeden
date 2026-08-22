@@ -28,6 +28,9 @@ fun OpenAiPromptCachingMode.usesExplicitCacheOptions(model: String): Boolean = w
     OpenAiPromptCachingMode.AUTO -> supportsExplicitPromptCaching(model)
 }
 
+fun OpenAiPromptCachingMode.usesExplicitBreakpoint(model: String): Boolean =
+    usesExplicitBreakpoint(model, defaultOpenAiBaseUrl)
+
 fun OpenAiPromptCachingMode.usesExplicitBreakpoint(model: String, baseUrl: String): Boolean = when (this) {
     OpenAiPromptCachingMode.DISABLED -> false
     OpenAiPromptCachingMode.EXPLICIT -> true
@@ -35,8 +38,13 @@ fun OpenAiPromptCachingMode.usesExplicitBreakpoint(model: String, baseUrl: Strin
 }
 
 private fun isOfficialOpenAiBaseUrl(baseUrl: String): Boolean =
-    runCatching { URI(baseUrl.trim()).host?.equals("api.openai.com", ignoreCase = true) == true }
+    runCatching {
+        val uri = URI(baseUrl.trim())
+        uri.scheme.equals("https", ignoreCase = true) && uri.host == "api.openai.com"
+    }
         .getOrDefault(false)
+
+private const val defaultOpenAiBaseUrl = "https://api.openai.com/v1"
 
 fun supportsExplicitPromptCaching(model: String): Boolean {
     val version = gptModelPattern.find(model.trim())
