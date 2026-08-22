@@ -61,6 +61,31 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `persona and codebook changes stay in their own cache layers`() = runTest {
+        val baseInput = promptInput()
+        val changed = DefaultPromptBuilder().build(
+            baseInput.copy(
+                personaConfig = baseInput.personaConfig.copy(
+                    promptSections = baseInput.personaConfig.promptSections +
+                        (PromptSectionKeys.Identity to "updated identity from data"),
+                ),
+                quantization = baseInput.quantization.copy(
+                    activeNodes = listOf("NODE_999"),
+                    semanticDefinitions = listOf("Updated definition"),
+                ),
+            ),
+        )
+        val original = DefaultPromptBuilder().build(baseInput)
+
+        assertEquals(original.systemText, changed.systemText)
+        assertNotEquals(original.personaText, changed.personaText)
+        assertNotEquals(original.contextText, changed.contextText)
+        assertContains(changed.personaText, "updated identity from data")
+        assertContains(changed.contextText, "NODE_999")
+        assertContains(changed.contextText, "Updated definition")
+    }
+
+    @Test
     fun `build injects host role and address with host gate`() = runTest {
         val built = DefaultPromptBuilder().build(
             promptInput(

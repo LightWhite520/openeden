@@ -160,6 +160,31 @@ class OpenAiResponsesLlmClientTest {
     }
 
     @Test
+    fun `keeps provider output when buffered cache usage is invalid`() = runTest {
+        val engine = MockEngine {
+            respond(
+                content = """
+                    {
+                      "output_text":"{\"internal_logic\":\"logic\",\"vector_delta\":{\"L\":0.0,\"P\":0.0,\"E\":0.0,\"S\":0.0,\"tau\":0.0,\"V\":0.0,\"M\":0.0,\"F\":0.0},\"response\":\"ok\"}",
+                      "usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":200}}
+                    }
+                """.trimIndent(),
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.5",
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        val output = client.complete(BuiltPrompt("system", "persona", "user"))
+
+        assertEquals("ok", output.response)
+        assertEquals(null, output.cacheMetrics)
+    }
+
+    @Test
     fun `omits unset max output tokens from responses request`() = runTest {
         var requestBody = ""
         val engine = MockEngine { request ->

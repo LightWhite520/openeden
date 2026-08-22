@@ -200,7 +200,9 @@ class OpenAiResponsesLlmClient private constructor(
             internalLogic = root.getValue("internal_logic").jsonPrimitive.content,
             vectorDelta = root.getValue("vector_delta").jsonObject.mapValues { (_, value) -> value.jsonPrimitive.float },
             response = root.getValue("response").jsonPrimitive.content,
-            cacheMetrics = body.usage?.toCacheMetrics(),
+            cacheMetrics = body.usage?.let { usage ->
+                runCatching { usage.toCacheMetrics() }.getOrNull()
+            },
         )
     }
 
