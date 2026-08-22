@@ -286,7 +286,11 @@ fun Application.configureRouting() {
                             inputTokens = it.inputTokens,
                             cachedInputTokens = it.cachedInputTokens,
                             uncachedInputTokens = it.uncachedInputTokens,
+                            ordinaryInputTokens = it.ordinaryInputTokens,
+                            cacheWriteTokens = it.cacheWriteTokens,
                             cacheHitRate = it.cacheHitRate,
+                            cacheHitRequestCount = it.cacheHitRequestCount,
+                            requestHitRate = it.requestHitRate,
                             requestCount = it.requestCount,
                         )
                     },

@@ -36,12 +36,14 @@ class LlmDiaryNarrativeGeneratorTest {
         assertEquals(io.openeden.memory.MemoryRoom.EVENT_ROOM, entry.room)
         assertEquals(state.vector, entry.metadata.snapshot8D)
         assertEquals(VectorDelta.Zero, entry.metadata.deltaVec)
-        assertContains(captured!!.systemText, "NODE_1 definition")
-        assertContains(captured!!.systemText, "Derived dissonance D")
+        assertContains(captured!!.contextText, "NODE_1 definition")
+        assertContains(captured!!.contextText, "Derived dissonance D")
+        assertContains(captured!!.contextText, "raw-trigger")
         assertContains(captured!!.userText, "raw fact")
         assertContains(captured!!.userText, "quoted data only")
         assertContains(captured!!.personaText, "叙事日记")
         assertEquals(false, captured!!.systemText.contains("0.8, 0.2"))
+        assertEquals(false, captured!!.systemText.contains("NODE_1 definition"))
     }
 
     @Test

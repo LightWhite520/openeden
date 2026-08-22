@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
+import java.security.MessageDigest
 
 private val log = KtorSimpleLogger("io.openeden.llm.OpenAiResponsesLlmClient")
 
@@ -28,6 +29,7 @@ class OpenAiResponsesLlmClient private constructor(
     private val httpClient: HttpClient,
     private val json: Json,
     private val defaultGenerationSettings: LlmGenerationSettings,
+    private val promptCachingMode: OpenAiPromptCachingMode,
     constructorMarker: Unit,
 ) : StreamingLlmClient, AutoCloseable {
     constructor(
@@ -45,6 +47,7 @@ class OpenAiResponsesLlmClient private constructor(
         httpClient = httpClient,
         json = json,
         defaultGenerationSettings = LlmGenerationSettings.Default,
+        promptCachingMode = OpenAiPromptCachingMode.AUTO,
         constructorMarker = Unit,
     )
 
@@ -64,6 +67,69 @@ class OpenAiResponsesLlmClient private constructor(
         httpClient = httpClient,
         json = json,
         defaultGenerationSettings = defaultGenerationSettings,
+        promptCachingMode = OpenAiPromptCachingMode.AUTO,
+        constructorMarker = Unit,
+    )
+
+    constructor(
+        apiKey: String,
+        model: String,
+        reasoningEffort: ReasoningEffort,
+        baseUrl: String,
+        httpClient: HttpClient,
+        json: Json,
+        promptCachingMode: OpenAiPromptCachingMode,
+    ) : this(
+        apiKey = apiKey,
+        model = model,
+        reasoningEffort = reasoningEffort,
+        baseUrl = baseUrl,
+        httpClient = httpClient,
+        json = json,
+        defaultGenerationSettings = LlmGenerationSettings.Default,
+        promptCachingMode = promptCachingMode,
+        constructorMarker = Unit,
+    )
+
+    constructor(
+        apiKey: String,
+        model: String,
+        reasoningEffort: ReasoningEffort = ReasoningEffort.MEDIUM,
+        baseUrl: String = "https://api.openai.com/v1",
+        httpClient: HttpClient = httpClient(CIO.create()),
+        json: Json = Json { ignoreUnknownKeys = true },
+        promptCachingMode: OpenAiPromptCachingMode,
+        defaultGenerationSettings: LlmGenerationSettings,
+    ) : this(
+        apiKey = apiKey,
+        model = model,
+        reasoningEffort = reasoningEffort,
+        baseUrl = baseUrl,
+        httpClient = httpClient,
+        json = json,
+        defaultGenerationSettings = defaultGenerationSettings,
+        promptCachingMode = promptCachingMode,
+        constructorMarker = Unit,
+    )
+
+    constructor(
+        apiKey: String,
+        model: String,
+        reasoningEffort: ReasoningEffort,
+        baseUrl: String,
+        httpClient: HttpClient,
+        json: Json,
+        defaultGenerationSettings: LlmGenerationSettings,
+        promptCachingMode: OpenAiPromptCachingMode,
+    ) : this(
+        apiKey = apiKey,
+        model = model,
+        reasoningEffort = reasoningEffort,
+        baseUrl = baseUrl,
+        httpClient = httpClient,
+        json = json,
+        defaultGenerationSettings = defaultGenerationSettings,
+        promptCachingMode = promptCachingMode,
         constructorMarker = Unit,
     )
 
@@ -151,23 +217,32 @@ class OpenAiResponsesLlmClient private constructor(
         prompt: BuiltPrompt,
         generationSettings: LlmGenerationSettings,
         stream: Boolean,
-    ): HttpResponse =
-        httpClient.post("${baseUrl.trimEnd('/')}/responses") {
+    ): HttpResponse {
+        val cacheOptions = promptCacheOptions()
+        return httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             bearerAuth(apiKey)
             contentType(ContentType.Application.Json)
             setBody(
                 ResponsesRequest(
                     model = model,
+                    promptCacheKey = promptCacheKey(prompt),
+                    promptCacheOptions = cacheOptions,
                     temperature = generationSettings.temperature,
                     maxOutputTokens = generationSettings.maxOutputTokens,
                     reasoning = ResponsesReasoning(reasoningEffort.value),
                     input = buildList {
-                        add(ResponsesInputMessage(role = "system", content = prompt.systemText))
-                        add(ResponsesInputMessage(role = "developer", content = prompt.personaText))
+                        add(textMessage(role = "system", text = prompt.systemText))
+                        add(
+                            textMessage(
+                                role = "developer",
+                                text = prompt.personaText,
+                                breakpoint = cacheOptions?.let { ResponsesPromptCacheBreakpoint("explicit") },
+                            ),
+                        )
                         if (prompt.contextText.isNotBlank()) {
-                            add(ResponsesInputMessage(role = "developer", content = prompt.contextText))
+                            add(textMessage(role = "developer", text = prompt.contextText))
                         }
-                        add(ResponsesInputMessage(role = "user", content = prompt.userText))
+                        add(textMessage(role = "user", text = prompt.userText))
                     },
                     text = TextFormat(
                         format = JsonSchemaFormat(
@@ -182,6 +257,7 @@ class OpenAiResponsesLlmClient private constructor(
                 ),
             )
         }
+    }
 
     private suspend fun requireSuccess(response: HttpResponse) {
         if (response.status.value.toString().startsWith("2")) return
@@ -210,6 +286,51 @@ class OpenAiResponsesLlmClient private constructor(
         element?.let { json.decodeFromJsonElement<ResponsesUsage>(it).toCacheMetrics() }
     }.getOrNull()
 
+    private fun promptCacheOptions(): ResponsesPromptCacheOptions? =
+        if (promptCachingMode.usesExplicitBreakpoint(model)) {
+            ResponsesPromptCacheOptions(mode = "explicit")
+        } else {
+            null
+        }
+
+    private fun promptCacheKey(prompt: BuiltPrompt): String? =
+        if (promptCachingMode.usesCache()) {
+            val stablePrefix = buildString {
+                append(model).append('\u0000')
+                append(prompt.systemText).append('\u0000')
+                append(prompt.personaText).append('\u0000')
+                append(llmOutputSchema)
+            }
+            MessageDigest.getInstance("SHA-256")
+                .digest(stablePrefix.toByteArray(Charsets.UTF_8))
+                .joinToString("") { byte -> "%02x".format(byte) }
+        } else {
+            null
+        }
+
+    private fun textMessage(
+        role: String,
+        text: String,
+        breakpoint: ResponsesPromptCacheBreakpoint? = null,
+    ): ResponsesInputMessage = ResponsesInputMessage(
+        role = role,
+        content = if (breakpoint == null) {
+            JsonPrimitive(text)
+        } else {
+            JsonArray(
+                listOf(
+                    JsonObject(
+                        buildMap {
+                            put("type", JsonPrimitive("input_text"))
+                            put("text", JsonPrimitive(text))
+                            put("prompt_cache_breakpoint", JsonObject(mapOf("mode" to JsonPrimitive(breakpoint.mode))))
+                        },
+                    ),
+                ),
+            )
+        },
+    )
+
     override fun close() = httpClient.close()
 
     companion object {
@@ -229,6 +350,8 @@ class OpenAiResponsesLlmClient private constructor(
 @Serializable
 private data class ResponsesRequest(
     val model: String,
+    @SerialName("prompt_cache_key") val promptCacheKey: String? = null,
+    @SerialName("prompt_cache_options") val promptCacheOptions: ResponsesPromptCacheOptions? = null,
     val temperature: Float,
     @SerialName("max_output_tokens") val maxOutputTokens: Int? = null,
     val reasoning: ResponsesReasoning,
@@ -241,7 +364,16 @@ private data class ResponsesRequest(
 private data class ResponsesReasoning(val effort: String)
 
 @Serializable
-private data class ResponsesInputMessage(val role: String, val content: String)
+private data class ResponsesInputMessage(
+    val role: String,
+    val content: JsonElement,
+    val type: String = "message",
+)
+
+@Serializable
+private data class ResponsesPromptCacheOptions(val mode: String)
+
+private data class ResponsesPromptCacheBreakpoint(val mode: String)
 
 @Serializable
 private data class TextFormat(val format: JsonSchemaFormat, val verbosity: String)
@@ -262,13 +394,18 @@ private data class ResponsesUsage(
     @SerialName("input_tokens_details") val inputTokensDetails: ResponsesInputTokensDetails? = null,
 ) {
     fun toCacheMetrics(): LlmCacheMetrics? = inputTokens?.let {
-        LlmCacheMetrics(it, inputTokensDetails?.cachedTokens ?: 0L)
+        LlmCacheMetrics(
+            inputTokens = it,
+            cachedInputTokens = inputTokensDetails?.cachedTokens ?: 0L,
+            cacheWriteTokens = inputTokensDetails?.cacheWriteTokens ?: 0L,
+        )
     }
 }
 
 @Serializable
 private data class ResponsesInputTokensDetails(
     @SerialName("cached_tokens") val cachedTokens: Long = 0L,
+    @SerialName("cache_write_tokens") val cacheWriteTokens: Long = 0L,
 )
 
 @Serializable

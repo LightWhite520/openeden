@@ -21,8 +21,20 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class OpenAiResponsesLlmClientTest {
+    @Test
+    fun `parses prompt caching modes and detects supported model families`() {
+        assertEquals(OpenAiPromptCachingMode.AUTO, OpenAiPromptCachingMode.parse("auto"))
+        assertEquals(OpenAiPromptCachingMode.EXPLICIT, OpenAiPromptCachingMode.parse("EXPLICIT"))
+        assertEquals(OpenAiPromptCachingMode.DISABLED, OpenAiPromptCachingMode.parse("off"))
+        assertTrue(supportsExplicitPromptCaching("gpt-5.6-luna"))
+        assertTrue(supportsExplicitPromptCaching("gpt-6"))
+        assertTrue(!supportsExplicitPromptCaching("gpt-5.5"))
+        assertFailsWith<IllegalArgumentException> { OpenAiPromptCachingMode.parse("invalid") }
+    }
+
     @Test
     fun `streams strict structured output without exposing private fields`() = runTest {
         var requestBody = ""
@@ -34,7 +46,7 @@ class OpenAiResponsesLlmClientTest {
                 content = buildString {
                     append("data: ${Json.encodeToString(mapOf("type" to "response.output_text.delta", "delta" to first))}\n\n")
                     append("data: ${Json.encodeToString(mapOf("type" to "response.output_text.delta", "delta" to second))}\n\n")
-                    append("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":9000,\"input_tokens_details\":{\"cached_tokens\":6500}}}}\n\n")
+                    append("data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":9000,\"input_tokens_details\":{\"cached_tokens\":6500,\"cache_write_tokens\":2500}}}}\n\n")
                 },
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Text.EventStream.toString()),
             )
@@ -57,6 +69,7 @@ class OpenAiResponsesLlmClientTest {
         assertEquals("你好", assertIs<LlmStreamEvent.Completed>(events.last()).output.response)
         assertEquals(9_000, assertIs<LlmStreamEvent.Completed>(events.last()).output.cacheMetrics?.inputTokens)
         assertEquals(6_500, assertIs<LlmStreamEvent.Completed>(events.last()).output.cacheMetrics?.cachedInputTokens)
+        assertEquals(2_500, assertIs<LlmStreamEvent.Completed>(events.last()).output.cacheMetrics?.cacheWriteTokens)
         val body = Json.parseToJsonElement(requestBody).jsonObject
         assertEquals(true, body.getValue("stream").jsonPrimitive.content.toBoolean())
         assertEquals(0.85f, body.getValue("temperature").jsonPrimitive.float)
@@ -157,6 +170,74 @@ class OpenAiResponsesLlmClientTest {
         assertEquals("low", body.getValue("text").jsonObject.getValue("verbosity").jsonPrimitive.content)
         assertEquals(32_000, body.getValue("max_output_tokens").jsonPrimitive.int)
         assertEquals("medium", body.getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `uses explicit stable persona breakpoint for gpt 5 6 and keeps dynamic context after it`() = runTest {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = """
+                    {"output_text":"{\"internal_logic\":\"logic\",\"vector_delta\":{\"L\":0.0,\"P\":0.0,\"E\":0.0,\"S\":0.0,\"tau\":0.0,\"V\":0.0,\"M\":0.0,\"F\":0.0},\"response\":\"你好\"}"}
+                """.trimIndent(),
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.6-luna",
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        client.complete(
+            BuiltPrompt(
+                systemText = "stable system",
+                personaText = "stable persona",
+                contextText = "dynamic state",
+                userText = "current user",
+            ),
+        )
+
+        val body = Json.parseToJsonElement(requestBody).jsonObject
+        assertTrue(body.getValue("prompt_cache_key").jsonPrimitive.content.length >= 32)
+        assertEquals("explicit", body.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content)
+        val input = body.getValue("input").jsonArray
+        val personaContent = input[1].jsonObject.getValue("content").jsonArray
+        assertEquals("stable persona", personaContent[0].jsonObject.getValue("text").jsonPrimitive.content)
+        assertEquals(
+            "explicit",
+            personaContent[0].jsonObject.getValue("prompt_cache_breakpoint").jsonObject
+                .getValue("mode").jsonPrimitive.content,
+        )
+        assertEquals("dynamic state", input[2].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("current user", input[3].jsonObject.getValue("content").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `derives the same cache key for changing suffixes with the same stable prefix`() = runTest {
+        val requestBodies = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            requestBodies += request.body.toByteArray().decodeToString()
+            respond(
+                content = """
+                    {"output_text":"{\"internal_logic\":\"logic\",\"vector_delta\":{\"L\":0.0,\"P\":0.0,\"E\":0.0,\"S\":0.0,\"tau\":0.0,\"V\":0.0,\"M\":0.0,\"F\":0.0},\"response\":\"你好\"}"}
+                """.trimIndent(),
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.6-luna",
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        client.complete(BuiltPrompt("stable system", "stable persona", "first user", "first context"))
+        client.complete(BuiltPrompt("stable system", "stable persona", "second user", "second context"))
+
+        val first = Json.parseToJsonElement(requestBodies[0]).jsonObject
+        val second = Json.parseToJsonElement(requestBodies[1]).jsonObject
+        assertEquals(first.getValue("prompt_cache_key"), second.getValue("prompt_cache_key"))
     }
 
     @Test

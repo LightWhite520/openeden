@@ -44,6 +44,7 @@ import io.openeden.memory.RebuildableInMemoryVectorIndex
 import io.openeden.bio.BioVector
 import io.openeden.llm.LlmGenerationPolicyConfig
 import io.openeden.llm.OpenAiResponsesLlmClient
+import io.openeden.llm.OpenAiPromptCachingMode
 import io.openeden.llm.ReasoningEffort
 import io.openeden.server.persistence.sqldelight.SqlDelightDiaryTaskStore
 import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
@@ -229,6 +230,7 @@ private suspend fun Application.startRuntime(
     val llmClient = OpenAiResponsesLlmClient(
         apiKey = serverConfig.apiKey, model = serverConfig.model,
         reasoningEffort = serverConfig.reasoningEffort, baseUrl = serverConfig.baseUrl,
+        promptCachingMode = serverConfig.promptCachingMode,
         defaultGenerationSettings = staticGenerationSettings,
     )
     startupClosers.addFirst { llmClient.close() }
@@ -511,6 +513,7 @@ private data class ServerRuntimeConfig(
     val model: String,
     val reasoningEffort: ReasoningEffort,
     val baseUrl: String,
+    val promptCachingMode: OpenAiPromptCachingMode,
     val llmGenerationPolicy: LlmGenerationPolicyConfig,
     val personaPath: Path,
     val runtimeDbPath: Path,
@@ -552,6 +555,7 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         model = required("openeden.llm.model"),
         reasoningEffort = ReasoningEffort.parse(optional("openeden.llm.reasoningEffort", "medium")),
         baseUrl = required("openeden.llm.baseUrl"),
+        promptCachingMode = OpenAiPromptCachingMode.parse(optional("openeden.llm.promptCachingMode", "auto")),
         llmGenerationPolicy = loadLlmGenerationPolicyConfig(config),
         personaPath = rootPath("openeden.runtime.personaPath", "persona/atri.yaml"),
         runtimeDbPath = rootPath("openeden.runtime.databasePath", "data/runtime/openeden.db"),
