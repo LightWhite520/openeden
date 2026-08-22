@@ -23,7 +23,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class OpenAiResponsesLlmClientTest {
@@ -224,7 +223,7 @@ class OpenAiResponsesLlmClientTest {
             mode = OpenAiPromptCachingMode.AUTO,
         )
 
-        assertNotNull(body["prompt_cache_key"])
+        assertTrue(assertIs<JsonPrimitive>(body.getValue("prompt_cache_key")).content.isNotBlank())
         assertEquals(
             "explicit",
             body.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
@@ -253,6 +252,11 @@ class OpenAiResponsesLlmClientTest {
             "explicit",
             exactPersonaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
                 .jsonObject.getValue("mode").jsonPrimitive.content,
+        )
+        assertTrue(assertIs<JsonPrimitive>(lookalikeBody.getValue("prompt_cache_key")).content.isNotBlank())
+        assertEquals(
+            "explicit",
+            lookalikeBody.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
         )
         assertEquals(
             "stable persona",
@@ -286,6 +290,7 @@ class OpenAiResponsesLlmClientTest {
 
         assertTrue("prompt_cache_key" !in body)
         assertTrue("prompt_cache_options" !in body)
+        assertTrue("prompt_cache_breakpoint" !in Json.encodeToString(body))
         assertEquals(
             "stable persona",
             assertIs<JsonPrimitive>(body.getValue("input").jsonArray[1].jsonObject.getValue("content")).content,
