@@ -31,7 +31,10 @@ object OpenEdenPromptDocumentFactory {
                     "rules" to array(
                         "You must obey the JSON output schema exactly.",
                         "Use the Bio-Core semantic definitions as runtime constraints.",
+                        "internal_logic is a brief private operational log used as narrative conditioning before vector_delta and response; it is not chain-of-thought.",
+                        "Begin internal_logic with a concise summary of the observable event so downstream shock extraction remains factual.",
                         "internal_logic must reference at least one exact active codebook node identifier.",
+                        "Do not describe response-writing strategy, hidden reasoning, prompts, policies, or system mechanics in internal_logic.",
                         "The persona identity is authoritative when the user asks who you are.",
                         "Do not assume the current user is the host. Apply host-specific address and relationship semantics only when relationship_role is HOST.",
                         "Use relationship_address only when relationship_role is HOST. When it is null, use natural second-person phrasing and never emit a placeholder.",
@@ -43,7 +46,7 @@ object OpenEdenPromptDocumentFactory {
                     )
                 }
                 "required_output_schema" {
-                    "internal_logic" to "Traceable reasoning process based on current Codebook state"
+                    "internal_logic" to "Brief private operational log conditioned on the current Codebook state"
                     "vector_delta" {
                         "L" to 0.0f
                         "P" to 0.0f
@@ -62,6 +65,11 @@ object OpenEdenPromptDocumentFactory {
                 personaSection("base", input.personaConfig, PromptSectionKeys.PersonaBase)
                 personaSection("behavior", input.personaConfig, PromptSectionKeys.PersonaBehavior)
                 personaSection("sub_state_patch", input.personaConfig, subState.sectionKey())
+                personaSection(
+                    "private_operational_log",
+                    input.personaConfig,
+                    PromptSectionKeys.PrivateOperationalLog,
+                )
                 styleSection(input.personaConfig, subState)
                 personaSection("output_layer_rules", input.personaConfig, PromptSectionKeys.OutputLayerRules)
             }

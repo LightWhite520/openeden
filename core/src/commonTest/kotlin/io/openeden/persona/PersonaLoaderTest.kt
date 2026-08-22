@@ -30,6 +30,7 @@ class PersonaLoaderTest {
     @Test
     fun `retains optional structured voice sections`() {
         val voiceSections = mapOf(
+            "internal_logic.private_log" to "PRIVATE_LOG",
             "style.generation_mechanics" to "COMMON_GENERATION",
             "style.signature_examples" to "COMMON_SIGNATURE",
             "style.stage_examples.pre_command" to "PRE_EXAMPLE",

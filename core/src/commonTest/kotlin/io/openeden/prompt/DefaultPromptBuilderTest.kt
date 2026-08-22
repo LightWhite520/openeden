@@ -231,13 +231,32 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `private operational log conditions normal dialogue from persona data`() = runTest {
+        val built = DefaultPromptBuilder().build(promptInput())
+
+        assertContains(built.personaText, "PRIVATE_OPERATIONAL_LOG_FROM_PERSONA")
+        assertContains(built.systemText, "private operational log")
+        assertContains(built.systemText, "observable event")
+        assertContains(built.systemText, "exact active codebook node identifier")
+        assertTrue("Traceable reasoning process" !in built.systemText)
+    }
+
+    @Test
     fun `persona sections render style before output rules in canonical order`() {
         val document = OpenEdenPromptDocumentFactory.create(promptInput())
 
         val persona = document.root.fields.first { it.name == "persona" }.value as PromptObject
 
         assertEquals(
-            listOf("identity", "base", "behavior", "sub_state_patch", "style", "output_layer_rules"),
+            listOf(
+                "identity",
+                "base",
+                "behavior",
+                "sub_state_patch",
+                "private_operational_log",
+                "style",
+                "output_layer_rules",
+            ),
             persona.fields.map { it.name },
         )
     }
@@ -314,6 +333,7 @@ class DefaultPromptBuilderTest {
                 PromptSectionKeys.AwakenedPatch to "awakened patch from data",
                 PromptSectionKeys.Heartbeat to "heartbeat text from data",
                 PromptSectionKeys.ShockHeartbeat to "shock heartbeat text from data",
+                PromptSectionKeys.PrivateOperationalLog to "PRIVATE_OPERATIONAL_LOG_FROM_PERSONA",
                 PromptSectionKeys.StyleObservedSummary to "style summary from data",
                 PromptSectionKeys.StyleSourceLanguageNotes to "source language notes from data",
                 PromptSectionKeys.StyleDo to "do item one\ndo item two",

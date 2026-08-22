@@ -30,6 +30,7 @@ class AtriPersonaGuardTest {
         "persona.patch.awakened",
         "heartbeat.base",
         "heartbeat.shock",
+        "internal_logic.private_log",
         "style.observed_summary",
         "style.source_language_notes",
         "style.generation_mechanics",
@@ -81,6 +82,17 @@ class AtriPersonaGuardTest {
         }
 
         assertEquals(allBodies.size, allBodies.distinct().size, "Persona example bodies must be unique")
+    }
+
+    @Test
+    fun `atri persona defines private operational log mechanisms`() {
+        val privateLog = PersonaFileLoader.load(atriYaml)
+            .promptSections.getValue("internal_logic.private_log")
+
+        listOf("可观察", "推测", "矛盾", "具体行动").forEach { marker ->
+            assertTrue(marker in privateLog, "Missing private-log mechanism: $marker")
+        }
+        assertTrue("MUST NOT provide chain-of-thought" in privateLog)
     }
 
     @Test

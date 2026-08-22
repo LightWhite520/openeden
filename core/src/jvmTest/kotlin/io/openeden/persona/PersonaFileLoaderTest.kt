@@ -54,6 +54,9 @@ class PersonaFileLoaderTest {
               heartbeat.base: "hb"
               heartbeat.shock: "shock"
               diary.narrative: "diary"
+              internal_logic.private_log: |
+                private line 1
+                private line 2
               style.observed_summary: |
                 summary line 1
                 summary line 2
@@ -68,6 +71,10 @@ class PersonaFileLoaderTest {
         val config = PersonaFileLoader.load(file)
 
         assertEquals("summary line 1\nsummary line 2", config.promptSections["style.observed_summary"])
+        assertEquals(
+            "private line 1\nprivate line 2",
+            config.promptSections["internal_logic.private_log"],
+        )
         assertEquals("first do\nsecond do", config.promptSections["style.do"])
         assertEquals("first avoid", config.promptSections["style.do_not"])
     }

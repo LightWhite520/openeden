@@ -16,6 +16,7 @@ object MapPersonaLoader {
     private val optionalPromptSections = listOf(
         "persona.identity",
         "persona.behavior",
+        "internal_logic.private_log",
         "style.observed_summary",
         "style.source_language_notes",
         "style.do",
