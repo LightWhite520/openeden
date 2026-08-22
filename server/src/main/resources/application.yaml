@@ -41,8 +41,8 @@ openeden:
     syncBatchSize: "$OPENEDEN_QDRANT_SYNC_BATCH_SIZE:128"
     failureThreshold: "$OPENEDEN_QDRANT_FAILURE_THRESHOLD:3"
   heartbeat:
-    ownerPlatform: "$?OPENEDEN_OWNER_PLATFORM:"
-    ownerUserId: "$?OPENEDEN_OWNER_USER_ID:"
+    ownerPlatform: "$?OPENEDEN_OWNER_PLATFORM"
+    ownerUserId: "$?OPENEDEN_OWNER_USER_ID"
   onebot:
     enabled: "$OPENEDEN_ONEBOT_ENABLED:false"
     path: "$OPENEDEN_ONEBOT_PATH:/onebot/v11"
@@ -54,9 +54,9 @@ openeden:
     actionTimeoutMs: "$OPENEDEN_ONEBOT_ACTION_TIMEOUT_MS:10000"
     maxActionRetries: "$OPENEDEN_ONEBOT_MAX_ACTION_RETRIES:2"
   relationship:
-    hostPlatform: "$?OPENEDEN_HOST_PLATFORM:"
-    hostUserId: "$?OPENEDEN_HOST_USER_ID:"
-    hostAddress: "$?OPENEDEN_HOST_ADDRESS:"
+    hostPlatform: "$?OPENEDEN_HOST_PLATFORM"
+    hostUserId: "$?OPENEDEN_HOST_USER_ID"
+    hostAddress: "$?OPENEDEN_HOST_ADDRESS"
   diary:
     deltaThreshold: "$OPENEDEN_DIARY_DELTA_THRESHOLD:0.25"
     elapsedHours: "$OPENEDEN_DIARY_ELAPSED_HOURS:5"
@@ -64,4 +64,4 @@ openeden:
     maxRawMemories: "$OPENEDEN_DIARY_MAX_RAW_MEMORIES:32"
   diagnostics:
     enabled: "$OPENEDEN_ENABLE_CLI_DIAGNOSTICS:false"
-    token: "$?OPENEDEN_CLI_DIAGNOSTICS_TOKEN:"
+    token: "$?OPENEDEN_CLI_DIAGNOSTICS_TOKEN"
