@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class OneBotActionSenderTest {
     @Test
@@ -77,6 +78,68 @@ class OneBotActionSenderTest {
         }
         assertEquals(OneBotActionException.Category.DISCONNECTED, failure.category)
         assertEquals(emptyList(), secondSocket.sent)
+    }
+
+    @Test
+    fun `sends long replies as natural segments with asynchronous pacing`() = runTest {
+        val registry = OneBotConnectionRegistry("10001")
+        lateinit var sender: OneBotActionSender
+        val sent = mutableListOf<String>()
+        val socket = FakeSocket { payload ->
+            sent += payload
+            val echo = Json.parseToJsonElement(payload).jsonObject.getValue("echo").jsonPrimitive.content
+            sender.complete(OneBotActionResponse("ok", 0, echo), registry.snapshot()!!.epoch)
+        }
+        registry.register("10001", socket)
+        val pacingIndexes = mutableListOf<Int>()
+        sender = OneBotActionSender(
+            registry = registry,
+            timeoutMs = 1_000L,
+            maxRetries = 0,
+            segmentDelay = { pacingIndexes += it },
+        )
+
+        val text = "第一段说明当前情况，先把已经确认的部分说清楚。\n\n第二段补充接下来的处理方式，我们可以继续观察结果。"
+        sender.sendPrivate("22", text)
+
+        assertEquals(2, sent.size)
+        assertEquals(listOf(1), pacingIndexes)
+        val sentText = sent.map {
+            Json.parseToJsonElement(it).jsonObject.getValue("params").jsonObject
+                .getValue("message").jsonArray.single().jsonObject
+                .getValue("data").jsonObject.getValue("text").jsonPrimitive.content
+        }
+        assertEquals(text, sentText.joinToString(separator = ""))
+        assertTrue(sentText.all(String::isNotBlank))
+    }
+
+    @Test
+    fun `stops segmented delivery when the required connection epoch changes`() = runTest {
+        val registry = OneBotConnectionRegistry("10001")
+        lateinit var sender: OneBotActionSender
+        val firstSocket = FakeSocket { payload ->
+            val echo = Json.parseToJsonElement(payload).jsonObject.getValue("echo").jsonPrimitive.content
+            sender.complete(OneBotActionResponse("ok", 0, echo), registry.snapshot()!!.epoch)
+            registry.register("10001", FakeSocket())
+        }
+        val first = registry.register("10001", firstSocket)
+        sender = OneBotActionSender(
+            registry = registry,
+            timeoutMs = 1_000L,
+            maxRetries = 0,
+            segmentDelay = {},
+        )
+
+        val failure = assertFailsWith<OneBotActionException> {
+            sender.sendPrivate(
+                "22",
+                "第一段内容。\n\n第二段内容。",
+                requiredEpoch = first.epoch,
+            )
+        }
+
+        assertEquals(OneBotActionException.Category.DISCONNECTED, failure.category)
+        assertEquals(1, firstSocket.sent.size)
     }
 
     private class FakeSocket(

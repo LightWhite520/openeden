@@ -5,10 +5,12 @@ import io.openeden.onebot.connection.OneBotConnectionRegistry
 import io.openeden.onebot.protocol.OneBotActionResponse
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.security.SecureRandom
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.buildJsonArray
@@ -20,15 +22,18 @@ class OneBotActionSender(
     private val timeoutMs: Long,
     private val maxRetries: Int,
     private val retryDelay: suspend (Int) -> Unit = { attempt -> delay(250L * (attempt + 1)) },
+    private val segmenter: OneBotResponseSegmenter = OneBotResponseSegmenter(),
+    private val segmentDelay: suspend (Int) -> Unit = { delay(randomSegmentDelayMs()) },
 ) {
     private val echoes = AtomicLong()
     private val pending = ConcurrentHashMap<String, PendingAction>()
+    private val targetLocks = ConcurrentHashMap<String, Mutex>()
 
     suspend fun sendPrivate(userId: String, text: String, requiredEpoch: Long? = null) =
-        send("send_private_msg", "user_id", userId, text, requiredEpoch)
+        sendSegmented("private:$userId", "send_private_msg", "user_id", userId, text, requiredEpoch)
 
     suspend fun sendGroup(groupId: String, text: String, requiredEpoch: Long? = null) =
-        send("send_group_msg", "group_id", groupId, text, requiredEpoch)
+        sendSegmented("group:$groupId", "send_group_msg", "group_id", groupId, text, requiredEpoch)
 
     fun complete(response: OneBotActionResponse, epoch: Long): Boolean {
         val action = pending[response.echo] ?: return false
@@ -40,6 +45,28 @@ class OneBotActionSender(
         pending.entries.forEach { (echo, action) ->
             if (action.epoch == epoch && pending.remove(echo, action)) {
                 action.result.completeExceptionally(cause)
+            }
+        }
+    }
+
+    private suspend fun sendSegmented(
+        targetKey: String,
+        action: String,
+        idKey: String,
+        id: String,
+        text: String,
+        requiredEpoch: Long?,
+    ) {
+        val segments = segmenter.segment(text)
+        if (segments.isEmpty()) return
+
+        targetLocks.computeIfAbsent(targetKey) { Mutex() }.withLock {
+            segments.forEachIndexed { index, segment ->
+                if (index > 0) {
+                    if (requiredEpoch != null && !registry.isActive(requiredEpoch)) disconnected()
+                    segmentDelay(index)
+                }
+                send(action, idKey, id, segment, requiredEpoch)
             }
         }
     }
@@ -146,4 +173,10 @@ class OneBotActionSender(
         val epoch: Long,
         val result: CompletableDeferred<OneBotActionResponse>,
     )
+
+    private companion object {
+        private val secureRandom = SecureRandom()
+
+        private fun randomSegmentDelayMs(): Long = 300L + secureRandom.nextInt(901).toLong()
+    }
 }
