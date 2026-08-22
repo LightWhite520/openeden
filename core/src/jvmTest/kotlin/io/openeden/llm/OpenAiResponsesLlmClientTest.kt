@@ -223,7 +223,9 @@ class OpenAiResponsesLlmClientTest {
             mode = OpenAiPromptCachingMode.AUTO,
         )
 
-        assertTrue(assertIs<JsonPrimitive>(body.getValue("prompt_cache_key")).content.isNotBlank())
+        val key = assertIs<JsonPrimitive>(body.getValue("prompt_cache_key"))
+        assertTrue(key.isString)
+        assertTrue(key.content.isNotBlank())
         assertEquals(
             "explicit",
             body.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
@@ -253,7 +255,9 @@ class OpenAiResponsesLlmClientTest {
             exactPersonaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
                 .jsonObject.getValue("mode").jsonPrimitive.content,
         )
-        assertTrue(assertIs<JsonPrimitive>(lookalikeBody.getValue("prompt_cache_key")).content.isNotBlank())
+        val lookalikeKey = assertIs<JsonPrimitive>(lookalikeBody.getValue("prompt_cache_key"))
+        assertTrue(lookalikeKey.isString)
+        assertTrue(lookalikeKey.content.isNotBlank())
         assertEquals(
             "explicit",
             lookalikeBody.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
