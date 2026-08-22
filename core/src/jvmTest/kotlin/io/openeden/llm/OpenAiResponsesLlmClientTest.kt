@@ -294,7 +294,9 @@ class OpenAiResponsesLlmClientTest {
 
         assertTrue("prompt_cache_key" !in body)
         assertTrue("prompt_cache_options" !in body)
-        assertTrue("prompt_cache_breakpoint" !in Json.encodeToString(body))
+        body.getValue("input").jsonArray.forEach { message ->
+            assertIs<JsonPrimitive>(message.jsonObject.getValue("content"))
+        }
         assertEquals(
             "stable persona",
             assertIs<JsonPrimitive>(body.getValue("input").jsonArray[1].jsonObject.getValue("content")).content,
