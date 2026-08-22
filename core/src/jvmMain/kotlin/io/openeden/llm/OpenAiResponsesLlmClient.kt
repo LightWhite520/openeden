@@ -219,6 +219,9 @@ class OpenAiResponsesLlmClient private constructor(
         stream: Boolean,
     ): HttpResponse {
         val cacheOptions = promptCacheOptions()
+        val cacheBreakpoint = if (promptCachingMode.usesExplicitBreakpoint(model, baseUrl)) {
+            ResponsesPromptCacheBreakpoint("explicit")
+        } else null
         return httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             bearerAuth(apiKey)
             contentType(ContentType.Application.Json)
@@ -236,7 +239,7 @@ class OpenAiResponsesLlmClient private constructor(
                             textMessage(
                                 role = "developer",
                                 text = prompt.personaText,
-                                breakpoint = cacheOptions?.let { ResponsesPromptCacheBreakpoint("explicit") },
+                                breakpoint = cacheBreakpoint,
                             ),
                         )
                         if (prompt.contextText.isNotBlank()) {
@@ -287,7 +290,7 @@ class OpenAiResponsesLlmClient private constructor(
     }.getOrNull()
 
     private fun promptCacheOptions(): ResponsesPromptCacheOptions? =
-        if (promptCachingMode.usesExplicitBreakpoint(model)) {
+        if (promptCachingMode.usesExplicitCacheOptions(model)) {
             ResponsesPromptCacheOptions(mode = "explicit")
         } else {
             null
