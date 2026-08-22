@@ -28,7 +28,7 @@ class SseEventParser(
 
     fun parse(channel: ByteReadChannel): Flow<ChatStreamEvent> = parse(
         flow {
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            val buffer = ByteArray(READ_BUFFER_SIZE)
             while (true) {
                 val count = channel.readAvailable(buffer)
                 if (count < 0) break
@@ -91,6 +91,7 @@ class SseEventParser(
     private data class FrameBoundary(val frameEnd: Int, val nextFrameStart: Int)
 
     private companion object {
+        const val READ_BUFFER_SIZE = 8 * 1024
         const val CR: Byte = 13
         const val LF: Byte = 10
     }

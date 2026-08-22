@@ -1,5 +1,6 @@
 package io.openeden.client
 
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -7,6 +8,15 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class SseEventParserTest {
+    @Test
+    fun `parses events from a byte read channel`() = runTest {
+        val bytes = "event: response.delta\ndata: {\"text\":\"hello\"}\n\n".encodeToByteArray()
+
+        val events = SseEventParser().parse(ByteReadChannel(bytes)).toList()
+
+        assertEquals(listOf(ChatStreamEvent.ResponseDelta("hello")), events)
+    }
+
     @Test
     fun `parses arbitrary byte chunks without splitting chinese text`() = runTest {
         val bytes = "event: response.delta\ndata: {\"text\":\"你好\"}\n\n".encodeToByteArray()
