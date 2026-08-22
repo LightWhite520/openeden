@@ -20,7 +20,7 @@ openeden:
     temperatureMax: "$OPENEDEN_LLM_TEMPERATURE_MAX:1.0"
     maxOutputTokens: "$?OPENEDEN_LLM_MAX_OUTPUT_TOKENS"
   runtime:
-    personaPath: "$OPENEDEN_PERSONA_PATH:persona/default.yaml"
+    personaPath: "$OPENEDEN_PERSONA_PATH:persona/atri.yaml"
     databasePath: "$OPENEDEN_RUNTIME_DB_PATH:data/runtime/openeden.db"
     localModelArtifact: "$OPENEDEN_LOCAL_MODEL_ARTIFACT:data/models/local-model-artifact.json"
     modelBackend: "$OPENEDEN_MODEL_BACKEND:djl"

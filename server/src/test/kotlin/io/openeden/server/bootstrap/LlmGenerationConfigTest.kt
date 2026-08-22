@@ -50,6 +50,21 @@ class LlmGenerationConfigTest {
     }
 
     @Test
+    fun `application config defaults to the production ATRI persona`() {
+        val configText = assertNotNull(
+            javaClass.classLoader.getResourceAsStream("application.yaml"),
+        ).bufferedReader().use { it.readText() }
+        val configuredValue = assertNotNull(
+            Regex("""(?m)^\s*personaPath:\s*"\${'$'}OPENEDEN_PERSONA_PATH:([^\"]+)"\s*$""")
+                .find(configText)
+                ?.groupValues
+                ?.get(1),
+        )
+
+        assertEquals("persona/atri.yaml", configuredValue)
+    }
+
+    @Test
     fun `malformed temperature is rejected`() {
         val config = MapApplicationConfig("openeden.llm.temperatureMin" to "warm")
 
