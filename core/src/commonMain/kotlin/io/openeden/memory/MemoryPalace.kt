@@ -108,7 +108,12 @@ class InMemoryMemoryPalace(
                     .filter { it.sessionId == request.sessionId }
                     .take(maxResults)
                     .map { entry ->
-                        MemorySnippet(id = entry.id, content = entry.content, metadata = entry.metadata)
+                        MemorySnippet(
+                            id = entry.id,
+                            content = entry.content,
+                            metadata = entry.metadata,
+                            createdAtMs = entry.createdAtMs,
+                        )
                     }
                     .toList()
                     .asReversed(),
@@ -141,7 +146,14 @@ class InMemoryMemoryPalace(
             .asSequence()
             .filter { it.sessionId == sessionId }
             .take(limit.coerceAtLeast(0))
-            .map { entry -> MemorySnippet(id = entry.id, content = entry.content, metadata = entry.metadata) }
+            .map { entry ->
+                MemorySnippet(
+                    id = entry.id,
+                    content = entry.content,
+                    metadata = entry.metadata,
+                    createdAtMs = entry.createdAtMs,
+                )
+            }
             .toList()
             .asReversed()
 
@@ -168,6 +180,7 @@ class InMemoryMemoryPalace(
                     id = entry.id,
                     content = entry.content,
                     metadata = entry.metadata,
+                    createdAtMs = entry.createdAtMs,
                     score = score,
                 )
             }

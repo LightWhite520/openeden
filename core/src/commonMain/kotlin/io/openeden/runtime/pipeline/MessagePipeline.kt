@@ -636,7 +636,8 @@ class DevelopmentMessagePipeline(
             userId = request.userId,
         )
         val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
-        val rawId = "$sessionId:${nowMs()}:raw"
+        val memoryCreatedAtMs = nowMs()
+        val rawId = "$sessionId:${memoryCreatedAtMs}:raw"
         val rawTags = if (omega.value < 0.75f && delta.toList().all { kotlin.math.abs(it) <= 0.05f }) {
             setOf("daily", "stable")
         } else {
@@ -653,6 +654,7 @@ class DevelopmentMessagePipeline(
                 semanticEmbedding = memoryEmbeddingModel.embed(rawContent),
                 emotionalEmbedding = memoryEmbeddingModel.embed(preTicked),
                 metadata = metadata,
+                createdAtMs = memoryCreatedAtMs,
             ),
         )
         // Diary generation is consumed by the asynchronous worker after the RAW commit. The user

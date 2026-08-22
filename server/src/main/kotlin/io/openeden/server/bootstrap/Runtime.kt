@@ -327,7 +327,12 @@ private suspend fun Application.startRuntime(
             persona, store,
             CheckpointedDiaryDataSource(diaryTaskStore, memoryStore) { session, after, through, limit ->
                 memoryStore.rawMemoryRange(session, after, through, minOf(limit, serverConfig.diaryMaxRawMemories)).map { entry ->
-                    io.openeden.memory.MemorySnippet(entry.id, entry.content, entry.metadata)
+                    io.openeden.memory.MemorySnippet(
+                        id = entry.id,
+                        content = entry.content,
+                        metadata = entry.metadata,
+                        createdAtMs = entry.createdAtMs,
+                    )
                 }
             }, models.quantizer, inferenceExecutor, llmClient, models.embeddingModel, serverConfig.diaryMaxRawMemories,
             generationSettings = staticGenerationSettings,

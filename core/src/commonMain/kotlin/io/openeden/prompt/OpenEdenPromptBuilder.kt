@@ -209,6 +209,7 @@ object OpenEdenPromptDocumentFactory {
         PromptObject(
             listOf(
                 PromptField("content", PromptScalar(memory.content)),
+                PromptField("created_at", PromptScalar(PromptTime.format(memory.createdAtMs))),
                 PromptField("user_id", PromptScalar(memory.metadata.userId)),
                 PromptField("omega_state", PromptScalar(memory.metadata.omegaState.promptFloat())),
                 PromptField("delta_vec", memory.metadata.deltaVec.toPromptObject()),

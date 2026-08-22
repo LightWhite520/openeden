@@ -5,4 +5,5 @@ data class MemorySnippet(
     val content: String,
     val metadata: MemoryMetadata,
     val score: Float = 0.0f,
+    val createdAtMs: Long = 0L,
 )

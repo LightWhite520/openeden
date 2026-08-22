@@ -55,7 +55,7 @@ Expected: the build passes; no existing constructor call needs changes because t
 
 - [ ] **Step 1: Write the failing prompt test**
 
-Add a `MemorySnippet` fixture with `createdAtMs = 1787381032000L` and assert that the built prompt contains:
+Add a `MemorySnippet` fixture with `createdAtMs = 1787384632000L` and assert that the built prompt contains:
 
 ```text
 "created_at":"2026-08-22 15:43"

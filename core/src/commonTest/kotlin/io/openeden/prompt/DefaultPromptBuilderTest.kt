@@ -40,6 +40,13 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `build injects memory creation time`() = runTest {
+        val built = DefaultPromptBuilder().build(promptInput())
+
+        assertContains(built.contextText, "\"created_at\": \"2026-08-22 15:43\"")
+    }
+
+    @Test
     fun `build injects explicit identity from persona data`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
@@ -332,6 +339,7 @@ class DefaultPromptBuilderTest {
             memories = listOf(
                 MemorySnippet(
                     content = "remembered content",
+                    createdAtMs = 1787384632000L,
                     metadata = MemoryMetadata(
                         snapshot8D = BioVector.Neutral,
                         omegaState = 0.2f,

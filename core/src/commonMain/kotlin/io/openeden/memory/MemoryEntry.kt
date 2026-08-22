@@ -10,4 +10,5 @@ data class MemoryEntry(
     val semanticEmbedding: List<Float>,
     val emotionalEmbedding: List<Float>,
     val metadata: MemoryMetadata,
+    val createdAtMs: Long = 0L,
 )

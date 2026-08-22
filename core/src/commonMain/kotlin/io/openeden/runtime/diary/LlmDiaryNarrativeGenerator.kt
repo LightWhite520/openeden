@@ -114,6 +114,7 @@ class LlmDiaryNarrativeGenerator private constructor(
             semanticEmbedding = semantic,
             emotionalEmbedding = emotional,
             metadata = MemoryMetadata(state.vector, state.omega.value, VectorDelta.Zero, state.origin, userId),
+            createdAtMs = task.availableAtMs,
         )
         return DiaryNarrativeResult(entry, slice.upperBoundMemoryId)
     }

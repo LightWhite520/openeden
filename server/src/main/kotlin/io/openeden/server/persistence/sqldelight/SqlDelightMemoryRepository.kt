@@ -68,7 +68,7 @@ class SqlDelightMemoryRepository(
             database.transaction {
                 writeEntry(entry)
                 queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
-                val nowMs = createdAtMsFromId(entry.id)
+                val nowMs = entry.createdAtMs.takeIf { it > 0L } ?: createdAtMsFromId(entry.id)
                 queries.upsertVectorSync(entry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
                 transactionFailureHook?.invoke()
             }
@@ -171,12 +171,12 @@ class SqlDelightMemoryRepository(
 
     override suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor? =
         withContext(ioDispatcher) { queries.selectLatestRawMemory(sessionId, ::mapRow).executeAsOneOrNull()?.entry }?.let {
-            DiaryRawMemoryCursor(it.id, createdAtMsFromId(it.id))
+            DiaryRawMemoryCursor(it.id, it.createdAtMs)
         }
 
     override suspend fun firstRawMemoryAfter(sessionId: String, coveredRawMemoryId: String?): DiaryRawMemoryCursor? =
         rawMemoryRange(sessionId, coveredRawMemoryId, null, 1).firstOrNull()?.let {
-            DiaryRawMemoryCursor(it.id, createdAtMsFromId(it.id))
+            DiaryRawMemoryCursor(it.id, it.createdAtMs)
         }
 
     override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> = withContext(ioDispatcher) {
@@ -186,7 +186,14 @@ class SqlDelightMemoryRepository(
     override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> = withContext(ioDispatcher) {
         queries.selectRecent(sessionId, limit.toLong(), ::mapRow)
             .executeAsList()
-            .map { stored -> MemorySnippet(id = stored.entry.id, content = stored.entry.content, metadata = stored.entry.metadata) }
+            .map { stored ->
+                MemorySnippet(
+                    id = stored.entry.id,
+                    content = stored.entry.content,
+                    metadata = stored.entry.metadata,
+                    createdAtMs = stored.entry.createdAtMs,
+                )
+            }
             .asReversed()
     }
 
@@ -271,7 +278,7 @@ class SqlDelightMemoryRepository(
             kind = entry.kind.name,
             content = entry.content,
             tags_json = json.encodeToString(entry.tags.toList()),
-            created_at_ms = createdAtMsFromId(entry.id),
+            created_at_ms = entry.createdAtMs.takeIf { it > 0L } ?: createdAtMsFromId(entry.id),
             snapshot_l = snapshot.l.toDouble(), snapshot_p = snapshot.p.toDouble(),
             snapshot_e = snapshot.e.toDouble(), snapshot_s = snapshot.s.toDouble(),
             snapshot_tau = snapshot.tau.toDouble(), snapshot_v = snapshot.v.toDouble(),
@@ -313,6 +320,7 @@ class SqlDelightMemoryRepository(
                 deltaVec = VectorDelta(deltaL.toFloat(), deltaP.toFloat(), deltaE.toFloat(), deltaS.toFloat(), deltaTau.toFloat(), deltaV.toFloat(), deltaM.toFloat(), deltaF.toFloat()),
                 snapshotOrigin = origin, userId = userId,
             ),
+            createdAtMs = createdAtMs,
         )
         return StoredMemory(entry, modelId ?: "missing")
     }

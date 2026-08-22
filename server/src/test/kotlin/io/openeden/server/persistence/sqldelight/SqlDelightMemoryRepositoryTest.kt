@@ -55,6 +55,7 @@ class SqlDelightMemoryRepositoryTest {
                 snapshotOrigin = BioVector.Neutral,
                 userId = "u1",
             ),
+            createdAtMs = 1_787_384_632_000L,
         )
 
         SqlDelightMemoryRepository.open(dbPath).use { repository ->
