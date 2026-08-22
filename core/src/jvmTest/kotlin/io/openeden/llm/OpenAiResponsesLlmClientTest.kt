@@ -12,6 +12,8 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.float
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
@@ -21,6 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class OpenAiResponsesLlmClientTest {
@@ -215,6 +218,81 @@ class OpenAiResponsesLlmClientTest {
     }
 
     @Test
+    fun `uses relay compatible cache options without a breakpoint for custom provider in auto mode`() = runTest {
+        val body = captureCachingRequest(
+            baseUrl = "https://relay.example.com/v1",
+            mode = OpenAiPromptCachingMode.AUTO,
+        )
+
+        assertNotNull(body["prompt_cache_key"])
+        assertEquals(
+            "explicit",
+            body.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
+        )
+        assertEquals(
+            "stable persona",
+            assertIs<JsonPrimitive>(body.getValue("input").jsonArray[1].jsonObject.getValue("content")).content,
+        )
+    }
+
+    @Test
+    fun `uses breakpoint only for the exact OpenAI endpoint in auto mode`() = runTest {
+        val exactOpenAiBody = captureCachingRequest(
+            baseUrl = "https://api.openai.com/v1",
+            mode = OpenAiPromptCachingMode.AUTO,
+        )
+        val lookalikeBody = captureCachingRequest(
+            baseUrl = "https://api.openai.com.example.org/v1",
+            mode = OpenAiPromptCachingMode.AUTO,
+        )
+
+        val exactPersonaContent = exactOpenAiBody.getValue("input").jsonArray[1].jsonObject
+            .getValue("content").jsonArray
+        assertEquals("input_text", exactPersonaContent[0].jsonObject.getValue("type").jsonPrimitive.content)
+        assertEquals(
+            "explicit",
+            exactPersonaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
+                .jsonObject.getValue("mode").jsonPrimitive.content,
+        )
+        assertEquals(
+            "stable persona",
+            assertIs<JsonPrimitive>(
+                lookalikeBody.getValue("input").jsonArray[1].jsonObject.getValue("content"),
+            ).content,
+        )
+    }
+
+    @Test
+    fun `sends breakpoint for custom provider in explicit mode`() = runTest {
+        val body = captureCachingRequest(
+            baseUrl = "https://relay.example.com/v1",
+            mode = OpenAiPromptCachingMode.EXPLICIT,
+        )
+
+        val personaContent = body.getValue("input").jsonArray[1].jsonObject.getValue("content").jsonArray
+        assertEquals(
+            "explicit",
+            personaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
+                .jsonObject.getValue("mode").jsonPrimitive.content,
+        )
+    }
+
+    @Test
+    fun `omits caching controls and keeps persona content as a string when disabled`() = runTest {
+        val body = captureCachingRequest(
+            baseUrl = "https://relay.example.com/v1",
+            mode = OpenAiPromptCachingMode.DISABLED,
+        )
+
+        assertTrue("prompt_cache_key" !in body)
+        assertTrue("prompt_cache_options" !in body)
+        assertEquals(
+            "stable persona",
+            assertIs<JsonPrimitive>(body.getValue("input").jsonArray[1].jsonObject.getValue("content")).content,
+        )
+    }
+
+    @Test
     fun `derives the same cache key for changing suffixes with the same stable prefix`() = runTest {
         val requestBodies = mutableListOf<String>()
         val engine = MockEngine { request ->
@@ -333,5 +411,44 @@ class OpenAiResponsesLlmClientTest {
         }
 
         assertEquals("OpenAI Responses API request failed: 401 Unauthorized: bad key", error.message)
+    }
+
+    private suspend fun captureCachingRequest(
+        baseUrl: String,
+        mode: OpenAiPromptCachingMode,
+    ): JsonObject {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = """
+                    {"output_text":"{\"internal_logic\":\"logic\",\"vector_delta\":{\"L\":0.0,\"P\":0.0,\"E\":0.0,\"S\":0.0,\"tau\":0.0,\"V\":0.0,\"M\":0.0,\"F\":0.0},\"response\":\"ok\"}"}
+                """.trimIndent(),
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.6-luna",
+            baseUrl = baseUrl,
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+            promptCachingMode = mode,
+            defaultGenerationSettings = LlmGenerationSettings.Default,
+        )
+
+        try {
+            client.complete(
+                BuiltPrompt(
+                    systemText = "stable system",
+                    personaText = "stable persona",
+                    userText = "current user",
+                    contextText = "dynamic state",
+                ),
+            )
+        } finally {
+            client.close()
+        }
+
+        return Json.parseToJsonElement(requestBody).jsonObject
     }
 }
