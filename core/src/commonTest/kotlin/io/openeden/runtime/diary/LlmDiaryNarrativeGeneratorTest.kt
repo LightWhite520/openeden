@@ -97,6 +97,31 @@ class LlmDiaryNarrativeGeneratorTest {
     }
 
     @Test
+    fun retainsDirectTaskSourceMemoryWhenSliceDoesNotContainIt() = runTest {
+        val entry = fixture(
+            SessionStateStore.neutral("S"),
+            {},
+            sourceMemories = listOf(
+                MemorySnippet(
+                    id = "raw-in-slice",
+                    content = "raw fact",
+                    metadata = MemoryMetadata(
+                        BioVector.Neutral,
+                        0f,
+                        VectorDelta.Zero,
+                        BioVector.Neutral,
+                        "u",
+                        lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf("turn-1")),
+                    ),
+                ),
+            ),
+        ).generate(DiaryTask("t", "S", "raw-trigger", "vector_delta")).entry
+
+        assertEquals(listOf("turn-1"), entry.metadata.lineage.sourceTurnIds)
+        assertEquals(listOf("raw-in-slice", "raw-trigger"), entry.metadata.lineage.sourceMemoryIds)
+    }
+
+    @Test
     fun usesEmptyLineageFallbackWhenSourceMemoryLineageCannotBeLoaded() = runTest {
         val sourceMemory = MemorySnippet(
             id = "raw-1",

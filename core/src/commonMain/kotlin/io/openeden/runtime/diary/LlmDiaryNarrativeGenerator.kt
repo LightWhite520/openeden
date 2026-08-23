@@ -107,7 +107,12 @@ class LlmDiaryNarrativeGenerator private constructor(
         }
         val users = slice.memories.map { it.metadata.userId }.distinct()
         val userId = users.singleOrNull() ?: DIARY_WORKER_USER
-        val lineage = enrichLineage(slice.memories)
+        val enrichedLineage = enrichLineage(slice.memories)
+        val lineage = MemoryLineage(
+            sourceTurnIds = enrichedLineage.sourceTurnIds,
+            sourceMemoryIds = listOfNotNull(task.sourceMemoryId) + enrichedLineage.sourceMemoryIds,
+            lineageVersion = enrichedLineage.lineageVersion,
+        )
         val entry = MemoryEntry(
             id = "diary:${task.id}",
             sessionId = task.sessionId,
