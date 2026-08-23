@@ -4,6 +4,7 @@ import io.openeden.bio.BioVector
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.InMemoryMemoryPalace
+import io.openeden.memory.MemoryContentFingerprint
 import io.openeden.memory.MemoryStore
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
@@ -184,6 +185,11 @@ class MessagePipelineTranscriptTest {
         val firstState = stateStore.read("CLI:local")
         assertTrue(firstRelationship.familiarity > 0.0f)
         assertTrue(firstMemories.isNotEmpty())
+        assertEquals(listOf("stable-retry-id"), firstMemories.single().metadata.lineage.sourceTurnIds)
+        assertEquals(
+            MemoryContentFingerprint.of("user=user-1\ninput=hello\nresponse=response"),
+            firstMemories.single().metadata.contentFingerprint,
+        )
         assertEquals(1, firstDiaryCount)
         assertEquals(2, firstCentroidCalls)
         assertEquals(firstPostOrigin, firstState.origin)

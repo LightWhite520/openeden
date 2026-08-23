@@ -1,13 +1,14 @@
 package io.openeden.memory
 
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.ByteVar
-import kotlinx.cinterop.allocArray
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.toKString
-import platform.CoreFoundation.CFStringCreateWithCString
+import kotlinx.cinterop.UByteVar
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.usePinned
+import platform.CoreFoundation.CFRangeMake
+import platform.CoreFoundation.CFStringCreateWithBytes
 import platform.CoreFoundation.CFStringCreateMutableCopy
-import platform.CoreFoundation.CFStringGetCString
+import platform.CoreFoundation.CFStringGetBytes
 import platform.CoreFoundation.CFStringGetLength
 import platform.CoreFoundation.CFStringGetMaximumSizeForEncoding
 import platform.CoreFoundation.CFStringNormalize
@@ -17,21 +18,44 @@ import platform.CoreFoundation.kCFStringNormalizationFormC
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual fun normalizeToNfc(value: String): String {
-    return memScoped {
-        val source = requireNotNull(
-            CFStringCreateWithCString(kCFAllocatorDefault, value, kCFStringEncodingUTF8),
+    if (value.isEmpty()) return value
+    val inputBytes = value.encodeToByteArray()
+    val source = inputBytes.usePinned { pinned ->
+        requireNotNull(
+            CFStringCreateWithBytes(
+                kCFAllocatorDefault,
+                pinned.addressOf(0).reinterpret<UByteVar>(),
+                inputBytes.size.toLong(),
+                kCFStringEncodingUTF8,
+                false,
+            ),
         )
-        val mutable = requireNotNull(
-            CFStringCreateMutableCopy(kCFAllocatorDefault, 0, source),
-        )
-        CFStringNormalize(mutable, kCFStringNormalizationFormC)
-
-        val outputSize = CFStringGetMaximumSizeForEncoding(
-            CFStringGetLength(mutable),
-            kCFStringEncodingUTF8,
-        ) + 1
-        val outputBuffer = allocArray<ByteVar>(outputSize.toInt())
-        check(CFStringGetCString(mutable, outputBuffer, outputSize, kCFStringEncodingUTF8))
-        outputBuffer.toKString()
     }
+    val mutable = requireNotNull(
+        CFStringCreateMutableCopy(kCFAllocatorDefault, 0, source),
+    )
+    CFStringNormalize(mutable, kCFStringNormalizationFormC)
+
+    val outputSize = CFStringGetMaximumSizeForEncoding(
+        CFStringGetLength(mutable),
+        kCFStringEncodingUTF8,
+    )
+    val sentinel = 0xffu.toUByte()
+    val outputBuffer = UByteArray(outputSize.toInt()) { sentinel }
+    val written = outputBuffer.usePinned { pinned ->
+        CFStringGetBytes(
+            mutable,
+            CFRangeMake(0, CFStringGetLength(mutable)),
+            kCFStringEncodingUTF8,
+            0u,
+            false,
+            pinned.addressOf(0),
+            outputSize,
+            null,
+        )
+    }
+    check(written == CFStringGetLength(mutable))
+    val usedLength = (0 until outputBuffer.size).firstOrNull { index -> outputBuffer[index] == sentinel }
+        ?: outputBuffer.size
+    return ByteArray(usedLength) { index -> outputBuffer[index].toByte() }.decodeToString()
 }

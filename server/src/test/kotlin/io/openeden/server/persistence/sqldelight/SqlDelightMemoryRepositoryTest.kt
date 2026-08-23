@@ -3,7 +3,9 @@ package io.openeden.server.persistence.sqldelight
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
 import io.openeden.memory.MemoryEntry
+import io.openeden.memory.MemoryContentFingerprint
 import io.openeden.memory.MemoryKind
+import io.openeden.memory.MemoryLineage
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
 import io.openeden.memory.RetrievalMode
@@ -18,12 +20,17 @@ import kotlinx.coroutines.test.runTest
 import io.openeden.runtime.inference.RecordingInferenceExecutor
 import io.openeden.server.db.Database
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.int
 import java.util.Properties
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -54,6 +61,11 @@ class SqlDelightMemoryRepositoryTest {
                 deltaVec = VectorDelta(p = 0.1f, v = -0.05f),
                 snapshotOrigin = BioVector.Neutral,
                 userId = "u1",
+                lineage = MemoryLineage(
+                    sourceTurnIds = listOf("turn-2", "turn-1", "turn-2"),
+                    sourceMemoryIds = listOf("raw-2", "raw-1"),
+                ),
+                contentFingerprint = "v1:sha-256:test",
             ),
             createdAtMs = 1_787_384_632_000L,
         )
@@ -72,6 +84,111 @@ class SqlDelightMemoryRepositoryTest {
             assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, projection.read("memory-1")?.status)
             assertEquals("local-v1", projection.read("memory-1")?.modelId)
         }
+    }
+
+    @Test
+    fun `legacy row migrated without lineage remains backward compatible`() = runTest {
+        JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties()).use { driver ->
+            createVersionEightMemoryDatabase(driver)
+            driver.execute(
+                null,
+                """
+                INSERT INTO memory_entries(
+                    id, session_id, user_id, platform, room, kind, content, tags_json, created_at_ms,
+                    snapshot_l, snapshot_p, snapshot_e, snapshot_s, snapshot_tau, snapshot_v, snapshot_m, snapshot_f,
+                    omega_state, delta_l, delta_p, delta_e, delta_s, delta_tau, delta_v, delta_m, delta_f,
+                    origin_l, origin_p, origin_e, origin_s, origin_tau, origin_v, origin_m, origin_f
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                0,
+            ) {
+                bindString(0, "legacy-memory")
+                bindString(1, "CLI:legacy")
+                bindString(2, "user")
+                bindString(3, "CLI")
+                bindString(4, "EVENT_ROOM")
+                bindString(5, "RAW")
+                bindString(6, "legacy")
+                bindString(7, "[]")
+                bindLong(8, 1L)
+                repeat(25) { index -> bindDouble(index + 9, 0.0) }
+            }
+            // Version 8 is the pre-migration state; opening runs 8.sqm and then 9.sqm.
+            driver.execute(null, "PRAGMA user_version = 8", 0).value
+        }
+
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            val restored = assertNotNull(repository.readById("legacy-memory"))
+            assertEquals(MemoryLineage.Empty, restored.entry.metadata.lineage)
+            assertEquals(null, restored.entry.metadata.contentFingerprint)
+        }
+    }
+
+    @Test
+    fun `overflow lineage persists exact ids and explicit overflow metadata`() = runTest {
+        val sourceTurnIds = (1..300).map { "turn-$it" }
+        val sourceMemoryIds = (1..300).map { "raw-${it.toString().padStart(3, '0')}" }
+        val entry = MemoryEntry(
+            id = "overflow-memory",
+            sessionId = "CLI:overflow",
+            content = "overflow",
+            room = MemoryRoom.EVENT_ROOM,
+            kind = MemoryKind.NARRATIVE,
+            tags = emptySet(),
+            metadata = MemoryMetadata(
+                snapshot8D = BioVector.Neutral,
+                omegaState = 0.0f,
+                deltaVec = VectorDelta.Zero,
+                snapshotOrigin = BioVector.Neutral,
+                userId = "user",
+                lineage = MemoryLineage(sourceTurnIds, sourceMemoryIds),
+            ),
+            semanticEmbedding = emptyList(),
+            emotionalEmbedding = emptyList(),
+        )
+
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            repository.write(entry)
+        }
+
+        JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties()).use { driver ->
+            driver.executeQuery(
+                null,
+                "SELECT source_turn_ids_json, source_memory_ids_json FROM memory_entries WHERE id = ?",
+                { cursor ->
+                    check(cursor.next().value)
+                    val turns = checkNotNull(cursor.getString(0))
+                    val memories = checkNotNull(cursor.getString(1))
+                    val turnObject = Json.parseToJsonElement(turns).jsonObject
+                    val memoryObject = Json.parseToJsonElement(memories).jsonObject
+                    assertEquals(300, turnObject["overflowCount"]?.jsonPrimitive?.int)
+                    assertEquals(300, memoryObject["overflowCount"]?.jsonPrimitive?.int)
+                    assertTrue(turnObject["completeSourceDigest"]?.jsonPrimitive?.content?.isNotBlank() == true)
+                    assertTrue(memoryObject["completeSourceDigest"]?.jsonPrimitive?.content?.isNotBlank() == true)
+                    assertTrue(turnObject["rangeStart"]?.jsonPrimitive?.content == "turn-1")
+                    assertTrue(turnObject["rangeEnd"]?.jsonPrimitive?.content == "turn-300")
+                    assertTrue(memories.contains("raw-001"))
+                    assertFalse(memories.contains("raw-300"))
+                    assertTrue(PersistedMemoryLineage.overlaps(turns, listOf("turn-299"), sourceTurns = true))
+                    assertFalse(PersistedMemoryLineage.overlaps(memories, listOf("raw-300"), sourceTurns = false))
+                    app.cash.sqldelight.db.QueryResult.Value(Unit)
+                },
+                0,
+            ) { bindString(0, "overflow-memory") }
+        }
+
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            val restored = assertNotNull(repository.readById("overflow-memory"))
+            assertEquals(256, restored.entry.metadata.lineage.sourceTurnIds.size)
+            assertEquals(256, restored.entry.metadata.lineage.sourceMemoryIds.size)
+            assertEquals(null, restored.entry.metadata.contentFingerprint)
+        }
+
+        val nonContiguous = PersistedMemoryLineage.encode(
+            MemoryLineage(sourceTurnIds = (1..300).filter { it != 150 }.map { "turn-$it" }),
+            Json,
+        )
+        assertFalse(nonContiguous.sourceTurnIdsJson.contains("rangeStart"))
     }
 
     @Test
@@ -375,6 +492,66 @@ class SqlDelightMemoryRepositoryTest {
                 ).memories.map { it.id },
             )
         }
+    }
+
+    private fun createVersionEightMemoryDatabase(driver: JdbcSqliteDriver) {
+        driver.execute(
+            null,
+            """
+            CREATE TABLE memory_entries (
+                id TEXT NOT NULL PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                room TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tags_json TEXT NOT NULL,
+                created_at_ms INTEGER NOT NULL,
+                snapshot_l REAL NOT NULL,
+                snapshot_p REAL NOT NULL,
+                snapshot_e REAL NOT NULL,
+                snapshot_s REAL NOT NULL,
+                snapshot_tau REAL NOT NULL,
+                snapshot_v REAL NOT NULL,
+                snapshot_m REAL NOT NULL,
+                snapshot_f REAL NOT NULL,
+                omega_state REAL NOT NULL,
+                delta_l REAL NOT NULL,
+                delta_p REAL NOT NULL,
+                delta_e REAL NOT NULL,
+                delta_s REAL NOT NULL,
+                delta_tau REAL NOT NULL,
+                delta_v REAL NOT NULL,
+                delta_m REAL NOT NULL,
+                delta_f REAL NOT NULL,
+                origin_l REAL NOT NULL,
+                origin_p REAL NOT NULL,
+                origin_e REAL NOT NULL,
+                origin_s REAL NOT NULL,
+                origin_tau REAL NOT NULL,
+                origin_v REAL NOT NULL,
+                origin_m REAL NOT NULL,
+                origin_f REAL NOT NULL
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
+            CREATE TABLE memory_embeddings (
+                memory_id TEXT NOT NULL PRIMARY KEY,
+                model_id TEXT NOT NULL,
+                semantic_json TEXT NOT NULL,
+                emotional_json TEXT NOT NULL,
+                status TEXT NOT NULL
+            )
+            """.trimIndent(),
+            0,
+        )
+        // Version 8 is immediately before 8.sqm; opening runs 8.sqm and then 9.sqm.
+        driver.execute(null, "PRAGMA user_version = 8", 0).value
     }
 
     private fun memoryEntry(id: String, sessionId: String, content: String) = MemoryEntry(

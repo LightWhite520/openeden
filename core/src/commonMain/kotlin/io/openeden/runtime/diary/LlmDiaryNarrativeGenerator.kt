@@ -115,7 +115,15 @@ class LlmDiaryNarrativeGenerator private constructor(
             tags = quantization.traceTags,
             semanticEmbedding = semantic,
             emotionalEmbedding = emotional,
-            metadata = MemoryMetadata(state.vector, state.omega.value, VectorDelta.Zero, state.origin, userId),
+            metadata = MemoryMetadata(
+                snapshot8D = state.vector,
+                omegaState = state.omega.value,
+                deltaVec = VectorDelta.Zero,
+                snapshotOrigin = state.origin,
+                userId = userId,
+                lineage = MemoryLineage(sourceMemoryIds = slice.memories.map { it.id }),
+                contentFingerprint = MemoryContentFingerprint.of(response),
+            ),
             createdAtMs = task.availableAtMs,
         )
         return DiaryNarrativeResult(entry, slice.upperBoundMemoryId)

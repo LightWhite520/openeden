@@ -65,8 +65,9 @@ class SqlDelightMemoryRepository(
     suspend fun write(entry: MemoryEntry, modelId: String): Set<String> {
         return withContext(ioDispatcher) {
             require(modelId.isNotBlank()) { "modelId must not be blank" }
+            val persistedLineage = PersistedMemoryLineage.encode(entry.metadata.lineage, json)
             database.transaction {
-                writeEntry(entry)
+                writeEntry(entry, persistedLineage)
                 queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
                 val nowMs = entry.createdAtMs.takeIf { it > 0L } ?: createdAtMsFromId(entry.id)
                 queries.upsertVectorSync(entry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
@@ -265,7 +266,7 @@ class SqlDelightMemoryRepository(
         }
     }
 
-    private fun writeEntry(entry: MemoryEntry) {
+    private fun writeEntry(entry: MemoryEntry, persistedLineage: PersistedMemoryLineage.EncodedLineage) {
         val snapshot = entry.metadata.snapshot8D
         val delta = entry.metadata.deltaVec
         val origin = entry.metadata.snapshotOrigin
@@ -292,6 +293,10 @@ class SqlDelightMemoryRepository(
             origin_e = origin.e.toDouble(), origin_s = origin.s.toDouble(),
             origin_tau = origin.tau.toDouble(), origin_v = origin.v.toDouble(),
             origin_m = origin.m.toDouble(), origin_f = origin.f.toDouble(),
+            source_turn_ids_json = persistedLineage.sourceTurnIdsJson,
+            source_memory_ids_json = persistedLineage.sourceMemoryIdsJson,
+            content_fingerprint = entry.metadata.contentFingerprint,
+            lineage_version = persistedLineage.lineageVersion.toLong(),
         )
     }
 
@@ -305,6 +310,7 @@ class SqlDelightMemoryRepository(
         deltaTau: Double, deltaV: Double, deltaM: Double, deltaF: Double,
         originL: Double, originP: Double, originE: Double, originS: Double,
         originTau: Double, originV: Double, originM: Double, originF: Double,
+        sourceTurnIdsJson: String, sourceMemoryIdsJson: String, contentFingerprint: String?, lineageVersion: Long,
         modelId: String?, semanticJson: String?, emotionalJson: String?, status: String?,
     ): StoredMemory {
         val snapshot = BioVector(snapshotL.toFloat(), snapshotP.toFloat(), snapshotE.toFloat(), snapshotS.toFloat(), snapshotTau.toFloat(), snapshotV.toFloat(), snapshotM.toFloat(), snapshotF.toFloat())
@@ -319,6 +325,13 @@ class SqlDelightMemoryRepository(
                 snapshot8D = snapshot, omegaState = omegaState.toFloat(),
                 deltaVec = VectorDelta(deltaL.toFloat(), deltaP.toFloat(), deltaE.toFloat(), deltaS.toFloat(), deltaTau.toFloat(), deltaV.toFloat(), deltaM.toFloat(), deltaF.toFloat()),
                 snapshotOrigin = origin, userId = userId,
+                lineage = PersistedMemoryLineage.decode(
+                    sourceTurnIdsJson = sourceTurnIdsJson,
+                    sourceMemoryIdsJson = sourceMemoryIdsJson,
+                    lineageVersion = lineageVersion,
+                    json = json,
+                ),
+                contentFingerprint = contentFingerprint,
             ),
             createdAtMs = createdAtMs,
         )

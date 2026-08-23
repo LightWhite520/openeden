@@ -628,14 +628,16 @@ class DevelopmentMessagePipeline(
         response: String,
     ): MemoryWriteOutcome {
         val store = memoryStore ?: return MemoryWriteOutcome(null, emptySet())
+        val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
         val metadata = io.openeden.memory.MemoryMetadata(
             snapshot8D = preTicked,
             omegaState = omega.value,
             deltaVec = delta,
             snapshotOrigin = origin,
             userId = request.userId,
+            lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf(request.turnId)),
+            contentFingerprint = io.openeden.memory.MemoryContentFingerprint.of(rawContent),
         )
-        val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
         val memoryCreatedAtMs = nowMs()
         val rawId = "$sessionId:${memoryCreatedAtMs}:raw"
         val rawTags = if (omega.value < 0.75f && delta.toList().all { kotlin.math.abs(it) <= 0.05f }) {

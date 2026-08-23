@@ -10,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class MemoryLineageTest {
@@ -128,6 +129,15 @@ class MemoryLineageTest {
         assertFalse(
             MemoryContentFingerprint.of("speaker: hello\nsecond line") ==
                 MemoryContentFingerprint.of("speaker:  hello\nsecond line"),
+        )
+    }
+
+    @Test
+    fun `fingerprint preserves embedded NUL characters`() = runTest {
+        assertEquals("a\u0000b", MemoryContentFingerprint.normalize("a\u0000b"))
+        assertNotEquals(
+            MemoryContentFingerprint.of("a\u0000b"),
+            MemoryContentFingerprint.of("ab"),
         )
     }
 

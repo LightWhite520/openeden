@@ -14,6 +14,7 @@ import io.openeden.llm.LlmGenerationSettings
 import io.openeden.llm.LlmVerbosity
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.DeterministicMemoryEmbeddingModel
+import io.openeden.memory.MemoryContentFingerprint
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemorySnippet
 import io.openeden.persona.MapPersonaLoader
@@ -36,6 +37,8 @@ class LlmDiaryNarrativeGeneratorTest {
         assertEquals(io.openeden.memory.MemoryRoom.EVENT_ROOM, entry.room)
         assertEquals(state.vector, entry.metadata.snapshot8D)
         assertEquals(VectorDelta.Zero, entry.metadata.deltaVec)
+        assertEquals(listOf("raw-1"), entry.metadata.lineage.sourceMemoryIds)
+        assertEquals(MemoryContentFingerprint.of("narrative"), entry.metadata.contentFingerprint)
         assertContains(captured!!.contextText, "NODE_1 definition")
         assertContains(captured!!.contextText, "Derived dissonance D")
         assertContains(captured!!.contextText, "raw-trigger")
