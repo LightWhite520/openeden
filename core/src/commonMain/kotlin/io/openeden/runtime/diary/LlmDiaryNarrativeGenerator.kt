@@ -12,6 +12,7 @@ import io.openeden.memory.*
 import io.openeden.persona.PersonaConfig
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
+import kotlinx.coroutines.CancellationException
 
 class LlmDiaryNarrativeGenerator private constructor(
     private val personaConfig: PersonaConfig,
@@ -106,6 +107,7 @@ class LlmDiaryNarrativeGenerator private constructor(
         }
         val users = slice.memories.map { it.metadata.userId }.distinct()
         val userId = users.singleOrNull() ?: DIARY_WORKER_USER
+        val lineage = enrichLineage(slice.memories)
         val entry = MemoryEntry(
             id = "diary:${task.id}",
             sessionId = task.sessionId,
@@ -121,12 +123,31 @@ class LlmDiaryNarrativeGenerator private constructor(
                 deltaVec = VectorDelta.Zero,
                 snapshotOrigin = state.origin,
                 userId = userId,
-                lineage = MemoryLineage(sourceMemoryIds = slice.memories.map { it.id }),
+                lineage = lineage,
                 contentFingerprint = MemoryContentFingerprint.of(response),
             ),
             createdAtMs = task.availableAtMs,
         )
         return DiaryNarrativeResult(entry, slice.upperBoundMemoryId)
+    }
+
+    private suspend fun enrichLineage(memories: List<MemorySnippet>): MemoryLineage {
+        return try {
+            val loadedLineages = memories.mapNotNull { memory ->
+                dataSource.loadSourceMemory(memory.id)?.metadata?.lineage
+            }
+            MemoryLineage(
+                sourceTurnIds = memories.flatMap { it.metadata.lineage.sourceTurnIds } +
+                    loadedLineages.flatMap { it.sourceTurnIds },
+                sourceMemoryIds = memories.flatMap {
+                    listOf(it.id) + it.metadata.lineage.sourceMemoryIds
+                } + loadedLineages.flatMap { it.sourceMemoryIds },
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            MemoryLineage.Empty
+        }
     }
 
     private companion object {

@@ -103,12 +103,21 @@ internal object PersistedMemoryLineage {
         if (parsed.map { it.first }.distinct().size != 1) return null
         val numbers = parsed.map { it.second }.sorted()
         if (numbers.zipWithNext().any { (left, right) -> right != left + 1L }) return null
+        val startNumber = numbers.firstOrNull() ?: return null
+        val endNumber = numbers.lastOrNull() ?: return null
+        val prefix = parsed.first().first
+        val start = ids.firstOrNull { id ->
+            SourceTurnRange.parseId(id) == (prefix to startNumber)
+        } ?: return null
+        val end = ids.firstOrNull { id ->
+            SourceTurnRange.parseId(id) == (prefix to endNumber)
+        } ?: return null
         return SourceTurnRange(
-            prefix = parsed.first().first,
-            startNumber = numbers.first(),
-            endNumber = numbers.last(),
-            start = ids.first { it == "${parsed.first().first}-${numbers.first()}" },
-            end = ids.first { it == "${parsed.first().first}-${numbers.last()}" },
+            prefix = prefix,
+            startNumber = startNumber,
+            endNumber = endNumber,
+            start = start,
+            end = end,
         )
     }
 

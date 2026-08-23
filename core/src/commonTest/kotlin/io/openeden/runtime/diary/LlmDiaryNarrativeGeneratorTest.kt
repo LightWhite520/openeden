@@ -14,6 +14,7 @@ import io.openeden.llm.LlmGenerationSettings
 import io.openeden.llm.LlmVerbosity
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.DeterministicMemoryEmbeddingModel
+import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryContentFingerprint
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemorySnippet
@@ -47,6 +48,78 @@ class LlmDiaryNarrativeGeneratorTest {
         assertContains(captured!!.personaText, "叙事日记")
         assertEquals(false, captured!!.systemText.contains("0.8, 0.2"))
         assertEquals(false, captured!!.systemText.contains("NODE_1 definition"))
+    }
+
+    @Test
+    fun carriesSourceTurnLineageAndKnownSourceMemoryLineageIntoNarrative() = runTest {
+        val sourceMemories = listOf(
+            MemorySnippet(
+                id = "raw-2",
+                content = "second raw fact",
+                metadata = MemoryMetadata(
+                    BioVector.Neutral,
+                    0f,
+                    VectorDelta.Zero,
+                    BioVector.Neutral,
+                    "u",
+                    lineage = io.openeden.memory.MemoryLineage(
+                        sourceTurnIds = listOf("turn-2"),
+                        sourceMemoryIds = listOf("raw-0"),
+                    ),
+                ),
+            ),
+            MemorySnippet(
+                id = "raw-1",
+                content = "first raw fact",
+                metadata = MemoryMetadata(
+                    BioVector.Neutral,
+                    0f,
+                    VectorDelta.Zero,
+                    BioVector.Neutral,
+                    "u",
+                    lineage = io.openeden.memory.MemoryLineage(
+                        sourceTurnIds = listOf("turn-1"),
+                        sourceMemoryIds = listOf("raw-0"),
+                    ),
+                ),
+            ),
+        )
+
+        val entry = fixture(
+            SessionStateStore.neutral("S"),
+            {},
+            sourceMemories = sourceMemories,
+        ).generate(DiaryTask("t", "S", null, "vector_delta")).entry
+
+        assertEquals(listOf("turn-1", "turn-2"), entry.metadata.lineage.sourceTurnIds)
+        assertEquals(listOf("raw-0", "raw-1", "raw-2"), entry.metadata.lineage.sourceMemoryIds)
+        assertEquals(MemoryContentFingerprint.of("narrative"), entry.metadata.contentFingerprint)
+    }
+
+    @Test
+    fun usesEmptyLineageFallbackWhenSourceMemoryLineageCannotBeLoaded() = runTest {
+        val sourceMemory = MemorySnippet(
+            id = "raw-1",
+            content = "raw fact",
+            metadata = MemoryMetadata(
+                BioVector.Neutral,
+                0f,
+                VectorDelta.Zero,
+                BioVector.Neutral,
+                "u",
+                lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf("turn-1")),
+            ),
+        )
+
+        val entry = fixture(
+            SessionStateStore.neutral("S"),
+            {},
+            sourceMemories = listOf(sourceMemory),
+            sourceMemoryLoader = { error("source memory unavailable") },
+        ).generate(DiaryTask("t", "S", null, "vector_delta")).entry
+
+        assertEquals(io.openeden.memory.MemoryLineage.Empty, entry.metadata.lineage)
+        assertEquals(MemoryContentFingerprint.of("narrative"), entry.metadata.contentFingerprint)
     }
 
     @Test
@@ -90,7 +163,7 @@ class LlmDiaryNarrativeGeneratorTest {
         assertEquals(settings, client.capturedGenerationSettings)
     }
 
-    private fun fixture(state: SessionState, capture: (BuiltPrompt) -> Unit, client: FakeClient = FakeClient(), rawContent: String = "raw fact", generationSettings: LlmGenerationSettings = LlmGenerationSettings.Default): LlmDiaryNarrativeGenerator {
+    private fun fixture(state: SessionState, capture: (BuiltPrompt) -> Unit, client: FakeClient = FakeClient(), rawContent: String = "raw fact", sourceMemories: List<MemorySnippet> = listOf(MemorySnippet("raw-1", rawContent, MemoryMetadata(BioVector.Neutral, 0f, VectorDelta.Zero, BioVector.Neutral, "u"))), sourceMemoryLoader: suspend (String) -> MemoryEntry? = { null }, generationSettings: LlmGenerationSettings = LlmGenerationSettings.Default): LlmDiaryNarrativeGenerator {
         val persona = MapPersonaLoader.load(mapOf("mode" to "legacy", "start_sub_state" to "awakened", "persona.base" to "base", "output.layer.rules" to "rules", "persona.patch.pre_command" to "pre", "persona.patch.true_self" to "true", "persona.patch.awakened" to "awake", "heartbeat.base" to "hb", "heartbeat.shock" to "shock", "diary.narrative" to "【叙事日记】 write facts"))
         val store = object : SessionStateStore {
             override suspend fun read(sessionId: String) = state
@@ -98,7 +171,8 @@ class LlmDiaryNarrativeGeneratorTest {
             override suspend fun sessionIds() = setOf(state.sessionId)
         }
         val source = object : DiaryDataSource {
-            override suspend fun uncoveredRawSlice(sessionId: String, throughMemoryId: String?, limit: Int) = DiaryRawSlice(listOf(MemorySnippet("raw-1", rawContent, MemoryMetadata(BioVector.Neutral, 0f, VectorDelta.Zero, BioVector.Neutral, "u"))), "raw-1")
+            override suspend fun uncoveredRawSlice(sessionId: String, throughMemoryId: String?, limit: Int) = DiaryRawSlice(sourceMemories, sourceMemories.last().id)
+            override suspend fun loadSourceMemory(memoryId: String): MemoryEntry? = sourceMemoryLoader(memoryId)
         }
         client.capture = capture
         return LlmDiaryNarrativeGenerator(persona, store, source, object : CodebookQuantizer { override suspend fun quantize(vector: BioVector, dissonance: Float) = QuantizationResult(listOf("NODE_1"), listOf("NODE_1 definition"), 1f) }, DirectInferenceExecutor, client, DeterministicMemoryEmbeddingModel, generationSettings = generationSettings)

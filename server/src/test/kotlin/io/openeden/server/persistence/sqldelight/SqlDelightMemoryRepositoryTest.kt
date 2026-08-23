@@ -192,6 +192,18 @@ class SqlDelightMemoryRepositoryTest {
     }
 
     @Test
+    fun `leading zero turn ids use their actual ids for a verified range`() = runTest {
+        val encoded = PersistedMemoryLineage.encode(
+            MemoryLineage(sourceTurnIds = (1..300).map { "turn-${it.toString().padStart(3, '0')}" }),
+            Json,
+        )
+
+        val turns = Json.parseToJsonElement(encoded.sourceTurnIdsJson).jsonObject
+        assertEquals("turn-001", turns["rangeStart"]?.jsonPrimitive?.content)
+        assertEquals("turn-300", turns["rangeEnd"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `rewriting a memory resets its projection work`() = runTest {
         val entry = MemoryEntry(
             id = "QQ:42:1000:raw", sessionId = "QQ:42", content = "durable", room = MemoryRoom.EVENT_ROOM,
