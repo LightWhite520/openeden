@@ -203,6 +203,46 @@ class SqlDelightTranscriptStoreTest {
     }
 
     @Test
+    fun `recentForSession filters same incarnation and returns latest turns chronologically`() = runTest {
+        val store = SqlDelightTranscriptStore.open(dbPath)
+        try {
+            val incarnationId = store.activeIncarnation().id
+            store.append(turn(1, incarnationId).copy(
+                turnId = "target-old",
+                sessionId = "QQ:target",
+                scopeId = "target",
+                completedAtMs = 10L,
+            ))
+            store.append(turn(2, incarnationId).copy(
+                turnId = "target-a",
+                sessionId = "QQ:target",
+                scopeId = "target",
+                completedAtMs = 20L,
+            ))
+            store.append(turn(3, incarnationId).copy(
+                turnId = "target-b",
+                sessionId = "QQ:target",
+                scopeId = "target",
+                completedAtMs = 20L,
+            ))
+            store.append(turn(4, incarnationId).copy(
+                turnId = "other-new",
+                sessionId = "QQ:other",
+                scopeId = "other",
+                completedAtMs = 30L,
+            ))
+
+            assertEquals(
+                listOf("target-a", "target-b"),
+                store.recentForSession("QQ:target", limit = 2).map { it.turnId },
+            )
+            assertEquals(emptyList(), store.recentForSession("QQ:missing", limit = 2))
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
     fun `cross incarnation turns and cursors are rejected`() = runTest {
         val store = SqlDelightTranscriptStore.open(dbPath)
         try {

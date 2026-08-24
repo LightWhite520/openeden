@@ -66,6 +66,46 @@ class MessagePipelineTranscriptTest {
     }
 
     @Test
+    fun `prompt recent turns come from transcript instead of memory recency`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        transcripts.append(
+            ConversationTurn(
+                turnId = "previous-turn",
+                incarnationId = "incarnation-a",
+                sessionId = "CLI:local",
+                platform = "CLI",
+                scopeId = "local",
+                userId = "user-1",
+                userText = "previous user text",
+                assistantText = "previous assistant text",
+                completedAtMs = 10L,
+            ),
+        )
+        val memoryPalace = InMemoryMemoryPalace(DirectInferenceExecutor)
+        var memoryRecentCalls = 0
+        val memoryStore = object : MemoryStore by memoryPalace {
+            override suspend fun recent(sessionId: String, limit: Int): List<io.openeden.memory.MemorySnippet> {
+                memoryRecentCalls += 1
+                return emptyList()
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = transcripts),
+            transcriptStore = transcripts,
+            memoryStore = memoryStore,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        val result = pipeline.handle(request(turnId = "current-turn"))
+
+        assertContains(result.prompt.contextText, "previous user text")
+        assertContains(result.prompt.contextText, "previous assistant text")
+        assertEquals(0, memoryRecentCalls)
+    }
+
+    @Test
     fun `invalid user and heartbeat turns do not enter public transcript`() = runTest {
         val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
 

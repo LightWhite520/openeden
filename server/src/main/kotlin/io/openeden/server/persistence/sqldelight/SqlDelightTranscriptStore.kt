@@ -58,6 +58,18 @@ class SqlDelightTranscriptStore private constructor(
         }
     }
 
+    override suspend fun recentForSession(sessionId: String, limit: Int): List<ConversationTurn> =
+        withContext(ioDispatcher) {
+            val requestedLimit = limit.coerceAtLeast(0)
+            if (requestedLimit == 0) return@withContext emptyList()
+
+            queries.selectRecentForSession(
+                sessionId = sessionId,
+                limit = requestedLimit.toLong(),
+                mapper = ::mapTurn,
+            ).executeAsList().asReversed()
+        }
+
     override suspend fun page(
         limit: Int,
         before: HistoryCursor?,

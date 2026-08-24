@@ -257,6 +257,9 @@ class DevelopmentMessagePipeline(
             )
         }
         trace(traceContext, "quantization", tags = inference.quantization.traceTags)
+        val recentTurns = transcriptStore
+            ?.recentForSession(sessionId, RECENT_HISTORY_LIMIT)
+            .orEmpty()
         val retrievalResult = inferenceExecutor.run {
             memoryRetriever.retrieve(
                 RetrievalRequest(
@@ -268,10 +271,7 @@ class DevelopmentMessagePipeline(
                     mode = inference.retrievalMode,
                 ),
             )
-        }.let { result ->
-            val recent = memoryStore?.recent(sessionId, RECENT_HISTORY_LIMIT).orEmpty()
-            result.copy(recentMemories = recent)
-        }
+        }.copy(recentMemories = recentTurns.map { it.toRecentMemorySnippet() })
         trace(traceContext, "retrieval", tags = retrievalResult.traceTags, attributes = mapOf("mode" to retrievalResult.mode.name))
         val resolvedRelationship = relationshipRoleResolver.resolve(request.platform, request.userId)
         val prompt = promptBuilder.build(
@@ -663,6 +663,20 @@ class DevelopmentMessagePipeline(
         // turn must never create a NARRATIVE memory synchronously or wait for Diary inference.
         return MemoryWriteOutcome(rawId, rawTrace)
     }
+
+    private fun ConversationTurn.toRecentMemorySnippet(): MemorySnippet = MemorySnippet(
+        id = turnId,
+        content = "user=$userText\nassistant=$assistantText",
+        metadata = MemoryMetadata(
+            snapshot8D = BioVector.Neutral,
+            omegaState = 0.0f,
+            deltaVec = VectorDelta.Zero,
+            snapshotOrigin = BioVector.Neutral,
+            userId = userId,
+            lineage = MemoryLineage(sourceTurnIds = listOf(turnId)),
+        ),
+        createdAtMs = completedAtMs,
+    )
 
     companion object {
         private const val RECENT_HISTORY_LIMIT = 8

@@ -83,6 +83,31 @@ class InMemoryTranscriptStoreTest {
         assertEquals((5 until 55).map { "turn-$it" }, maximum.turns.map { it.turnId })
     }
 
+    @Test
+    fun `recentForSession filters same incarnation and returns latest turns chronologically`() = runTest {
+        val store = InMemoryTranscriptStore("incarnation-a", createdAtMs = 123L)
+        val targetTurns = listOf(
+            turn(1).copy(turnId = "target-old", sessionId = "QQ:target", scopeId = "target", completedAtMs = 10L),
+            turn(2).copy(turnId = "target-a", sessionId = "QQ:target", scopeId = "target", completedAtMs = 20L),
+            turn(3).copy(turnId = "target-b", sessionId = "QQ:target", scopeId = "target", completedAtMs = 20L),
+        )
+        val otherSessionTurn = turn(4).copy(
+            turnId = "other-new",
+            sessionId = "QQ:other",
+            scopeId = "other",
+            completedAtMs = 30L,
+        )
+        for (turn in targetTurns + otherSessionTurn) {
+            store.append(turn)
+        }
+
+        assertEquals(
+            listOf("target-a", "target-b"),
+            store.recentForSession("QQ:target", limit = 2).map { it.turnId },
+        )
+        assertEquals(emptyList(), store.recentForSession("QQ:missing", limit = 2))
+    }
+
     private fun turn(index: Int): ConversationTurn = ConversationTurn(
         turnId = "turn-$index",
         incarnationId = "incarnation-a",

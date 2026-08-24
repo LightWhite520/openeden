@@ -19,6 +19,20 @@ class InMemoryTranscriptStore(
         atomicMutex.withLock { appendLocked(turn) }
     }
 
+    override suspend fun recentForSession(sessionId: String, limit: Int): List<ConversationTurn> =
+        atomicMutex.withLock {
+            val requestedLimit = limit.coerceAtLeast(0)
+            if (requestedLimit == 0) return@withLock emptyList()
+
+            turnsById.values
+                .asSequence()
+                .filter { it.sessionId == sessionId }
+                .sortedWith(turnComparator.reversed())
+                .take(requestedLimit)
+                .toList()
+                .asReversed()
+        }
+
     override suspend fun page(
         limit: Int,
         before: HistoryCursor?,
