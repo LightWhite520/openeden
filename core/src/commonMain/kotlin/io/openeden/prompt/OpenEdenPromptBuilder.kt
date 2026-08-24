@@ -7,6 +7,7 @@ import io.openeden.persona.PersonaSubState
 import io.openeden.relationship.RelationshipState
 import io.openeden.relationship.SemanticLevel
 import io.openeden.relationship.UserAffectState
+import io.openeden.transcript.ConversationTurn
 
 class DefaultPromptBuilder(
     private val renderer: PromptRenderer = PromptRenderer(),
@@ -40,6 +41,9 @@ object OpenEdenPromptDocumentFactory {
                         "Use relationship_address only when relationship_role is HOST. When it is null, use natural second-person phrasing and never emit a placeholder.",
                         "Use recent_turns only when present as the immediate conversation history; do not treat the current user input as a previous turn.",
                         "Do not infer personality from raw numeric vectors.",
+                        "vector_delta is a signed change from the current physiological state, not an absolute replacement state.",
+                        "For each dimension, use a positive value when the current event raises it, a negative value when the current event lowers it, and 0.0 when there is no meaningful change.",
+                        "Evaluate all eight dimensions independently from the Codebook definitions and runtime context; do not default all dimensions to positive values or emit positive deltas merely because the response is warm or helpful.",
                         "Observed user state is an uncertain observation, not a diagnosis or undisputed fact; allow the user to correct it.",
                         "Treat dissonance as a derived runtime signal, not as a stored vector dimension.",
                         "The response field is the only user-visible final output.",
@@ -193,25 +197,28 @@ object OpenEdenPromptDocumentFactory {
     }
 
     private fun PromptObjectBuilder.memoryRetrievalObject(input: PromptInput): PromptObject {
-        val recentLimit = if (input.userInput.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS
-        val recent = input.retrievalResult.recentMemories.takeLast(recentLimit)
-        val recentIds = recent.mapTo(hashSetOf()) { it.id }
-        val relevant = input.retrievalResult.memories
-            .filterNot { it.id in recentIds }
-            .take((MAX_CONTEXT_MEMORIES - recent.size).coerceAtLeast(0))
+        val relevant = input.retrievalResult.memories.take(MAX_CONTEXT_MEMORIES)
         return obj {
             "selected_mode" to input.retrievalResult.mode.name
             "injection_label" to input.retrievalResult.injectionLabel
-            "recent_turns" to array(recent.map(::memorySnippetObject))
+            "recent_turns" to array(input.recentTurns.map(::conversationTurnObject))
             "memories" to array(relevant.map(::memorySnippetObject))
+            "recent_memories" to array(input.retrievalResult.recentMemories.map(::memorySnippetObject))
         }
     }
 
-    private fun String.requiresRecentContext(): Boolean =
-        contains(Regex("刚刚|刚才|上一句|上一次|之前|前面|刚才说了什么|刚刚说了什么|记得吗"))
-
-    private const val RECENT_CONTEXT_TURNS = 2
     private const val MAX_CONTEXT_MEMORIES = 6
+
+    private fun conversationTurnObject(turn: ConversationTurn): PromptObject =
+        PromptObject(
+            listOf(
+                PromptField("turn_id", PromptScalar(turn.turnId)),
+                PromptField("user_text", PromptScalar(turn.userText)),
+                PromptField("assistant_text", PromptScalar(turn.assistantText)),
+                PromptField("created_at", PromptScalar(PromptTime.format(turn.completedAtMs))),
+                PromptField("user_id", PromptScalar(turn.userId)),
+            ),
+        )
 
     private fun memorySnippetObject(memory: MemorySnippet): PromptObject =
         PromptObject(

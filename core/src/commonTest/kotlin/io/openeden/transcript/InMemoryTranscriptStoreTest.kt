@@ -83,6 +83,50 @@ class InMemoryTranscriptStoreTest {
         assertEquals((5 until 55).map { "turn-$it" }, maximum.turns.map { it.turnId })
     }
 
+    @Test
+    fun `recentForSession filters same incarnation and returns latest turns chronologically`() = runTest {
+        val store = InMemoryTranscriptStore("incarnation-a", createdAtMs = 123L)
+        val targetTurns = listOf(
+            turn(1).copy(turnId = "target-old", sessionId = "QQ:target", scopeId = "target", completedAtMs = 10L),
+            turn(2).copy(turnId = "target-a", sessionId = "QQ:target", scopeId = "target", completedAtMs = 20L),
+            turn(3).copy(turnId = "target-b", sessionId = "QQ:target", scopeId = "target", completedAtMs = 20L),
+        )
+        val otherSessionTurn = turn(4).copy(
+            turnId = "other-new",
+            sessionId = "QQ:other",
+            scopeId = "other",
+            completedAtMs = 30L,
+        )
+        for (turn in targetTurns + otherSessionTurn) {
+            store.append(turn)
+        }
+
+        assertEquals(
+            listOf("target-a", "target-b"),
+            store.recentForSession("QQ:target", limit = 2).map { it.turnId },
+        )
+        assertEquals(emptyList(), store.recentForSession("QQ:missing", limit = 2))
+    }
+
+    @Test
+    fun `default recentForSession keeps latest turns across chronological pages`() = runTest {
+        val backingStore = InMemoryTranscriptStore("incarnation-a", createdAtMs = 123L)
+        repeat(60) { index -> backingStore.append(turn(index)) }
+        val pagingOnlyStore = object : TranscriptStore {
+            override suspend fun activeIncarnation(): ActiveIncarnation = backingStore.activeIncarnation()
+
+            override suspend fun append(turn: ConversationTurn) = backingStore.append(turn)
+
+            override suspend fun page(limit: Int, before: HistoryCursor?): ConversationHistoryPage =
+                backingStore.page(limit, before)
+        }
+
+        assertEquals(
+            listOf("turn-56", "turn-57", "turn-58", "turn-59"),
+            pagingOnlyStore.recentForSession("QQ:group-1", limit = 4).map { it.turnId },
+        )
+    }
+
     private fun turn(index: Int): ConversationTurn = ConversationTurn(
         turnId = "turn-$index",
         incarnationId = "incarnation-a",

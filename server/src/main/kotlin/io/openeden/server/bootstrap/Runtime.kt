@@ -327,16 +327,21 @@ private suspend fun Application.startRuntime(
         memoryStore = memoryStore,
         generator = DiaryNarrativeGenerator(LlmDiaryNarrativeGenerator(
             persona, store,
-            CheckpointedDiaryDataSource(diaryTaskStore, memoryStore) { session, after, through, limit ->
-                memoryStore.rawMemoryRange(session, after, through, minOf(limit, serverConfig.diaryMaxRawMemories)).map { entry ->
-                    io.openeden.memory.MemorySnippet(
-                        id = entry.id,
-                        content = entry.content,
-                        metadata = entry.metadata,
-                        createdAtMs = entry.createdAtMs,
-                    )
-                }
-            }, models.quantizer, inferenceExecutor, llmClient, models.embeddingModel, serverConfig.diaryMaxRawMemories,
+            CheckpointedDiaryDataSource(
+                diaryTaskStore,
+                memoryStore,
+                { session, after, through, limit ->
+                    memoryStore.rawMemoryRange(session, after, through, minOf(limit, serverConfig.diaryMaxRawMemories)).map { entry ->
+                        io.openeden.memory.MemorySnippet(
+                            id = entry.id,
+                            content = entry.content,
+                            metadata = entry.metadata,
+                            createdAtMs = entry.createdAtMs,
+                        )
+                    }
+                },
+                { id -> memoryStore.readById(id)?.entry },
+            ), models.quantizer, inferenceExecutor, llmClient, models.embeddingModel, serverConfig.diaryMaxRawMemories,
             generationSettings = staticGenerationSettings,
         )::generate),
     )

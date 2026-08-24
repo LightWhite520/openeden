@@ -48,6 +48,7 @@ import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flow
@@ -257,6 +258,23 @@ class DevelopmentMessagePipeline(
             )
         }
         trace(traceContext, "quantization", tags = inference.quantization.traceTags)
+        var recentTurns = emptyList<ConversationTurn>()
+        var transcriptTags = emptySet<String>()
+        if (transcriptStore != null) {
+            try {
+                recentTurns = transcriptStore.recentForSession(sessionId, RECENT_HISTORY_LIMIT)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Transcript is the sole source for recent_turns; memory recency is intentionally not a fallback.
+                recentTurns = emptyList()
+                transcriptTags = setOf(TraceTag.TranscriptDegraded)
+            }
+        }
+        trace(traceContext, "transcript_recent", tags = transcriptTags)
+        val injectedRecentTurns = recentTurns.takeLast(
+            if (request.text.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS,
+        )
         val retrievalResult = inferenceExecutor.run {
             memoryRetriever.retrieve(
                 RetrievalRequest(
@@ -266,11 +284,11 @@ class DevelopmentMessagePipeline(
                     currentVector = preTick.preTicked,
                     origin = current.origin,
                     mode = inference.retrievalMode,
+                    exclusionContext = MemoryExclusionContext(
+                        sourceTurnIds = injectedRecentTurns.mapTo(hashSetOf()) { it.turnId },
+                    ),
                 ),
             )
-        }.let { result ->
-            val recent = memoryStore?.recent(sessionId, RECENT_HISTORY_LIMIT).orEmpty()
-            result.copy(recentMemories = recent)
         }
         trace(traceContext, "retrieval", tags = retrievalResult.traceTags, attributes = mapOf("mode" to retrievalResult.mode.name))
         val resolvedRelationship = relationshipRoleResolver.resolve(request.platform, request.userId)
@@ -293,6 +311,7 @@ class DevelopmentMessagePipeline(
                 relationshipRole = resolvedRelationship.role,
                 relationshipAddress = resolvedRelationship.address,
                 relationshipState = relationship,
+                recentTurns = injectedRecentTurns,
             ),
         )
         trace(traceContext, "prompt_construction")
@@ -531,7 +550,7 @@ class DevelopmentMessagePipeline(
             traceContext,
             "turn",
             status = if (validation.isValid) TraceStatus.OK else TraceStatus.FAILED,
-            tags = inference.quantization.traceTags + retrievalResult.traceTags + centroidTags + sourceTags,
+            tags = inference.quantization.traceTags + retrievalResult.traceTags + transcriptTags + centroidTags + sourceTags,
             attributes = mapOf("source" to request.source.name, "retrieval_mode" to retrievalResult.mode.name),
         )
 
@@ -540,6 +559,7 @@ class DevelopmentMessagePipeline(
             retrievalMode = retrievalResult.mode,
             traceTags = inference.quantization.traceTags +
                 retrievalResult.traceTags +
+                transcriptTags +
                 groundingTraceTags +
                 write.traceTags +
                 diaryOutcome.traceTags +
@@ -628,14 +648,16 @@ class DevelopmentMessagePipeline(
         response: String,
     ): MemoryWriteOutcome {
         val store = memoryStore ?: return MemoryWriteOutcome(null, emptySet())
+        val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
         val metadata = io.openeden.memory.MemoryMetadata(
             snapshot8D = preTicked,
             omegaState = omega.value,
             deltaVec = delta,
             snapshotOrigin = origin,
             userId = request.userId,
+            lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf(request.turnId)),
+            contentFingerprint = io.openeden.memory.MemoryContentFingerprint.of(rawContent),
         )
-        val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
         val memoryCreatedAtMs = nowMs()
         val rawId = "$sessionId:${memoryCreatedAtMs}:raw"
         val rawTags = if (omega.value < 0.75f && delta.toList().all { kotlin.math.abs(it) <= 0.05f }) {
@@ -664,6 +686,7 @@ class DevelopmentMessagePipeline(
 
     companion object {
         private const val RECENT_HISTORY_LIMIT = 8
+        private const val RECENT_CONTEXT_TURNS = 2
 
         fun create(
             personaConfig: PersonaConfig,
@@ -794,6 +817,9 @@ class DevelopmentMessagePipeline(
         else -> null
     }
 }
+
+private fun String.requiresRecentContext(): Boolean =
+    contains(Regex("刚刚|刚才|上一句|上一次|之前|前面|刚才说了什么|刚刚说了什么|记得吗"))
 
 private data class DiaryOutcome(
     val label: String,

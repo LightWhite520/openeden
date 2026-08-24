@@ -32,7 +32,11 @@ CREATE TABLE memory_entries (
     origin_tau REAL NOT NULL,
     origin_v REAL NOT NULL,
     origin_m REAL NOT NULL,
-    origin_f REAL NOT NULL
+    origin_f REAL NOT NULL,
+    source_turn_ids_json TEXT NOT NULL DEFAULT '[]',
+    source_memory_ids_json TEXT NOT NULL DEFAULT '[]',
+    content_fingerprint TEXT,
+    lineage_version INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE memory_embeddings (
@@ -147,8 +151,15 @@ INSERT OR REPLACE INTO memory_entries(
     id, session_id, user_id, platform, room, kind, content, tags_json, created_at_ms,
     snapshot_l, snapshot_p, snapshot_e, snapshot_s, snapshot_tau, snapshot_v, snapshot_m, snapshot_f,
     omega_state, delta_l, delta_p, delta_e, delta_s, delta_tau, delta_v, delta_m, delta_f,
-    origin_l, origin_p, origin_e, origin_s, origin_tau, origin_v, origin_m, origin_f
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    origin_l, origin_p, origin_e, origin_s, origin_tau, origin_v, origin_m, origin_f,
+    source_turn_ids_json, source_memory_ids_json, content_fingerprint, lineage_version
+) VALUES (
+    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?
+);
 
 upsertEmbedding:
 INSERT OR REPLACE INTO memory_embeddings(memory_id, model_id, semantic_json, emotional_json, status)

@@ -1,0 +1,22 @@
+CREATE TABLE prompt_history_state (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    cache_epoch INTEGER NOT NULL,
+    serializer_version INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE prompt_history_chunks (
+    chunk_id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    cache_epoch INTEGER NOT NULL,
+    first_turn_id TEXT NOT NULL,
+    last_turn_id TEXT NOT NULL,
+    turn_ids_json TEXT NOT NULL,
+    serialized_text TEXT NOT NULL,
+    token_count INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    serializer_version INTEGER NOT NULL
+);
+
+CREATE INDEX prompt_history_chunks_session_epoch
+ON prompt_history_chunks(session_id, cache_epoch, first_turn_id, last_turn_id, chunk_id);

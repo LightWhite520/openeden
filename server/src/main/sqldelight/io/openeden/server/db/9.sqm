@@ -1,0 +1,43 @@
+-- Some pre-v5 databases contain session state but never installed Memory Palace tables.
+-- Materialize the pre-lineage shape first so this migration remains compatible with them.
+CREATE TABLE IF NOT EXISTS memory_entries (
+    id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    room TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    snapshot_l REAL NOT NULL,
+    snapshot_p REAL NOT NULL,
+    snapshot_e REAL NOT NULL,
+    snapshot_s REAL NOT NULL,
+    snapshot_tau REAL NOT NULL,
+    snapshot_v REAL NOT NULL,
+    snapshot_m REAL NOT NULL,
+    snapshot_f REAL NOT NULL,
+    omega_state REAL NOT NULL,
+    delta_l REAL NOT NULL,
+    delta_p REAL NOT NULL,
+    delta_e REAL NOT NULL,
+    delta_s REAL NOT NULL,
+    delta_tau REAL NOT NULL,
+    delta_v REAL NOT NULL,
+    delta_m REAL NOT NULL,
+    delta_f REAL NOT NULL,
+    origin_l REAL NOT NULL,
+    origin_p REAL NOT NULL,
+    origin_e REAL NOT NULL,
+    origin_s REAL NOT NULL,
+    origin_tau REAL NOT NULL,
+    origin_v REAL NOT NULL,
+    origin_m REAL NOT NULL,
+    origin_f REAL NOT NULL
+);
+
+ALTER TABLE memory_entries ADD COLUMN source_turn_ids_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE memory_entries ADD COLUMN source_memory_ids_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE memory_entries ADD COLUMN content_fingerprint TEXT;
+ALTER TABLE memory_entries ADD COLUMN lineage_version INTEGER NOT NULL DEFAULT 1;

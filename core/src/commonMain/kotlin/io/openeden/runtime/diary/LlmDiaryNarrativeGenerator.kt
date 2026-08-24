@@ -12,6 +12,7 @@ import io.openeden.memory.*
 import io.openeden.persona.PersonaConfig
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
+import kotlinx.coroutines.CancellationException
 
 class LlmDiaryNarrativeGenerator private constructor(
     private val personaConfig: PersonaConfig,
@@ -106,6 +107,12 @@ class LlmDiaryNarrativeGenerator private constructor(
         }
         val users = slice.memories.map { it.metadata.userId }.distinct()
         val userId = users.singleOrNull() ?: DIARY_WORKER_USER
+        val enrichedLineage = enrichLineage(slice.memories)
+        val lineage = MemoryLineage(
+            sourceTurnIds = enrichedLineage.sourceTurnIds,
+            sourceMemoryIds = listOfNotNull(task.sourceMemoryId) + enrichedLineage.sourceMemoryIds,
+            lineageVersion = enrichedLineage.lineageVersion,
+        )
         val entry = MemoryEntry(
             id = "diary:${task.id}",
             sessionId = task.sessionId,
@@ -115,10 +122,37 @@ class LlmDiaryNarrativeGenerator private constructor(
             tags = quantization.traceTags,
             semanticEmbedding = semantic,
             emotionalEmbedding = emotional,
-            metadata = MemoryMetadata(state.vector, state.omega.value, VectorDelta.Zero, state.origin, userId),
+            metadata = MemoryMetadata(
+                snapshot8D = state.vector,
+                omegaState = state.omega.value,
+                deltaVec = VectorDelta.Zero,
+                snapshotOrigin = state.origin,
+                userId = userId,
+                lineage = lineage,
+                contentFingerprint = MemoryContentFingerprint.of(response),
+            ),
             createdAtMs = task.availableAtMs,
         )
         return DiaryNarrativeResult(entry, slice.upperBoundMemoryId)
+    }
+
+    private suspend fun enrichLineage(memories: List<MemorySnippet>): MemoryLineage {
+        return try {
+            val loadedLineages = memories.mapNotNull { memory ->
+                dataSource.loadSourceMemory(memory.id)?.metadata?.lineage
+            }
+            MemoryLineage(
+                sourceTurnIds = memories.flatMap { it.metadata.lineage.sourceTurnIds } +
+                    loadedLineages.flatMap { it.sourceTurnIds },
+                sourceMemoryIds = memories.flatMap {
+                    listOf(it.id) + it.metadata.lineage.sourceMemoryIds
+                } + loadedLineages.flatMap { it.sourceMemoryIds },
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            MemoryLineage.Empty
+        }
     }
 
     private companion object {

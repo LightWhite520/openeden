@@ -11,4 +11,6 @@ data class MemoryMetadata(
     val deltaVec: VectorDelta,
     val snapshotOrigin: BioVector,
     val userId: String,
+    val lineage: MemoryLineage = MemoryLineage.Empty,
+    val contentFingerprint: String? = null,
 )

@@ -4,13 +4,21 @@ import io.openeden.bio.BioVector
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.InMemoryMemoryPalace
+import io.openeden.memory.MemoryContentFingerprint
+import io.openeden.memory.MemoryExclusionContext
+import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryStore
+import io.openeden.memory.MemorySnippet
+import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.DefaultPromptBuilder
+import io.openeden.prompt.PromptBuilder
+import io.openeden.prompt.PromptInput
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.relationship.InMemoryRelationshipStateStore
 import io.openeden.runtime.diary.SessionDiaryQueue
@@ -62,6 +70,234 @@ class MessagePipelineTranscriptTest {
         assertEquals("user-1", turn.userId)
         assertEquals("hello", turn.userText)
         assertEquals("validated response", turn.assistantText)
+    }
+
+    @Test
+    fun `prompt recent turns come from transcript instead of memory recency`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        repeat(3) { index ->
+            transcripts.append(
+                ConversationTurn(
+                    turnId = "previous-turn-$index",
+                    incarnationId = "incarnation-a",
+                    sessionId = "CLI:local",
+                    platform = "CLI",
+                    scopeId = "local",
+                    userId = "user-1",
+                    userText = "previous user text $index",
+                    assistantText = "previous assistant text $index",
+                    completedAtMs = index.toLong() + 10L,
+                ),
+            )
+        }
+        val memoryPalace = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val ragRecentMemory = MemorySnippet(
+            id = "rag-recent",
+            content = "rag recent memory",
+            metadata = MemoryMetadata(
+                snapshot8D = BioVector.Neutral,
+                omegaState = 0.0f,
+                deltaVec = io.openeden.bio.VectorDelta.Zero,
+                snapshotOrigin = BioVector.Neutral,
+                userId = "user-1",
+            ),
+        )
+        var memoryRecentCalls = 0
+        val memoryStore = object : MemoryStore by memoryPalace {
+            override suspend fun retrieve(request: RetrievalRequest): RetrievalResult = RetrievalResult(
+                mode = RetrievalMode.CONGRUENT,
+                injectionLabel = "[memory]",
+                memories = emptyList(),
+                recentMemories = listOf(ragRecentMemory),
+            )
+
+            override suspend fun recent(sessionId: String, limit: Int): List<io.openeden.memory.MemorySnippet> {
+                memoryRecentCalls += 1
+                return emptyList()
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = transcripts),
+            transcriptStore = transcripts,
+            memoryStore = memoryStore,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        val result = pipeline.handle(request(turnId = "current-turn"))
+
+        assertContains(result.prompt.contextText, "previous user text 1")
+        assertContains(result.prompt.contextText, "previous assistant text 2")
+        assertFalse(result.prompt.contextText.contains("previous user text 0"))
+        assertContains(result.prompt.contextText, "rag recent memory")
+        assertEquals(0, memoryRecentCalls)
+    }
+
+    @Test
+    fun `retrieval excludes transcript turns that will be injected into the prompt`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        repeat(3) { index ->
+            transcripts.append(
+                ConversationTurn(
+                    turnId = "excluded-turn-$index",
+                    incarnationId = "incarnation-a",
+                    sessionId = "CLI:local",
+                    platform = "CLI",
+                    scopeId = "local",
+                    userId = "user-1",
+                    userText = "user $index",
+                    assistantText = "assistant $index",
+                    completedAtMs = index.toLong() + 10L,
+                ),
+            )
+        }
+        val delegate = InMemoryMemoryPalace(DirectInferenceExecutor)
+        var capturedRequest: RetrievalRequest? = null
+        val memoryStore = object : MemoryStore by delegate {
+            override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
+                capturedRequest = request
+                return delegate.retrieve(request)
+            }
+        }
+
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = transcripts),
+            transcriptStore = transcripts,
+            memoryStore = memoryStore,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        pipeline.handle(request(turnId = "current-turn"))
+
+        assertEquals(
+            setOf("excluded-turn-1", "excluded-turn-2"),
+            capturedRequest?.exclusionContext?.sourceTurnIds,
+        )
+        assertEquals(emptySet(), capturedRequest?.exclusionContext?.sourceMemoryIds)
+        assertEquals(emptySet(), capturedRequest?.exclusionContext?.contentFingerprints)
+    }
+
+    @Test
+    fun `immediate reference keeps the latest four transcript turns`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        repeat(6) { index ->
+            transcripts.append(
+                ConversationTurn(
+                    turnId = "reference-turn-$index",
+                    incarnationId = "incarnation-a",
+                    sessionId = "CLI:local",
+                    platform = "CLI",
+                    scopeId = "local",
+                    userId = "user-1",
+                    userText = "reference user text $index",
+                    assistantText = "reference assistant text $index",
+                    completedAtMs = index.toLong() + 10L,
+                ),
+            )
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = transcripts),
+            transcriptStore = transcripts,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        val result = pipeline.handle(request(turnId = "current-turn").copy(text = "刚才说了什么"))
+
+        (2..5).forEach { index ->
+            assertContains(result.prompt.contextText, "reference user text $index")
+            assertContains(result.prompt.contextText, "reference assistant text $index")
+        }
+        assertFalse(result.prompt.contextText.contains("reference user text 0"))
+        assertFalse(result.prompt.contextText.contains("reference user text 1"))
+    }
+
+    @Test
+    fun `pipeline passes exact recent transcript slice to prompt builder`() = runTest {
+        suspend fun seededTranscripts() = InMemoryTranscriptStore("incarnation-a").also { transcripts ->
+            repeat(6) { index ->
+                transcripts.append(
+                    ConversationTurn(
+                        turnId = "slice-turn-$index",
+                        incarnationId = "incarnation-a",
+                        sessionId = "CLI:local",
+                        platform = "CLI",
+                        scopeId = "local",
+                        userId = "user-1",
+                        userText = "slice user $index",
+                        assistantText = "slice assistant $index",
+                        completedAtMs = index.toLong() + 10L,
+                    ),
+                )
+            }
+        }
+        val ordinaryTranscripts = seededTranscripts()
+        val immediateTranscripts = seededTranscripts()
+        val capturedInputs = mutableListOf<PromptInput>()
+        val promptBuilder = object : PromptBuilder {
+            override suspend fun build(input: PromptInput): BuiltPrompt {
+                capturedInputs += input
+                return DefaultPromptBuilder().build(input)
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = ordinaryTranscripts),
+            transcriptStore = ordinaryTranscripts,
+            promptBuilder = promptBuilder,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+        val immediatePipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = immediateTranscripts),
+            transcriptStore = immediateTranscripts,
+            promptBuilder = promptBuilder,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        pipeline.handle(request(turnId = "ordinary-slice"))
+        immediatePipeline.handle(request(turnId = "reference-slice").copy(text = "刚才说了什么"))
+
+        assertEquals(
+            listOf("slice-turn-4", "slice-turn-5"),
+            capturedInputs[0].recentTurns.map { it.turnId },
+        )
+        assertEquals(
+            listOf("slice-turn-2", "slice-turn-3", "slice-turn-4", "slice-turn-5"),
+            capturedInputs[1].recentTurns.map { it.turnId },
+        )
+    }
+
+    @Test
+    fun `transcript recent failure degrades to empty context without blocking the turn`() = runTest {
+        val transcripts = FailingRecentTranscriptStore()
+        var memoryRecentCalls = 0
+        val memoryStore = object : MemoryStore by InMemoryMemoryPalace(DirectInferenceExecutor) {
+            override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> {
+                memoryRecentCalls += 1
+                return emptyList()
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = transcripts,
+            transcriptStore = transcripts,
+            memoryStore = memoryStore,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        val result = pipeline.handle(request(turnId = "transcript-degraded"))
+
+        assertTrue(TraceTag.TranscriptDegraded in result.traceTags)
+        assertContains(result.prompt.contextText, "\"recent_turns\": []")
+        assertEquals(0, memoryRecentCalls)
     }
 
     @Test
@@ -184,6 +420,11 @@ class MessagePipelineTranscriptTest {
         val firstState = stateStore.read("CLI:local")
         assertTrue(firstRelationship.familiarity > 0.0f)
         assertTrue(firstMemories.isNotEmpty())
+        assertEquals(listOf("stable-retry-id"), firstMemories.single().metadata.lineage.sourceTurnIds)
+        assertEquals(
+            MemoryContentFingerprint.of("user=user-1\ninput=hello\nresponse=response"),
+            firstMemories.single().metadata.contentFingerprint,
+        )
         assertEquals(1, firstDiaryCount)
         assertEquals(2, firstCentroidCalls)
         assertEquals(firstPostOrigin, firstState.origin)
@@ -327,6 +568,39 @@ class MessagePipelineTranscriptTest {
             ),
             response = response,
         )
+    }
+
+    private class FailingRecentTranscriptStore : SessionStateStore, AtomicTurnCommitStore, TranscriptStore {
+        private val delegate = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+
+        override suspend fun read(sessionId: String): SessionState = delegate.read(sessionId)
+
+        override suspend fun readOrCreate(
+            sessionId: String,
+            personaMode: PersonaMode?,
+            personaStartSubState: PersonaSubState?,
+        ): SessionState = delegate.readOrCreate(sessionId, personaMode, personaStartSubState)
+
+        override suspend fun write(state: SessionState) = delegate.write(state)
+
+        override suspend fun sessionIds(): Set<String> = delegate.sessionIds()
+
+        override fun commitsTo(transcriptStore: TranscriptStore): Boolean = transcriptStore === this
+
+        override suspend fun writeCommittedTurn(
+            state: SessionState,
+            turn: ConversationTurn,
+        ): TurnCommitOutcome = delegate.writeCommittedTurn(state, turn)
+
+        override suspend fun activeIncarnation(): ActiveIncarnation = delegate.activeIncarnation()
+
+        override suspend fun append(turn: ConversationTurn) = delegate.append(turn)
+
+        override suspend fun recentForSession(sessionId: String, limit: Int): List<ConversationTurn> =
+            error("recent transcript unavailable")
+
+        override suspend fun page(limit: Int, before: HistoryCursor?): ConversationHistoryPage =
+            delegate.page(limit, before)
     }
 
     private object InvalidLlmClient : LlmClient {

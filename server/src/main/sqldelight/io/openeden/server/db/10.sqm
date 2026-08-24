@@ -1,0 +1,19 @@
+-- Some pre-v5 databases contain Memory Palace tables without the transcript tables.
+-- Materialize the transcript shape before installing the session-scoped index.
+CREATE TABLE IF NOT EXISTS conversation_turns (
+    turn_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_text TEXT NOT NULL,
+    assistant_text TEXT NOT NULL,
+    completed_at_ms INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS conversation_turns_page
+ON conversation_turns(incarnation_id, completed_at_ms DESC, turn_id DESC);
+
+CREATE INDEX IF NOT EXISTS conversation_turns_session_recent
+ON conversation_turns(session_id, completed_at_ms DESC, turn_id DESC);

@@ -264,6 +264,45 @@ class QdrantVectorIndexTest {
     }
 
     @Test
+    fun `search queries semantic and emotional named vectors and unions their scores`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") {
+                response("""{"result":{"config":{"params":{"vectors":{"semantic":{"size":2,"distance":"Cosine"},"emotional":{"size":3,"distance":"Cosine"}}}}}}""")
+            } else if (request.url.encodedPath.endsWith("/points/search")) {
+                val body = request.jsonBody()
+                when (body["vector"]!!.jsonObject["name"]!!.jsonPrimitive.content) {
+                    "semantic" -> response("""{"result":[{"id":"point-1","score":0.9,"payload":{"memory_id":"memory-1"}},{"id":"point-2","score":0.8,"payload":{"memory_id":"memory-2"}}]}""")
+                    "emotional" -> response("""{"result":[{"id":"point-1","score":0.7,"payload":{"memory_id":"memory-1"}},{"id":"point-3","score":0.6,"payload":{"memory_id":"memory-3"}}]}""")
+                    else -> error("unexpected named vector")
+                }
+            } else {
+                response("{}")
+            }
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+
+        val hits = index.search(
+            VectorSearchRequest(
+                sessionId = "QQ:42",
+                semanticEmbedding = listOf(.1f, .2f),
+                emotionalEmbedding = listOf(.3f, .4f, .5f),
+                limit = 6,
+            ),
+        )
+
+        val searchRequests = requests.filter { it.url.encodedPath.endsWith("/points/search") }
+        assertEquals(listOf("semantic", "emotional"), searchRequests.map { it.jsonBody()["vector"]!!.jsonObject["name"]!!.jsonPrimitive.content })
+        assertEquals(listOf("memory-1", "memory-2", "memory-3"), hits.map { it.memoryId })
+        assertEquals(.9f, hits[0].semanticSimilarity)
+        assertEquals(.7f, hits[0].emotionalSimilarity)
+        assertEquals(0.0f, hits[1].emotionalSimilarity)
+        assertEquals(0.0f, hits[2].semanticSimilarity)
+        assertEquals(.6f, hits[2].emotionalSimilarity)
+        client.close()
+    }
+
+    @Test
     fun `invalid vectors are rejected before any network request`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { response("{}") }

@@ -5,6 +5,7 @@ import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
+import io.openeden.bio.VectorMapping
 import io.openeden.memory.DeterministicMemoryEmbeddingModel
 import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.memory.MemoryEntry
@@ -15,6 +16,7 @@ import io.openeden.memory.MemoryRetriever
 import io.openeden.memory.MemorySnippet
 import io.openeden.memory.MemoryRoom
 import io.openeden.memory.MemoryStore
+import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
 import io.openeden.memory.RebuildableInMemoryVectorIndex
@@ -40,6 +42,8 @@ import java.util.Properties
 data class StoredMemory(
     val entry: MemoryEntry,
     val modelId: String,
+    internal val persistedSourceTurnIdsJson: String = "[]",
+    internal val persistedSourceMemoryIdsJson: String = "[]",
 )
 
 class SqlDelightMemoryRepository(
@@ -65,8 +69,9 @@ class SqlDelightMemoryRepository(
     suspend fun write(entry: MemoryEntry, modelId: String): Set<String> {
         return withContext(ioDispatcher) {
             require(modelId.isNotBlank()) { "modelId must not be blank" }
+            val persistedLineage = PersistedMemoryLineage.encode(entry.metadata.lineage, json)
             database.transaction {
-                writeEntry(entry)
+                writeEntry(entry, persistedLineage)
                 queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
                 val nowMs = entry.createdAtMs.takeIf { it > 0L } ?: createdAtMsFromId(entry.id)
                 queries.upsertVectorSync(entry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
@@ -199,44 +204,84 @@ class SqlDelightMemoryRepository(
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult = inferenceExecutor.run {
         ensureIndexed(request.sessionId)
-        val hits = retrievalIndex.search(
-            VectorSearchRequest(
-                sessionId = request.sessionId,
-                semanticEmbedding = embeddingModel.embed(request.userInput),
-                emotionalEmbedding = embeddingModel.embed(request.currentVector),
-                limit = candidateLimit.coerceAtLeast(0),
-            ),
-        ).take(candidateLimit.coerceAtLeast(0))
-        val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
-        val candidates = hits.mapNotNull { hit ->
-            if (retrievalIndex === localFallbackIndex) {
-                hit.entry?.takeIf { it.sessionId == request.sessionId } ?: hydrated[hit.memoryId]
-            } else {
-                hydrated[hit.memoryId]
+        val overfetchLimit = retrievalCandidateLimit()
+        val positiveSkew = request.currentVector.copy(
+            p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
+            v = (request.currentVector.v + 0.2f).coerceAtMost(1.0f),
+        )
+        val contrastTarget = VectorMapping.centerSymmetricTarget(request.currentVector, request.origin)
+        val searchTargets = when (request.mode) {
+            RetrievalMode.CONGRUENT -> listOf(request.currentVector)
+            RetrievalMode.MIXED -> listOf(request.currentVector, positiveSkew)
+            RetrievalMode.CONTRAST -> listOf(contrastTarget)
+        }
+        val semanticEmbedding = embeddingModel.embed(request.userInput)
+        val remotePools = buildList {
+            for (emotionalTarget in searchTargets) {
+                val targetEmbedding = embeddingModel.embed(emotionalTarget)
+                val hits = retrievalIndex.search(
+                    VectorSearchRequest(
+                        sessionId = request.sessionId,
+                        semanticEmbedding = semanticEmbedding,
+                        emotionalEmbedding = targetEmbedding,
+                        limit = overfetchLimit,
+                    ),
+                // Qdrant unions two independent searches, each with overfetchLimit results.
+                // Preserve that per-source capacity before hydrating; truncating at 3*K loses
+                // emotional-only candidates that occur after the semantic side.
+                ).take(remoteUnionLimit(overfetchLimit))
+                val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
+                val rangeExcludedIds = hits.asSequence()
+                    .map { it.memoryId }
+                    .filter { memoryId -> hydrated[memoryId]?.hasPersistedRangeOverlap(request) == true }
+                    .toSet()
+                add(
+                    TargetMemoryPool(
+                        targetEmbedding = targetEmbedding,
+                        entries = hits.asSequence()
+                            .mapNotNull { hit -> hydrated[hit.memoryId]?.entry }
+                            .filterNot { it.id in rangeExcludedIds }
+                            .distinctBy { it.id }
+                            .toList(),
+                        persistedRangeExcludedIds = rangeExcludedIds,
+                    ),
+                )
             }
         }
-        val palace = InMemoryMemoryPalace(inferenceExecutor, embeddingModel = embeddingModel)
+        val persistedRangeExcludedCount = remotePools
+            .flatMap { it.persistedRangeExcludedIds }
+            .toSet()
+            .size
+        val candidates = remotePools.flatMap { it.entries }.distinctBy { it.id }
+        val targetPools = remotePools.map { it.targetEmbedding to it.entries }
+        val palace = InMemoryMemoryPalace(
+            inferenceExecutor = inferenceExecutor,
+            maxResults = DEFAULT_MAX_RESULTS,
+            embeddingModel = embeddingModel,
+            index = TargetPoolVectorIndex(targetPools),
+        )
         candidates.forEach { palace.write(it) }
-        palace.retrieve(request)
+        palace.retrieve(request).let { result ->
+            if (persistedRangeExcludedCount == 0) result else result.copy(
+                lineageExcludedCount = result.lineageExcludedCount + persistedRangeExcludedCount,
+            )
+        }
     }
 
     private suspend fun hydrateRemoteCandidates(
         sessionId: String,
         hits: List<VectorSearchHit>,
-    ): Map<String, MemoryEntry> {
-        val validateAllHits = retrievalIndex !== localFallbackIndex
+    ): Map<String, StoredMemory> {
         val ids = hits.asSequence()
-            .filter { validateAllHits || it.entry == null }
             .map { it.memoryId }
             .distinct()
-            .take(candidateLimit.coerceAtLeast(0))
             .toList()
         if (ids.isEmpty()) return emptyMap()
         return withContext(ioDispatcher) {
             queries.selectByIds(ids, ::mapRow).executeAsList()
                 .asSequence()
                 .filter { it.entry.sessionId == sessionId && it.modelId == activeModelId }
-                .associate { it.entry.id to it.entry }
+                .associateBy { it.entry.id }
         }
     }
 
@@ -265,7 +310,51 @@ class SqlDelightMemoryRepository(
         }
     }
 
-    private fun writeEntry(entry: MemoryEntry) {
+    private fun retrievalCandidateLimit(): Int = when {
+        candidateLimit <= 0 -> 0
+        else -> maxOf(candidateLimit, DEFAULT_MAX_RESULTS * 3)
+    }
+
+    private fun remoteUnionLimit(perSourceLimit: Int): Int = when {
+        perSourceLimit <= 0 -> 0
+        perSourceLimit > Int.MAX_VALUE / 2 -> Int.MAX_VALUE
+        else -> perSourceLimit * 2
+    }
+
+    private data class TargetMemoryPool(
+        val targetEmbedding: List<Float>,
+        val entries: List<MemoryEntry>,
+        val persistedRangeExcludedIds: Set<String>,
+    )
+
+    private class TargetPoolVectorIndex(
+        targetPools: List<Pair<List<Float>, List<MemoryEntry>>>,
+    ) : VectorIndex {
+        private val pools = targetPools.toMap()
+
+        override suspend fun insert(entry: MemoryEntry) = Unit
+
+        override suspend fun remove(memoryId: String) = Unit
+
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) = Unit
+
+        override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> =
+            pools[request.emotionalEmbedding].orEmpty()
+                // The pool is already bounded to both remote source limits. Applying the
+                // single-source request limit here would discard emotional-only union hits.
+                .map { entry ->
+                    VectorSearchHit(
+                        memoryId = entry.id,
+                        entry = entry,
+                        semanticSimilarity = 0.0f,
+                        emotionalSimilarity = 0.0f,
+                    )
+                }
+
+        override suspend fun markDirty() = Unit
+    }
+
+    private fun writeEntry(entry: MemoryEntry, persistedLineage: PersistedMemoryLineage.EncodedLineage) {
         val snapshot = entry.metadata.snapshot8D
         val delta = entry.metadata.deltaVec
         val origin = entry.metadata.snapshotOrigin
@@ -292,6 +381,10 @@ class SqlDelightMemoryRepository(
             origin_e = origin.e.toDouble(), origin_s = origin.s.toDouble(),
             origin_tau = origin.tau.toDouble(), origin_v = origin.v.toDouble(),
             origin_m = origin.m.toDouble(), origin_f = origin.f.toDouble(),
+            source_turn_ids_json = persistedLineage.sourceTurnIdsJson,
+            source_memory_ids_json = persistedLineage.sourceMemoryIdsJson,
+            content_fingerprint = entry.metadata.contentFingerprint,
+            lineage_version = persistedLineage.lineageVersion.toLong(),
         )
     }
 
@@ -305,6 +398,7 @@ class SqlDelightMemoryRepository(
         deltaTau: Double, deltaV: Double, deltaM: Double, deltaF: Double,
         originL: Double, originP: Double, originE: Double, originS: Double,
         originTau: Double, originV: Double, originM: Double, originF: Double,
+        sourceTurnIdsJson: String, sourceMemoryIdsJson: String, contentFingerprint: String?, lineageVersion: Long,
         modelId: String?, semanticJson: String?, emotionalJson: String?, status: String?,
     ): StoredMemory {
         val snapshot = BioVector(snapshotL.toFloat(), snapshotP.toFloat(), snapshotE.toFloat(), snapshotS.toFloat(), snapshotTau.toFloat(), snapshotV.toFloat(), snapshotM.toFloat(), snapshotF.toFloat())
@@ -319,10 +413,35 @@ class SqlDelightMemoryRepository(
                 snapshot8D = snapshot, omegaState = omegaState.toFloat(),
                 deltaVec = VectorDelta(deltaL.toFloat(), deltaP.toFloat(), deltaE.toFloat(), deltaS.toFloat(), deltaTau.toFloat(), deltaV.toFloat(), deltaM.toFloat(), deltaF.toFloat()),
                 snapshotOrigin = origin, userId = userId,
+                lineage = PersistedMemoryLineage.decode(
+                    sourceTurnIdsJson = sourceTurnIdsJson,
+                    sourceMemoryIdsJson = sourceMemoryIdsJson,
+                    lineageVersion = lineageVersion,
+                    json = json,
+                ),
+                contentFingerprint = contentFingerprint,
             ),
             createdAtMs = createdAtMs,
         )
-        return StoredMemory(entry, modelId ?: "missing")
+        return StoredMemory(
+            entry = entry,
+            modelId = modelId ?: "missing",
+            persistedSourceTurnIdsJson = sourceTurnIdsJson,
+            persistedSourceMemoryIdsJson = sourceMemoryIdsJson,
+        )
+    }
+
+    private fun StoredMemory.hasPersistedRangeOverlap(request: RetrievalRequest): Boolean {
+        val exactTurnOverlap = entry.metadata.lineage.sourceTurnIds.any {
+            it in request.exclusionContext.sourceTurnIds
+        }
+        return !exactTurnOverlap &&
+            PersistedMemoryLineage.overlaps(
+                persistedJson = persistedSourceTurnIdsJson,
+                candidateIds = request.exclusionContext.sourceTurnIds,
+                sourceTurns = true,
+                json = json,
+            )
     }
 
     private fun mapVector(
@@ -356,6 +475,8 @@ class SqlDelightMemoryRepository(
     )
 
     companion object {
+        private const val DEFAULT_MAX_RESULTS = 10
+
         fun open(
             dbPath: Path,
             embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
