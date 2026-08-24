@@ -194,22 +194,16 @@ object OpenEdenPromptDocumentFactory {
     }
 
     private fun PromptObjectBuilder.memoryRetrievalObject(input: PromptInput): PromptObject {
-        val recentLimit = if (input.userInput.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS
-        val recentTurns = input.recentTurns.takeLast(recentLimit)
         val relevant = input.retrievalResult.memories.take(MAX_CONTEXT_MEMORIES)
         return obj {
             "selected_mode" to input.retrievalResult.mode.name
             "injection_label" to input.retrievalResult.injectionLabel
-            "recent_turns" to array(recentTurns.map(::conversationTurnObject))
+            "recent_turns" to array(input.recentTurns.map(::conversationTurnObject))
             "memories" to array(relevant.map(::memorySnippetObject))
             "recent_memories" to array(input.retrievalResult.recentMemories.map(::memorySnippetObject))
         }
     }
 
-    private fun String.requiresRecentContext(): Boolean =
-        contains(Regex("刚刚|刚才|上一句|上一次|之前|前面|刚才说了什么|刚刚说了什么|记得吗"))
-
-    private const val RECENT_CONTEXT_TURNS = 2
     private const val MAX_CONTEXT_MEMORIES = 6
 
     private fun conversationTurnObject(turn: ConversationTurn): PromptObject =

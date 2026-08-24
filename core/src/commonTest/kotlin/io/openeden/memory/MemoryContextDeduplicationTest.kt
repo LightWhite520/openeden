@@ -96,6 +96,42 @@ class MemoryContextDeduplicationTest {
     }
 
     @Test
+    fun `mixed mode does not exceed positive target when congruent lane is exhausted`() = runTest {
+        val palace = InMemoryMemoryPalace(DirectInferenceExecutor)
+        palace.write(
+            entry(
+                id = "excluded-congruent",
+                content = "unrelated",
+                sourceTurnIds = listOf("excluded-congruent-turn"),
+            ),
+        )
+        repeat(5) { index ->
+            palace.write(
+                entry(
+                    id = "positive-only-$index",
+                    content = "positive-only $index",
+                    emotionalEmbedding = listOf(0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f),
+                    semanticEmbedding = List(16) { 0.0f },
+                ),
+            )
+        }
+
+        val result = palace.retrieve(
+            request(userInput = "unrelated", mode = RetrievalMode.MIXED).copy(
+                exclusionContext = MemoryExclusionContext(
+                    sourceTurnIds = setOf("excluded-congruent-turn"),
+                ),
+            ),
+        )
+
+        assertEquals(0, result.congruentCount)
+        assertEquals(4, result.positiveSkewCount)
+        assertEquals(4, result.memories.size)
+        assertTrue(result.lineageExcludedCount >= 1)
+        assertTrue(result.underfilled)
+    }
+
+    @Test
     fun `underfilled reports when exclusions exhaust available unique candidates`() = runTest {
         val palace = InMemoryMemoryPalace(DirectInferenceExecutor, maxResults = 2)
         palace.write(entry("seen", "seen", sourceTurnIds = listOf("turn-1")))
@@ -129,6 +165,7 @@ class MemoryContextDeduplicationTest {
         sourceTurnIds: List<String> = emptyList(),
         contentFingerprint: String? = null,
         semanticEmbedding: List<Float> = InMemoryMemoryPalace.embedText(content),
+        emotionalEmbedding: List<Float> = InMemoryMemoryPalace.embedVector(BioVector.Neutral),
     ) = MemoryEntry(
         id = id,
         sessionId = "CLI:u1",
@@ -136,7 +173,7 @@ class MemoryContextDeduplicationTest {
         room = MemoryRoom.EVENT_ROOM,
         kind = kind,
         semanticEmbedding = semanticEmbedding,
-        emotionalEmbedding = InMemoryMemoryPalace.embedVector(BioVector.Neutral),
+        emotionalEmbedding = emotionalEmbedding,
         metadata = MemoryMetadata(
             snapshot8D = BioVector.Neutral,
             omegaState = 0.1f,

@@ -86,6 +86,30 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `builder renders the exact recent turns supplied by pipeline`() = runTest {
+        val base = promptInput(userInput = "hello")
+        val turns = (0..3).map { index ->
+            ConversationTurn(
+                turnId = "supplied-turn-$index",
+                incarnationId = "incarnation-a",
+                sessionId = "CLI:local",
+                platform = "CLI",
+                scopeId = "local",
+                userId = "user-1",
+                userText = "supplied user $index",
+                assistantText = "supplied assistant $index",
+                completedAtMs = index.toLong() + 1L,
+            )
+        }
+
+        val built = DefaultPromptBuilder().build(base.copy(recentTurns = turns))
+
+        turns.forEach { turn ->
+            assertContains(built.contextText, turn.turnId)
+        }
+    }
+
+    @Test
     fun `build injects explicit identity from persona data`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 

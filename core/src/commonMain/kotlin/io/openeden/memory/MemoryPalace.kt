@@ -5,6 +5,8 @@ import io.openeden.bio.VectorMapping
 import io.openeden.runtime.inference.InferenceExecutor
 import io.openeden.trace.TraceTag
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.sqrt
 
 class InMemoryMemoryPalace(
@@ -86,15 +88,17 @@ class InMemoryMemoryPalace(
                         baselineEntropy = baselineEntropy,
                         config = utilityFilterConfig,
                     )
+                    val congruentTarget = ceil(maxResults * 0.6).toInt()
+                    val positiveTarget = floor(maxResults * 0.4).toInt()
                     val congruentResult = selectUnique(
                         ranked = rank(filtered.candidates, request, request.currentVector, overfetchLimit),
-                        limit = (maxResults * 0.6f).toInt().coerceAtLeast(1),
+                        limit = congruentTarget,
                         exclusionContext = request.exclusionContext,
                     )
                     congruentCount = congruentResult.selected.size
                     val positiveResult = selectUnique(
                         ranked = rank(positiveFiltered.candidates, request, positiveSkew, overfetchLimit),
-                        limit = maxResults - congruentResult.selected.size,
+                        limit = positiveTarget,
                         exclusionContext = request.exclusionContext,
                         alreadySelected = congruentResult.selected,
                     )

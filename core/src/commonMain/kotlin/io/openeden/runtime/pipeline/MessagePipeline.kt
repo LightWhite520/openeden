@@ -299,7 +299,7 @@ class DevelopmentMessagePipeline(
                 relationshipRole = resolvedRelationship.role,
                 relationshipAddress = resolvedRelationship.address,
                 relationshipState = relationship,
-                recentTurns = recentTurns,
+                recentTurns = injectedRecentTurns,
             ),
         )
         trace(traceContext, "prompt_construction")

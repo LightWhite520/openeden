@@ -16,6 +16,9 @@ import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.DefaultPromptBuilder
+import io.openeden.prompt.PromptBuilder
+import io.openeden.prompt.PromptInput
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.relationship.InMemoryRelationshipStateStore
 import io.openeden.runtime.diary.SessionDiaryQueue
@@ -211,6 +214,64 @@ class MessagePipelineTranscriptTest {
         }
         assertFalse(result.prompt.contextText.contains("reference user text 0"))
         assertFalse(result.prompt.contextText.contains("reference user text 1"))
+    }
+
+    @Test
+    fun `pipeline passes exact recent transcript slice to prompt builder`() = runTest {
+        suspend fun seededTranscripts() = InMemoryTranscriptStore("incarnation-a").also { transcripts ->
+            repeat(6) { index ->
+                transcripts.append(
+                    ConversationTurn(
+                        turnId = "slice-turn-$index",
+                        incarnationId = "incarnation-a",
+                        sessionId = "CLI:local",
+                        platform = "CLI",
+                        scopeId = "local",
+                        userId = "user-1",
+                        userText = "slice user $index",
+                        assistantText = "slice assistant $index",
+                        completedAtMs = index.toLong() + 10L,
+                    ),
+                )
+            }
+        }
+        val ordinaryTranscripts = seededTranscripts()
+        val immediateTranscripts = seededTranscripts()
+        val capturedInputs = mutableListOf<PromptInput>()
+        val promptBuilder = object : PromptBuilder {
+            override suspend fun build(input: PromptInput): BuiltPrompt {
+                capturedInputs += input
+                return DefaultPromptBuilder().build(input)
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = ordinaryTranscripts),
+            transcriptStore = ordinaryTranscripts,
+            promptBuilder = promptBuilder,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+        val immediatePipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = immediateTranscripts),
+            transcriptStore = immediateTranscripts,
+            promptBuilder = promptBuilder,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        pipeline.handle(request(turnId = "ordinary-slice"))
+        immediatePipeline.handle(request(turnId = "reference-slice").copy(text = "刚才说了什么"))
+
+        assertEquals(
+            listOf("slice-turn-4", "slice-turn-5"),
+            capturedInputs[0].recentTurns.map { it.turnId },
+        )
+        assertEquals(
+            listOf("slice-turn-2", "slice-turn-3", "slice-turn-4", "slice-turn-5"),
+            capturedInputs[1].recentTurns.map { it.turnId },
+        )
     }
 
     @Test
