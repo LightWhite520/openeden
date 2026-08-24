@@ -24,14 +24,18 @@ class InMemoryMemoryPalace(
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult =
         inferenceExecutor.run {
+            val overfetchLimit = retrievalLimit()
             val candidates = index.search(
                 VectorSearchRequest(
                     sessionId = request.sessionId,
                     semanticEmbedding = embeddingModel.embed(request.userInput),
                     emotionalEmbedding = embeddingModel.embed(request.currentVector),
-                    limit = entries.count { it.sessionId == request.sessionId },
+                    limit = overfetchLimit,
                 ),
-            ).mapNotNull { it.entry }
+            ).asSequence()
+                .mapNotNull { it.entry }
+                .distinctBy { it.id }
+                .toList()
             val querySemantic = embeddingModel.embed(request.userInput)
             val queryEmotion = embeddingModel.embed(request.currentVector)
             val baselineEntropy = entries.asSequence()
@@ -54,71 +58,89 @@ class InMemoryMemoryPalace(
                 baselineEntropy = baselineEntropy,
                 config = utilityFilterConfig,
             )
+            val recentRanked = entries.asReversed()
+                .asSequence()
+                .filter { it.sessionId == request.sessionId }
+                .take(overfetchLimit)
+                .map(::snippet)
+                .toList()
             var congruentCount = 0
             var positiveSkewCount = 0
-            val selected = when (request.mode) {
-                RetrievalMode.CONGRUENT -> rank(filtered.candidates, request, request.currentVector, maxResults).also {
-                    congruentCount = it.size
+            val selectedResult = when (request.mode) {
+                RetrievalMode.CONGRUENT -> selectUnique(
+                    ranked = rank(filtered.candidates, request, request.currentVector, overfetchLimit),
+                    limit = maxResults,
+                    exclusionContext = request.exclusionContext,
+                ).also {
+                    congruentCount = it.selected.size
                 }
                 RetrievalMode.MIXED -> {
                     val positiveSkew = request.currentVector.copy(
                         p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
                         v = (request.currentVector.v + 0.2f).coerceAtMost(1.0f),
                     )
-                    val congruent = rank(
-                        filtered.candidates,
-                        request,
-                        request.currentVector,
-                        (maxResults * 0.6f).toInt().coerceAtLeast(1),
+                    val positiveFiltered = MemoryUtilityFilter.filter(
+                        candidates = candidates,
+                        querySemantic = querySemantic,
+                        queryEmotion = embeddingModel.embed(positiveSkew),
+                        baselineEntropy = baselineEntropy,
+                        config = utilityFilterConfig,
                     )
-                    congruentCount = congruent.size
-                    val skewed = rank(
-                        filtered.candidates.filterNot { candidate -> congruent.any { it.id == candidate.id } },
-                        request,
-                        positiveSkew,
-                        maxResults - congruent.size,
+                    val congruentResult = selectUnique(
+                        ranked = rank(filtered.candidates, request, request.currentVector, overfetchLimit),
+                        limit = (maxResults * 0.6f).toInt().coerceAtLeast(1),
+                        exclusionContext = request.exclusionContext,
                     )
-                    positiveSkewCount = skewed.size
-                    val selectedIds = (congruent + skewed).mapTo(hashSetOf()) { it.id }
-                    val fill = if (congruent.size + skewed.size < maxResults) {
-                        rank(
-                            filtered.candidates.filterNot { it.id in selectedIds },
-                            request,
-                            request.currentVector,
-                            maxResults - congruent.size - skewed.size,
-                        )
-                    } else {
-                        emptyList()
-                    }
-                    congruent + skewed + fill
+                    congruentCount = congruentResult.selected.size
+                    val positiveResult = selectUnique(
+                        ranked = rank(positiveFiltered.candidates, request, positiveSkew, overfetchLimit),
+                        limit = maxResults - congruentResult.selected.size,
+                        exclusionContext = request.exclusionContext,
+                        alreadySelected = congruentResult.selected,
+                    )
+                    positiveSkewCount = positiveResult.selected.size
+                    val fillResult = selectUnique(
+                        ranked = rank(filtered.candidates, request, request.currentVector, overfetchLimit),
+                        limit = maxResults - congruentResult.selected.size - positiveResult.selected.size,
+                        exclusionContext = request.exclusionContext,
+                        alreadySelected = congruentResult.selected + positiveResult.selected,
+                    )
+                    congruentResult + positiveResult + fillResult
                 }
-                RetrievalMode.CONTRAST -> rank(
-                    candidates = filtered.candidates,
-                    request = request,
-                    emotionalTarget = VectorMapping.centerSymmetricTarget(request.currentVector, request.origin),
-                    limit = maxResults,
-                )
+                RetrievalMode.CONTRAST -> {
+                    val target = VectorMapping.centerSymmetricTarget(request.currentVector, request.origin)
+                    val contrastFiltered = MemoryUtilityFilter.filter(
+                        candidates = candidates,
+                        querySemantic = querySemantic,
+                        queryEmotion = embeddingModel.embed(target),
+                        baselineEntropy = baselineEntropy,
+                        config = utilityFilterConfig,
+                    )
+                    selectUnique(
+                        ranked = rank(contrastFiltered.candidates, request, target, overfetchLimit),
+                        limit = maxResults,
+                        exclusionContext = request.exclusionContext,
+                    )
+                }
             }
+            val selected = selectedResult.selected
+            val recentSelection = selectUnique(
+                ranked = recentRanked,
+                limit = maxResults,
+                exclusionContext = request.exclusionContext,
+                alreadySelected = selected,
+            )
+            val recentMemories = recentSelection.selected.asReversed()
+            val lineageExcludedCount = recentSelection.lineageExcludedCount + selectedResult.lineageExcludedCount
+            val fingerprintExcludedCount = recentSelection.fingerprintExcludedCount + selectedResult.fingerprintExcludedCount
+            val backfillDepth = maxOf(recentSelection.backfillDepth, selectedResult.backfillDepth)
             RetrievalResult(
                 mode = request.mode,
                 injectionLabel = RetrievalModeSelector.injectionLabel(request.mode),
                 memories = selected,
-                recentMemories = entries.asReversed()
-                    .asSequence()
-                    .filter { it.sessionId == request.sessionId }
-                    .take(maxResults)
-                    .map { entry ->
-                        MemorySnippet(
-                            id = entry.id,
-                            content = entry.content,
-                            metadata = entry.metadata,
-                            createdAtMs = entry.createdAtMs,
-                        )
-                    }
-                    .toList()
-                    .asReversed(),
+                recentMemories = recentMemories,
                 traceTags = buildSet {
-                    if (selected.isNotEmpty()) add(TraceTag.MemoryRetrieved)
+                    if (selected.isNotEmpty() || recentMemories.isNotEmpty()) add(TraceTag.MemoryRetrieved)
                     if (selected.any { it.metadata.userId == request.userId }) add(TraceTag.IdentityAffinityApplied)
                     if (filtered.rejectedCount > 0) add(TraceTag.MemoryUtilityRejected)
                     if (filtered.degraded) add(TraceTag.MemoryUtilityDegraded)
@@ -128,8 +150,97 @@ class InMemoryMemoryPalace(
                 filterAcceptedCount = filtered.acceptedCount,
                 filterRejectedCount = filtered.rejectedCount,
                 filterDegraded = filtered.degraded,
+                lineageExcludedCount = lineageExcludedCount,
+                fingerprintExcludedCount = fingerprintExcludedCount,
+                backfillDepth = backfillDepth,
+                underfilled = selected.size < maxResults,
             )
         }
+
+    private fun retrievalLimit(): Int {
+        if (maxResults <= 0) return 0
+        val triple = if (maxResults > Int.MAX_VALUE / 3) Int.MAX_VALUE else maxResults * 3
+        return maxOf(maxResults, triple).coerceAtMost(entries.size)
+    }
+
+    private fun snippet(entry: MemoryEntry): MemorySnippet = MemorySnippet(
+        id = entry.id,
+        content = entry.content,
+        metadata = entry.metadata,
+        createdAtMs = entry.createdAtMs,
+    )
+
+    private fun selectUnique(
+        ranked: List<MemorySnippet>,
+        limit: Int,
+        exclusionContext: MemoryExclusionContext,
+        alreadySelected: List<MemorySnippet> = emptyList(),
+    ): SelectionResult {
+        if (limit <= 0) return SelectionResult()
+        val selected = alreadySelected.toMutableList()
+        val result = mutableListOf<MemorySnippet>()
+        var lineageExcludedCount = 0
+        var fingerprintExcludedCount = 0
+        var backfillDepth = 0
+        val seenIds = alreadySelected.mapTo(hashSetOf()) { it.id }
+        for ((rankIndex, candidate) in ranked.withIndex()) {
+            if (candidate.id in seenIds) continue
+            val lineageOverlap = overlapsLineage(candidate, exclusionContext) ||
+                selected.any { selectedCandidate -> overlapsLineage(candidate, selectedCandidate) }
+            if (lineageOverlap) {
+                lineageExcludedCount += 1
+                continue
+            }
+            val fingerprintOverlap = candidate.metadata.contentFingerprint?.let { fingerprint ->
+                fingerprint in exclusionContext.contentFingerprints ||
+                    selected.any { it.metadata.contentFingerprint == fingerprint }
+            } == true
+            if (fingerprintOverlap) {
+                fingerprintExcludedCount += 1
+                continue
+            }
+            result += candidate
+            selected += candidate
+            seenIds += candidate.id
+            if (rankIndex >= limit) {
+                backfillDepth = maxOf(backfillDepth, rankIndex + 1 - limit)
+            }
+            if (result.size == limit) break
+        }
+        return SelectionResult(result, lineageExcludedCount, fingerprintExcludedCount, backfillDepth)
+    }
+
+    private fun overlapsLineage(
+        candidate: MemorySnippet,
+        exclusionContext: MemoryExclusionContext,
+    ): Boolean {
+        val lineage = candidate.metadata.lineage
+        return lineage.sourceTurnIds.any { it in exclusionContext.sourceTurnIds } ||
+            lineage.sourceMemoryIds.any { it in exclusionContext.sourceMemoryIds } ||
+            candidate.id in exclusionContext.sourceMemoryIds
+    }
+
+    private fun overlapsLineage(candidate: MemorySnippet, selected: MemorySnippet): Boolean {
+        val candidateLineage = candidate.metadata.lineage
+        val selectedLineage = selected.metadata.lineage
+        return candidateLineage.sourceTurnIds.any { it in selectedLineage.sourceTurnIds } ||
+            candidateLineage.sourceMemoryIds.any { it in selectedLineage.sourceMemoryIds || it == selected.id } ||
+            selectedLineage.sourceMemoryIds.any { it == candidate.id || it in candidateLineage.sourceMemoryIds }
+    }
+
+    private data class SelectionResult(
+        val selected: List<MemorySnippet> = emptyList(),
+        val lineageExcludedCount: Int = 0,
+        val fingerprintExcludedCount: Int = 0,
+        val backfillDepth: Int = 0,
+    ) {
+        operator fun plus(other: SelectionResult): SelectionResult = SelectionResult(
+            selected = selected + other.selected,
+            lineageExcludedCount = lineageExcludedCount + other.lineageExcludedCount,
+            fingerprintExcludedCount = fingerprintExcludedCount + other.fingerprintExcludedCount,
+            backfillDepth = maxOf(backfillDepth, other.backfillDepth),
+        )
+    }
 
     override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> =
         inferenceExecutor.run {

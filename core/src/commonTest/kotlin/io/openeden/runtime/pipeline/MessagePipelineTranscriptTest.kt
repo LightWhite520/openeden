@@ -5,6 +5,7 @@ import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.memory.MemoryContentFingerprint
+import io.openeden.memory.MemoryExclusionContext
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryStore
 import io.openeden.memory.MemorySnippet
@@ -128,6 +129,52 @@ class MessagePipelineTranscriptTest {
         assertFalse(result.prompt.contextText.contains("previous user text 0"))
         assertContains(result.prompt.contextText, "rag recent memory")
         assertEquals(0, memoryRecentCalls)
+    }
+
+    @Test
+    fun `retrieval excludes transcript turns that will be injected into the prompt`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        repeat(3) { index ->
+            transcripts.append(
+                ConversationTurn(
+                    turnId = "excluded-turn-$index",
+                    incarnationId = "incarnation-a",
+                    sessionId = "CLI:local",
+                    platform = "CLI",
+                    scopeId = "local",
+                    userId = "user-1",
+                    userText = "user $index",
+                    assistantText = "assistant $index",
+                    completedAtMs = index.toLong() + 10L,
+                ),
+            )
+        }
+        val delegate = InMemoryMemoryPalace(DirectInferenceExecutor)
+        var capturedRequest: RetrievalRequest? = null
+        val memoryStore = object : MemoryStore by delegate {
+            override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
+                capturedRequest = request
+                return delegate.retrieve(request)
+            }
+        }
+
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = transcripts),
+            transcriptStore = transcripts,
+            memoryStore = memoryStore,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        pipeline.handle(request(turnId = "current-turn"))
+
+        assertEquals(
+            setOf("excluded-turn-1", "excluded-turn-2"),
+            capturedRequest?.exclusionContext?.sourceTurnIds,
+        )
+        assertEquals(emptySet(), capturedRequest?.exclusionContext?.sourceMemoryIds)
+        assertEquals(emptySet(), capturedRequest?.exclusionContext?.contentFingerprints)
     }
 
     @Test

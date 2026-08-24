@@ -1,0 +1,150 @@
+package io.openeden.memory
+
+import io.openeden.bio.BioVector
+import io.openeden.bio.VectorDelta
+import io.openeden.runtime.inference.DirectInferenceExecutor
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class MemoryContextDeduplicationTest {
+    @Test
+    fun `raw and narrative entries sharing a source turn are injected once`() = runTest {
+        val palace = InMemoryMemoryPalace(DirectInferenceExecutor, maxResults = 2)
+        palace.write(entry("raw", "raw event", kind = MemoryKind.RAW, sourceTurnIds = listOf("turn-1")))
+        palace.write(entry("narrative", "narrative event", kind = MemoryKind.NARRATIVE, sourceTurnIds = listOf("turn-1")))
+        palace.write(entry("other", "independent event"))
+
+        val result = palace.retrieve(request())
+
+        assertEquals(2, result.memories.size)
+        assertEquals(2, result.memories.map { it.id }.toSet().size)
+        assertTrue(result.memories.map { it.id }.contains("other"))
+        assertEquals(1, result.memories.count { it.id == "raw" || it.id == "narrative" })
+        assertTrue(result.lineageExcludedCount >= 1)
+        assertFalse(result.underfilled)
+    }
+
+    @Test
+    fun `exact legacy duplicate is replaced by a deeper candidate`() = runTest {
+        val fingerprint = "v1:sha-256:duplicate"
+        val palace = InMemoryMemoryPalace(DirectInferenceExecutor, maxResults = 2)
+        val rankedEmbedding = InMemoryMemoryPalace.embedText("event")
+        palace.write(entry("legacy-a", "same legacy content", contentFingerprint = fingerprint, semanticEmbedding = rankedEmbedding))
+        palace.write(entry("legacy-b", "same legacy content", contentFingerprint = fingerprint, semanticEmbedding = rankedEmbedding))
+        palace.write(entry("unique", "different content", semanticEmbedding = rankedEmbedding))
+
+        val result = palace.retrieve(request())
+
+        assertEquals(2, result.memories.size)
+        assertEquals(setOf("legacy-a", "unique"), result.memories.map { it.id }.toSet())
+        assertTrue(result.fingerprintExcludedCount >= 1)
+        assertTrue(result.backfillDepth > 0)
+    }
+
+    @Test
+    fun `entries without lineage remain available even with matching semantic scores`() = runTest {
+        val palace = InMemoryMemoryPalace(DirectInferenceExecutor, maxResults = 2)
+        palace.write(entry("unrelated-a", "same semantic text"))
+        palace.write(entry("unrelated-b", "same semantic text"))
+
+        val result = palace.retrieve(request(userInput = "same semantic"))
+
+        assertEquals(setOf("unrelated-a", "unrelated-b"), result.memories.map { it.id }.toSet())
+        assertEquals(0, result.lineageExcludedCount)
+        assertEquals(0, result.fingerprintExcludedCount)
+    }
+
+    @Test
+    fun `external lineage and fingerprint exclusions backfill to full capacity`() = runTest {
+        val palace = InMemoryMemoryPalace(DirectInferenceExecutor, maxResults = 2)
+        palace.write(entry("transcript-copy", "old turn", sourceTurnIds = listOf("turn-1")))
+        palace.write(entry("legacy-copy", "legacy", contentFingerprint = "v1:sha-256:already-seen"))
+        palace.write(entry("fresh-a", "fresh a"))
+        palace.write(entry("fresh-b", "fresh b"))
+
+        val result = palace.retrieve(
+            request().copy(
+                exclusionContext = MemoryExclusionContext(
+                    sourceTurnIds = setOf("turn-1"),
+                    contentFingerprints = setOf("v1:sha-256:already-seen"),
+                ),
+            ),
+        )
+
+        assertEquals(setOf("fresh-a", "fresh-b"), result.memories.map { it.id }.toSet())
+        assertTrue(result.lineageExcludedCount >= 1)
+        assertTrue(result.fingerprintExcludedCount >= 1)
+        assertFalse(result.underfilled)
+    }
+
+    @Test
+    fun `mixed mode preserves six forty lane target with unique candidates`() = runTest {
+        val palace = InMemoryMemoryPalace(DirectInferenceExecutor)
+        repeat(10) { index -> palace.write(entry("mixed-$index", "same text $index")) }
+
+        val result = palace.retrieve(
+            request(userInput = "same text", mode = RetrievalMode.MIXED),
+        )
+
+        assertEquals(10, result.memories.size)
+        assertEquals(6, result.congruentCount)
+        assertEquals(4, result.positiveSkewCount)
+        assertFalse(result.underfilled)
+    }
+
+    @Test
+    fun `underfilled reports when exclusions exhaust available unique candidates`() = runTest {
+        val palace = InMemoryMemoryPalace(DirectInferenceExecutor, maxResults = 2)
+        palace.write(entry("seen", "seen", sourceTurnIds = listOf("turn-1")))
+
+        val result = palace.retrieve(
+            request().copy(
+                exclusionContext = MemoryExclusionContext(sourceTurnIds = setOf("turn-1")),
+            ),
+        )
+
+        assertTrue(result.memories.isEmpty())
+        assertTrue(result.underfilled)
+        assertEquals(0, result.memories.size)
+    }
+
+    private fun request(
+        userInput: String = "event",
+        mode: RetrievalMode = RetrievalMode.CONGRUENT,
+    ) = RetrievalRequest(
+        sessionId = "CLI:u1",
+        userInput = userInput,
+        currentVector = BioVector.Neutral,
+        origin = BioVector.Neutral,
+        mode = mode,
+    )
+
+    private fun entry(
+        id: String,
+        content: String,
+        kind: MemoryKind = MemoryKind.RAW,
+        sourceTurnIds: List<String> = emptyList(),
+        contentFingerprint: String? = null,
+        semanticEmbedding: List<Float> = InMemoryMemoryPalace.embedText(content),
+    ) = MemoryEntry(
+        id = id,
+        sessionId = "CLI:u1",
+        content = content,
+        room = MemoryRoom.EVENT_ROOM,
+        kind = kind,
+        semanticEmbedding = semanticEmbedding,
+        emotionalEmbedding = InMemoryMemoryPalace.embedVector(BioVector.Neutral),
+        metadata = MemoryMetadata(
+            snapshot8D = BioVector.Neutral,
+            omegaState = 0.1f,
+            deltaVec = VectorDelta.Zero,
+            snapshotOrigin = BioVector.Neutral,
+            userId = "user-1",
+            lineage = MemoryLineage(sourceTurnIds = sourceTurnIds),
+            contentFingerprint = contentFingerprint,
+        ),
+    )
+}

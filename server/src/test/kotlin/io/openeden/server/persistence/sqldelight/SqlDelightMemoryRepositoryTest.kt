@@ -326,6 +326,43 @@ class SqlDelightMemoryRepositoryTest {
     }
 
     @Test
+    fun `sql delight uses explicit persisted lineage ranges without digest overlap`() = runTest {
+        val sourceTurnIds = (1..300).map { "turn-$it" }
+        val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "range candidate").copy(
+            metadata = MemoryMetadata(
+                snapshot8D = BioVector.Neutral,
+                omegaState = 0.0f,
+                deltaVec = VectorDelta.Zero,
+                snapshotOrigin = BioVector.Neutral,
+                userId = "u1",
+                lineage = MemoryLineage(sourceTurnIds = sourceTurnIds),
+            ),
+        )
+
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            repository.write(entry)
+        }
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            val result = repository.retrieve(
+                RetrievalRequest(
+                    "QQ:42",
+                    "query",
+                    BioVector.Neutral,
+                    BioVector.Neutral,
+                    RetrievalMode.CONGRUENT,
+                    exclusionContext = io.openeden.memory.MemoryExclusionContext(
+                        sourceTurnIds = setOf("turn-300"),
+                    ),
+                ),
+            )
+
+            assertTrue(result.memories.isEmpty())
+            assertTrue(result.lineageExcludedCount >= 1)
+            assertTrue(result.underfilled)
+        }
+    }
+
+    @Test
     fun `local populated hits are ranked without sqlite hydration`() = runTest {
         val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "local")
         SqlDelightMemoryRepository.open(dbPath).use { repository ->
@@ -498,11 +535,43 @@ class SqlDelightMemoryRepositoryTest {
             repository.refreshOutdatedEmbeddings(RecordingInferenceExecutor(), batchSize = 2)
 
             assertEquals(
-                listOf(second.id),
+                listOf(second.id, first.id),
                 repository.retrieve(
                     RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
                 ).memories.map { it.id },
             )
+        }
+    }
+
+    @Test
+    fun `sql delight retrieval overfetches and backfills remote candidates before final capacity`() = runTest {
+        val memories = (1..12).map { index ->
+            memoryEntry("QQ:42:${index * 1000}:raw", "QQ:42", "candidate-$index")
+        }
+        val wrongModel = memoryEntry("QQ:42:99000:raw", "QQ:42", "wrong-model")
+        val remoteIndex = FakeVectorIndex(
+            listOf(VectorSearchHit(wrongModel.id, null, 1.0f, 1.0f)) + memories.map { entry ->
+                VectorSearchHit(entry.id, null, 1.0f, 1.0f)
+            },
+        )
+
+        SqlDelightMemoryRepository.open(
+            dbPath,
+            index = remoteIndex,
+            candidateLimit = 1,
+        ).use { repository ->
+            memories.forEach { repository.write(it, modelId = "local-v1") }
+            repository.write(wrongModel, modelId = "other-model")
+
+            val result = repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+            )
+
+            assertTrue(remoteIndex.lastLimit >= 30)
+            assertEquals(10, result.memories.size)
+            assertEquals(10, result.memories.map { it.id }.toSet().size)
+            assertFalse(result.memories.any { it.id == wrongModel.id })
+            assertFalse(result.underfilled)
         }
     }
 
@@ -580,6 +649,7 @@ class SqlDelightMemoryRepositoryTest {
     private class FakeVectorIndex(private val hits: List<VectorSearchHit>) : VectorIndex {
         var searchCount = 0
         var rebuildCount = 0
+        var lastLimit = 0
 
         override suspend fun insert(entry: MemoryEntry) = Unit
         override suspend fun remove(memoryId: String) = Unit
@@ -588,6 +658,7 @@ class SqlDelightMemoryRepositoryTest {
         }
         override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
             searchCount += 1
+            lastLimit = request.limit
             return hits.take(request.limit)
         }
         override suspend fun markDirty() = Unit

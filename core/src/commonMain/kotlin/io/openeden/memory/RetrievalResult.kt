@@ -11,4 +11,8 @@ data class RetrievalResult(
     val filterAcceptedCount: Int = 0,
     val filterRejectedCount: Int = 0,
     val filterDegraded: Boolean = false,
+    val lineageExcludedCount: Int = 0,
+    val fingerprintExcludedCount: Int = 0,
+    val backfillDepth: Int = 0,
+    val underfilled: Boolean = false,
 )

@@ -9,4 +9,5 @@ data class RetrievalRequest(
     val origin: BioVector,
     val mode: RetrievalMode,
     val userId: String = "",
+    val exclusionContext: MemoryExclusionContext = MemoryExclusionContext(),
 )

@@ -40,6 +40,8 @@ import java.util.Properties
 data class StoredMemory(
     val entry: MemoryEntry,
     val modelId: String,
+    internal val persistedSourceTurnIdsJson: String = "[]",
+    internal val persistedSourceMemoryIdsJson: String = "[]",
 )
 
 class SqlDelightMemoryRepository(
@@ -200,44 +202,53 @@ class SqlDelightMemoryRepository(
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult = inferenceExecutor.run {
         ensureIndexed(request.sessionId)
+        val overfetchLimit = retrievalCandidateLimit()
         val hits = retrievalIndex.search(
             VectorSearchRequest(
                 sessionId = request.sessionId,
                 semanticEmbedding = embeddingModel.embed(request.userInput),
                 emotionalEmbedding = embeddingModel.embed(request.currentVector),
-                limit = candidateLimit.coerceAtLeast(0),
+                limit = overfetchLimit,
             ),
-        ).take(candidateLimit.coerceAtLeast(0))
+        ).take(overfetchLimit)
         val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
+        var persistedRangeExcludedCount = 0
         val candidates = hits.mapNotNull { hit ->
-            if (retrievalIndex === localFallbackIndex) {
-                hit.entry?.takeIf { it.sessionId == request.sessionId } ?: hydrated[hit.memoryId]
+            val stored = hydrated[hit.memoryId] ?: return@mapNotNull null
+            if (stored.hasPersistedRangeOverlap(request)) {
+                persistedRangeExcludedCount += 1
+                null
             } else {
-                hydrated[hit.memoryId]
+                stored.entry
             }
         }
-        val palace = InMemoryMemoryPalace(inferenceExecutor, embeddingModel = embeddingModel)
+        val palace = InMemoryMemoryPalace(
+            inferenceExecutor = inferenceExecutor,
+            maxResults = DEFAULT_MAX_RESULTS,
+            embeddingModel = embeddingModel,
+        )
         candidates.forEach { palace.write(it) }
-        palace.retrieve(request)
+        palace.retrieve(request).let { result ->
+            if (persistedRangeExcludedCount == 0) result else result.copy(
+                lineageExcludedCount = result.lineageExcludedCount + persistedRangeExcludedCount,
+            )
+        }
     }
 
     private suspend fun hydrateRemoteCandidates(
         sessionId: String,
         hits: List<VectorSearchHit>,
-    ): Map<String, MemoryEntry> {
-        val validateAllHits = retrievalIndex !== localFallbackIndex
+    ): Map<String, StoredMemory> {
         val ids = hits.asSequence()
-            .filter { validateAllHits || it.entry == null }
             .map { it.memoryId }
             .distinct()
-            .take(candidateLimit.coerceAtLeast(0))
             .toList()
         if (ids.isEmpty()) return emptyMap()
         return withContext(ioDispatcher) {
             queries.selectByIds(ids, ::mapRow).executeAsList()
                 .asSequence()
                 .filter { it.entry.sessionId == sessionId && it.modelId == activeModelId }
-                .associate { it.entry.id to it.entry }
+                .associateBy { it.entry.id }
         }
     }
 
@@ -264,6 +275,11 @@ class SqlDelightMemoryRepository(
             }
             if (indexed) loadedSessions += sessionId
         }
+    }
+
+    private fun retrievalCandidateLimit(): Int = when {
+        candidateLimit <= 0 -> 0
+        else -> maxOf(candidateLimit, DEFAULT_MAX_RESULTS * 3)
     }
 
     private fun writeEntry(entry: MemoryEntry, persistedLineage: PersistedMemoryLineage.EncodedLineage) {
@@ -335,7 +351,25 @@ class SqlDelightMemoryRepository(
             ),
             createdAtMs = createdAtMs,
         )
-        return StoredMemory(entry, modelId ?: "missing")
+        return StoredMemory(
+            entry = entry,
+            modelId = modelId ?: "missing",
+            persistedSourceTurnIdsJson = sourceTurnIdsJson,
+            persistedSourceMemoryIdsJson = sourceMemoryIdsJson,
+        )
+    }
+
+    private fun StoredMemory.hasPersistedRangeOverlap(request: RetrievalRequest): Boolean {
+        val exactTurnOverlap = entry.metadata.lineage.sourceTurnIds.any {
+            it in request.exclusionContext.sourceTurnIds
+        }
+        return !exactTurnOverlap &&
+            PersistedMemoryLineage.overlaps(
+                persistedJson = persistedSourceTurnIdsJson,
+                candidateIds = request.exclusionContext.sourceTurnIds,
+                sourceTurns = true,
+                json = json,
+            )
     }
 
     private fun mapVector(
@@ -369,6 +403,8 @@ class SqlDelightMemoryRepository(
     )
 
     companion object {
+        private const val DEFAULT_MAX_RESULTS = 10
+
         fun open(
             dbPath: Path,
             embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,

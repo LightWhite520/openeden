@@ -260,6 +260,9 @@ class DevelopmentMessagePipeline(
         val recentTurns = transcriptStore
             ?.recentForSession(sessionId, RECENT_HISTORY_LIMIT)
             .orEmpty()
+        val injectedRecentTurns = recentTurns.takeLast(
+            if (request.text.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS,
+        )
         val retrievalResult = inferenceExecutor.run {
             memoryRetriever.retrieve(
                 RetrievalRequest(
@@ -269,6 +272,9 @@ class DevelopmentMessagePipeline(
                     currentVector = preTick.preTicked,
                     origin = current.origin,
                     mode = inference.retrievalMode,
+                    exclusionContext = MemoryExclusionContext(
+                        sourceTurnIds = injectedRecentTurns.mapTo(hashSetOf()) { it.turnId },
+                    ),
                 ),
             )
         }
@@ -667,6 +673,7 @@ class DevelopmentMessagePipeline(
 
     companion object {
         private const val RECENT_HISTORY_LIMIT = 8
+        private const val RECENT_CONTEXT_TURNS = 2
 
         fun create(
             personaConfig: PersonaConfig,
@@ -797,6 +804,9 @@ class DevelopmentMessagePipeline(
         else -> null
     }
 }
+
+private fun String.requiresRecentContext(): Boolean =
+    contains(Regex("刚刚|刚才|上一句|上一次|之前|前面|刚才说了什么|刚刚说了什么|记得吗"))
 
 private data class DiaryOutcome(
     val label: String,
