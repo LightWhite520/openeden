@@ -277,10 +277,18 @@ class MessagePipelineTranscriptTest {
     @Test
     fun `transcript recent failure degrades to empty context without blocking the turn`() = runTest {
         val transcripts = FailingRecentTranscriptStore()
+        var memoryRecentCalls = 0
+        val memoryStore = object : MemoryStore by InMemoryMemoryPalace(DirectInferenceExecutor) {
+            override suspend fun recent(sessionId: String, limit: Int): List<MemorySnippet> {
+                memoryRecentCalls += 1
+                return emptyList()
+            }
+        }
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = persona(),
             store = transcripts,
             transcriptStore = transcripts,
+            memoryStore = memoryStore,
             llmClient = ValidLlmClient(),
             nowMs = { 100L },
         )
@@ -289,6 +297,7 @@ class MessagePipelineTranscriptTest {
 
         assertTrue(TraceTag.TranscriptDegraded in result.traceTags)
         assertContains(result.prompt.contextText, "\"recent_turns\": []")
+        assertEquals(0, memoryRecentCalls)
     }
 
     @Test

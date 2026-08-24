@@ -4,6 +4,7 @@ import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
 import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryContentFingerprint
+import io.openeden.memory.MemoryExclusionContext
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryLineage
 import io.openeden.memory.MemoryMetadata
@@ -603,6 +604,50 @@ class SqlDelightMemoryRepositoryTest {
         }
     }
 
+    @Test
+    fun `sql delight preserves emotional-only remote union candidates per lane`() = runTest {
+        val semanticOnly = (1..30).map { index ->
+            val entry = memoryEntry("QQ:42:${index * 1000}:semantic", "QQ:42", "semantic-$index")
+            entry.copy(
+                metadata = entry.metadata.copy(
+                    lineage = MemoryLineage(sourceTurnIds = listOf("semantic-turn-$index")),
+                ),
+            )
+        }
+        val emotionalOnly = (1..30).map { index ->
+            memoryEntry("QQ:42:${(index + 100) * 1000}:emotional", "QQ:42", "emotional-$index")
+        }
+        val remoteIndex = ConcatenatingVectorIndex(semanticOnly, emotionalOnly)
+
+        SqlDelightMemoryRepository.open(
+            dbPath,
+            index = remoteIndex,
+            candidateLimit = 1,
+        ).use { repository ->
+            (semanticOnly + emotionalOnly).forEach { repository.write(it, modelId = "local-v1") }
+
+            val result = repository.retrieve(
+                RetrievalRequest(
+                    "QQ:42",
+                    "query",
+                    BioVector.Neutral,
+                    BioVector.Neutral,
+                    RetrievalMode.CONGRUENT,
+                    exclusionContext = MemoryExclusionContext(
+                        sourceTurnIds = semanticOnly.mapTo(hashSetOf()) {
+                            it.metadata.lineage.sourceTurnIds.single()
+                        },
+                    ),
+                ),
+            )
+
+            assertEquals(30, remoteIndex.lastLimit)
+            assertEquals(10, result.memories.size)
+            assertTrue(result.memories.all { it.id.contains(":emotional") })
+            assertFalse(result.underfilled)
+        }
+    }
+
     private fun createVersionEightMemoryDatabase(driver: JdbcSqliteDriver) {
         driver.execute(
             null,
@@ -692,6 +737,24 @@ class SqlDelightMemoryRepositoryTest {
             limits += request.limit
             emotionalEmbeddings += request.emotionalEmbedding
             return hits.take(request.limit)
+        }
+        override suspend fun markDirty() = Unit
+    }
+
+    private class ConcatenatingVectorIndex(
+        private val semanticOnly: List<MemoryEntry>,
+        private val emotionalOnly: List<MemoryEntry>,
+    ) : VectorIndex {
+        var lastLimit = 0
+
+        override suspend fun insert(entry: MemoryEntry) = Unit
+        override suspend fun remove(memoryId: String) = Unit
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) = Unit
+        override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
+            lastLimit = request.limit
+            return (semanticOnly + emotionalOnly).map { entry ->
+                VectorSearchHit(entry.id, null, 1.0f, 1.0f)
+            }
         }
         override suspend fun markDirty() = Unit
     }

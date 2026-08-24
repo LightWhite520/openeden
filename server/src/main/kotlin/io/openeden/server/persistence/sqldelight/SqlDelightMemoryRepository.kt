@@ -226,7 +226,10 @@ class SqlDelightMemoryRepository(
                         emotionalEmbedding = targetEmbedding,
                         limit = overfetchLimit,
                     ),
-                ).take(overfetchLimit)
+                // Qdrant unions two independent searches, each with overfetchLimit results.
+                // Preserve that per-source capacity before hydrating; truncating at 3*K loses
+                // emotional-only candidates that occur after the semantic side.
+                ).take(remoteUnionLimit(overfetchLimit))
                 val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
                 val rangeExcludedIds = hits.asSequence()
                     .map { it.memoryId }
@@ -312,6 +315,12 @@ class SqlDelightMemoryRepository(
         else -> maxOf(candidateLimit, DEFAULT_MAX_RESULTS * 3)
     }
 
+    private fun remoteUnionLimit(perSourceLimit: Int): Int = when {
+        perSourceLimit <= 0 -> 0
+        perSourceLimit > Int.MAX_VALUE / 2 -> Int.MAX_VALUE
+        else -> perSourceLimit * 2
+    }
+
     private data class TargetMemoryPool(
         val targetEmbedding: List<Float>,
         val entries: List<MemoryEntry>,
@@ -331,7 +340,8 @@ class SqlDelightMemoryRepository(
 
         override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> =
             pools[request.emotionalEmbedding].orEmpty()
-                .take(request.limit)
+                // The pool is already bounded to both remote source limits. Applying the
+                // single-source request limit here would discard emotional-only union hits.
                 .map { entry ->
                     VectorSearchHit(
                         memoryId = entry.id,

@@ -266,6 +266,7 @@ class DevelopmentMessagePipeline(
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
+                // Transcript is the sole source for recent_turns; memory recency is intentionally not a fallback.
                 recentTurns = emptyList()
                 transcriptTags = setOf(TraceTag.TranscriptDegraded)
             }

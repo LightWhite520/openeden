@@ -343,7 +343,6 @@ class InMemoryMemoryPalace(
                 )
             }
             .sortedByDescending { it.score }
-            .take(limit)
             .toList()
     }
 
