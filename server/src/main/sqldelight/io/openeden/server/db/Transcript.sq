@@ -16,6 +16,29 @@ ON conversation_turns(incarnation_id, completed_at_ms DESC, turn_id DESC);
 CREATE INDEX conversation_turns_session_recent
 ON conversation_turns(session_id, completed_at_ms DESC, turn_id DESC);
 
+CREATE TABLE prompt_history_state (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    cache_epoch INTEGER NOT NULL,
+    serializer_version INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE prompt_history_chunks (
+    chunk_id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    cache_epoch INTEGER NOT NULL,
+    first_turn_id TEXT NOT NULL,
+    last_turn_id TEXT NOT NULL,
+    turn_ids_json TEXT NOT NULL,
+    serialized_text TEXT NOT NULL,
+    token_count INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    serializer_version INTEGER NOT NULL
+);
+
+CREATE INDEX prompt_history_chunks_session_epoch
+ON prompt_history_chunks(session_id, cache_epoch, first_turn_id, last_turn_id, chunk_id);
+
 insertIncarnationIfAbsent:
 INSERT OR IGNORE INTO incarnation_state(singleton_id, active_incarnation_id, created_at_ms)
 VALUES (1, ?, ?);
@@ -57,6 +80,29 @@ FROM conversation_turns
 WHERE session_id = :sessionId
 ORDER BY completed_at_ms DESC, turn_id DESC
 LIMIT :limit;
+
+selectPromptHistoryState:
+SELECT session_id, cache_epoch, serializer_version, updated_at_ms
+FROM prompt_history_state
+WHERE session_id = :sessionId;
+
+selectPromptHistoryChunks:
+SELECT chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+       turn_ids_json, serialized_text, token_count, fingerprint, serializer_version
+FROM prompt_history_chunks
+WHERE session_id = :sessionId
+  AND cache_epoch = :cacheEpoch
+ORDER BY first_turn_id, last_turn_id, chunk_id;
+
+insertPromptHistoryState:
+INSERT OR REPLACE INTO prompt_history_state(session_id, cache_epoch, serializer_version, updated_at_ms)
+VALUES (?, ?, ?, ?);
+
+insertPromptHistoryChunk:
+INSERT OR IGNORE INTO prompt_history_chunks(
+    chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+    turn_ids_json, serialized_text, token_count, fingerprint, serializer_version
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteAllConversationTurns:
 DELETE FROM conversation_turns;

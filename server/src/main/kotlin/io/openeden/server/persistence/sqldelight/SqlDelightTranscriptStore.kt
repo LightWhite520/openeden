@@ -11,7 +11,13 @@ import io.openeden.transcript.ConversationHistoryPage
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InvalidHistoryCursorException
+import io.openeden.transcript.PromptHistoryAssembler
+import io.openeden.transcript.PromptHistoryChunk
+import io.openeden.transcript.PromptHistorySnapshot
 import io.openeden.transcript.TranscriptStore
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
@@ -28,6 +34,7 @@ class SqlDelightTranscriptStore private constructor(
     private val database: Database,
     private val driver: SqlDriver,
     private val ioDispatcher: CoroutineDispatcher,
+    private val promptHistoryAssembler: PromptHistoryAssembler,
 ) : TranscriptStore {
     private val queries get() = database.transcriptQueries
 
@@ -69,6 +76,68 @@ class SqlDelightTranscriptStore private constructor(
                 mapper = ::mapTurn,
             ).executeAsList().asReversed()
         }
+
+    override suspend fun promptHistory(
+        sessionId: String,
+        requiredTailTurns: Int,
+        tokenBudget: Int,
+    ): PromptHistorySnapshot = withContext(ioDispatcher) {
+        val persistedState = queries.selectPromptHistoryState(
+            sessionId = sessionId,
+            mapper = ::mapPromptHistoryState,
+        ).executeAsOneOrNull()
+        val cacheEpoch = persistedState?.cacheEpoch ?: 0L
+        val persistedChunks = persistedState?.let { state ->
+            queries.selectPromptHistoryChunks(
+                sessionId = sessionId,
+                cacheEpoch = state.cacheEpoch,
+                mapper = ::mapPromptHistoryChunk,
+            ).executeAsList()
+        }.orEmpty()
+        val turns = queries.selectRecentForSession(
+            sessionId = sessionId,
+            limit = Long.MAX_VALUE,
+            mapper = ::mapTurn,
+        ).executeAsList().asReversed()
+        val turnIds = turns.mapTo(mutableSetOf(), ConversationTurn::turnId)
+        val stableChunks = persistedChunks.filter { chunk ->
+            chunk.turnIds.all(turnIds::contains)
+        }
+        val snapshot = promptHistoryAssembler.assemble(
+            sessionId = sessionId,
+            turns = turns,
+            requiredTailTurns = requiredTailTurns,
+            tokenBudget = tokenBudget,
+            existingStableChunks = stableChunks,
+            cacheEpoch = cacheEpoch,
+            storedSerializerVersion = persistedState?.serializerVersion
+                ?: promptHistoryAssembler.serializer.serializerVersion,
+        )
+
+        database.transaction {
+            queries.insertPromptHistoryState(
+                session_id = sessionId,
+                cache_epoch = snapshot.cacheEpoch,
+                serializer_version = promptHistoryAssembler.serializer.serializerVersion.toLong(),
+                updated_at_ms = System.currentTimeMillis(),
+            )
+            snapshot.stableChunks.forEach { chunk ->
+                queries.insertPromptHistoryChunk(
+                    chunk_id = chunkId(chunk),
+                    session_id = chunk.sessionId,
+                    cache_epoch = chunk.cacheEpoch,
+                    first_turn_id = chunk.firstTurnId,
+                    last_turn_id = chunk.lastTurnId,
+                    turn_ids_json = json.encodeToString(chunk.turnIds),
+                    serialized_text = chunk.serializedText,
+                    token_count = chunk.tokenCount.toLong(),
+                    fingerprint = chunk.fingerprint,
+                    serializer_version = chunk.serializerVersion.toLong(),
+                )
+            }
+        }
+        snapshot
+    }
 
     override suspend fun page(
         limit: Int,
@@ -118,12 +187,14 @@ class SqlDelightTranscriptStore private constructor(
         suspend fun open(
             dbPath: Path,
             ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-transcript-sqlite"),
-        ): SqlDelightTranscriptStore = open(dbPath, Database.Schema, ioDispatcher)
+            promptHistoryAssembler: PromptHistoryAssembler = PromptHistoryAssembler(),
+        ): SqlDelightTranscriptStore = open(dbPath, Database.Schema, ioDispatcher, promptHistoryAssembler)
 
         internal suspend fun open(
             dbPath: Path,
             schema: SqlSchema<QueryResult.Value<Unit>>,
             ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-transcript-sqlite"),
+            promptHistoryAssembler: PromptHistoryAssembler = PromptHistoryAssembler(),
         ): SqlDelightTranscriptStore = withContext(ioDispatcher) {
             val resolvedPath = dbPath.resolveForInitialization()
             initializationMutex.withLock {
@@ -154,7 +225,7 @@ class SqlDelightTranscriptStore private constructor(
                                 created_at_ms = System.currentTimeMillis(),
                             )
                             driver.closeCurrentThreadConnection()
-                            SqlDelightTranscriptStore(database, driver, ioDispatcher)
+                            SqlDelightTranscriptStore(database, driver, ioDispatcher, promptHistoryAssembler)
                         } catch (failure: Throwable) {
                             runCatching { driver.closeCurrentThreadConnection() }
                                 .exceptionOrNull()
@@ -194,6 +265,11 @@ class SqlDelightTranscriptStore private constructor(
             }
         }
 
+        private val json = Json
+
+        private fun chunkId(chunk: PromptHistoryChunk): String =
+            "${chunk.sessionId}|${chunk.cacheEpoch}|${chunk.firstTurnId}"
+
         private fun mapTurn(
             turnId: String,
             incarnationId: String,
@@ -214,6 +290,43 @@ class SqlDelightTranscriptStore private constructor(
             userText = userText,
             assistantText = assistantText,
             completedAtMs = completedAtMs,
+        )
+
+        private fun mapPromptHistoryState(
+            sessionId: String,
+            cacheEpoch: Long,
+            serializerVersion: Long,
+            updatedAtMs: Long,
+        ) = PromptHistoryState(sessionId, cacheEpoch, serializerVersion.toInt(), updatedAtMs)
+
+        private fun mapPromptHistoryChunk(
+            chunkId: String,
+            sessionId: String,
+            cacheEpoch: Long,
+            firstTurnId: String,
+            lastTurnId: String,
+            turnIdsJson: String,
+            serializedText: String,
+            tokenCount: Long,
+            fingerprint: String,
+            serializerVersion: Long,
+        ) = PromptHistoryChunk(
+            sessionId = sessionId,
+            cacheEpoch = cacheEpoch,
+            firstTurnId = firstTurnId,
+            lastTurnId = lastTurnId,
+            turnIds = json.decodeFromString(turnIdsJson),
+            serializedText = serializedText,
+            tokenCount = tokenCount.toInt(),
+            fingerprint = fingerprint,
+            serializerVersion = serializerVersion.toInt(),
+        )
+
+        private data class PromptHistoryState(
+            val sessionId: String,
+            val cacheEpoch: Long,
+            val serializerVersion: Int,
+            val updatedAtMs: Long,
         )
     }
 }

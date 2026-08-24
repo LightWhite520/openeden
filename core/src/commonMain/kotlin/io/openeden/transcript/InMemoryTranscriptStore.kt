@@ -6,10 +6,14 @@ import kotlinx.coroutines.sync.withLock
 class InMemoryTranscriptStore(
     activeIncarnationId: String,
     createdAtMs: Long = 0L,
+    private val promptHistoryAssembler: PromptHistoryAssembler = PromptHistoryAssembler(),
 ) : TranscriptStore {
     private val activeIncarnation = ActiveIncarnation(activeIncarnationId, createdAtMs)
     internal val atomicMutex = Mutex()
     private val turnsById = mutableMapOf<String, ConversationTurn>()
+    private val promptHistoryEpochs = mutableMapOf<String, Long>()
+    private val promptHistorySerializerVersions = mutableMapOf<String, Int>()
+    private val promptHistoryChunks = mutableMapOf<String, MutableList<PromptHistoryChunk>>()
 
     override suspend fun activeIncarnation(): ActiveIncarnation = atomicMutex.withLock {
         activeIncarnationLocked()
@@ -32,6 +36,33 @@ class InMemoryTranscriptStore(
                 .toList()
                 .asReversed()
         }
+
+    override suspend fun promptHistory(
+        sessionId: String,
+        requiredTailTurns: Int,
+        tokenBudget: Int,
+    ): PromptHistorySnapshot = atomicMutex.withLock {
+        val epoch = promptHistoryEpochs[sessionId] ?: 0L
+        val snapshot = promptHistoryAssembler.assemble(
+            sessionId = sessionId,
+            turns = turnsById.values.filter { it.sessionId == sessionId },
+            requiredTailTurns = requiredTailTurns,
+            tokenBudget = tokenBudget,
+            existingStableChunks = promptHistoryChunks[promptHistoryKey(sessionId, epoch)].orEmpty(),
+            cacheEpoch = epoch,
+            storedSerializerVersion = promptHistorySerializerVersions[sessionId]
+                ?: promptHistoryAssembler.serializer.serializerVersion,
+        )
+        promptHistoryEpochs[sessionId] = snapshot.cacheEpoch
+        promptHistorySerializerVersions[sessionId] = promptHistoryAssembler.serializer.serializerVersion
+        promptHistoryChunks.getOrPut(promptHistoryKey(sessionId, snapshot.cacheEpoch)) { mutableListOf() }
+            .apply {
+                snapshot.stableChunks.forEach { chunk ->
+                    if (none { it.firstTurnId == chunk.firstTurnId }) add(chunk)
+                }
+            }
+        snapshot
+    }
 
     override suspend fun page(
         limit: Int,
@@ -92,6 +123,9 @@ class InMemoryTranscriptStore(
         completedAtMs = completedAtMs,
         turnId = turnId,
     )
+
+    private fun promptHistoryKey(sessionId: String, cacheEpoch: Long): String =
+        "$sessionId\u0000$cacheEpoch"
 
     private companion object {
         const val MIN_PAGE_SIZE = 1

@@ -26,6 +26,17 @@ interface TranscriptStore {
         return pages.asReversed().flatten().takeLast(requestedLimit)
     }
 
+    suspend fun promptHistory(
+        sessionId: String,
+        requiredTailTurns: Int,
+        tokenBudget: Int,
+    ): PromptHistorySnapshot = PromptHistoryAssembler().assemble(
+        sessionId = sessionId,
+        turns = recentForSession(sessionId, Int.MAX_VALUE),
+        requiredTailTurns = requiredTailTurns,
+        tokenBudget = tokenBudget,
+    )
+
     suspend fun page(
         limit: Int,
         before: HistoryCursor? = null,
