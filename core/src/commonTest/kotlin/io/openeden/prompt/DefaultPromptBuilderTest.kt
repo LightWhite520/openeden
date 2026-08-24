@@ -171,6 +171,15 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `system prompt defines signed vector delta semantics`() = runTest {
+        val built = DefaultPromptBuilder().build(promptInput())
+
+        assertContains(built.systemText, "vector_delta is a signed change from the current physiological state")
+        assertContains(built.systemText, "a negative value when the current event lowers it")
+        assertContains(built.systemText, "do not default all dimensions to positive values")
+    }
+
+    @Test
     fun `build injects null address for interlocutor`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
