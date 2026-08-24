@@ -157,6 +157,46 @@ class MemoryContextDeduplicationTest {
     }
 
     @Test
+    fun `mixed lanes only select from their own emotional target pools`() = runTest {
+        val embeddingModel = object : MemoryEmbeddingModel {
+            override suspend fun embed(text: String): List<Float> = listOf(0.0f, 1.0f)
+
+            override suspend fun embed(vector: BioVector): List<Float> =
+                if (vector.p > 0.7f) listOf(1.0f, 0.0f) else listOf(0.0f, 1.0f)
+        }
+        val congruentEntries = (0 until 30).map { index ->
+            entry(
+                id = "congruent-source-$index",
+                content = "congruent source $index",
+                semanticEmbedding = listOf(1.0f, 0.0f),
+                emotionalEmbedding = listOf(0.0f, 1.0f),
+            )
+        }
+        val positiveEntries = (0 until 30).map { index ->
+            entry(
+                id = "positive-source-$index",
+                content = "positive source $index",
+                semanticEmbedding = listOf(0.0f, 1.0f),
+                emotionalEmbedding = listOf(1.0f, 0.0f),
+            )
+        }
+        val index = SourcePartitioningVectorIndex(congruentEntries, positiveEntries)
+        val palace = InMemoryMemoryPalace(
+            inferenceExecutor = DirectInferenceExecutor,
+            embeddingModel = embeddingModel,
+            index = index,
+        )
+        (congruentEntries + positiveEntries).forEach { palace.write(it) }
+
+        val result = palace.retrieve(request(userInput = "query", mode = RetrievalMode.MIXED))
+
+        assertEquals(6, result.congruentCount)
+        assertEquals(4, result.positiveSkewCount)
+        assertTrue(result.memories.take(6).all { it.id.startsWith("congruent-source-") })
+        assertTrue(result.memories.takeLast(4).all { it.id.startsWith("positive-source-") })
+    }
+
+    @Test
     fun `underfilled reports when exclusions exhaust available unique candidates`() = runTest {
         val palace = InMemoryMemoryPalace(DirectInferenceExecutor, maxResults = 2)
         palace.write(entry("seen", "seen", sourceTurnIds = listOf("turn-1")))
@@ -233,6 +273,30 @@ class MemoryContextDeduplicationTest {
                 .filter { it.sessionId == request.sessionId }
                 .take(request.limit)
                 .map { entry -> VectorSearchHit(entry.id, entry, 1.0f, 1.0f) }
+        }
+
+        override suspend fun markDirty() = Unit
+    }
+
+    private class SourcePartitioningVectorIndex(
+        private val congruentEntries: List<MemoryEntry>,
+        private val positiveEntries: List<MemoryEntry>,
+    ) : VectorIndex {
+        override suspend fun insert(entry: MemoryEntry) = Unit
+
+        override suspend fun remove(memoryId: String) = Unit
+
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) = Unit
+
+        override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
+            val pool = if (request.emotionalEmbedding?.firstOrNull() == 1.0f) {
+                positiveEntries
+            } else {
+                congruentEntries
+            }
+            return pool.take(request.limit).map { entry ->
+                VectorSearchHit(entry.id, entry, 1.0f, 1.0f)
+            }
         }
 
         override suspend fun markDirty() = Unit

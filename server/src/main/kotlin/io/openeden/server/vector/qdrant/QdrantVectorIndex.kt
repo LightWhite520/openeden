@@ -7,6 +7,8 @@ import io.openeden.memory.VectorSearchRequest
 import io.openeden.trace.TraceTag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -85,6 +87,7 @@ class QdrantVectorIndex(
         if (limit == 0) return emptyList()
         validateVector(request.semanticEmbedding, "semantic", dimensions?.semantic)
         val knownCollection = ensureSearchCollection(request.semanticEmbedding.size) ?: return emptyList()
+        request.emotionalEmbedding?.let { validateVector(it, EMOTIONAL, dimensions?.emotional) }
         val filter = QdrantFilter(
             must = buildList {
                 add(QdrantFieldCondition("session_id", request.sessionId))
@@ -94,11 +97,53 @@ class QdrantVectorIndex(
             },
         )
         return try {
-            client.searchSemanticPoints(knownCollection, request.semanticEmbedding.toFloatArray(), limit, filter)
-                .mapNotNull { hit ->
-                    val memoryId = hit.payload[MEMORY_ID]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                    VectorSearchHit(memoryId, entry = null, semanticSimilarity = hit.score.toFloat(), emotionalSimilarity = 0.0f)
+            coroutineScope {
+                val semanticHits = async {
+                    client.searchSemanticPoints(
+                        knownCollection,
+                        request.semanticEmbedding.toFloatArray(),
+                        limit,
+                        filter,
+                        using = SEMANTIC,
+                    )
                 }
+                val emotionalHits = request.emotionalEmbedding?.let { emotionalEmbedding ->
+                    async {
+                        client.searchSemanticPoints(
+                            knownCollection,
+                            emotionalEmbedding.toFloatArray(),
+                            limit,
+                            filter,
+                            using = EMOTIONAL,
+                        )
+                    }
+                }
+                val merged = linkedMapOf<String, VectorSearchHit>()
+                semanticHits.await().forEach { hit ->
+                    val memoryId = hit.payload[MEMORY_ID]?.takeIf { it.isNotBlank() } ?: return@forEach
+                    merged[memoryId] = VectorSearchHit(
+                        memoryId,
+                        entry = null,
+                        semanticSimilarity = hit.score.toFloat(),
+                        emotionalSimilarity = 0.0f,
+                    )
+                }
+                emotionalHits?.await()?.forEach { hit ->
+                    val memoryId = hit.payload[MEMORY_ID]?.takeIf { it.isNotBlank() } ?: return@forEach
+                    val existing = merged[memoryId]
+                    merged[memoryId] = if (existing == null) {
+                        VectorSearchHit(
+                            memoryId,
+                            entry = null,
+                            semanticSimilarity = 0.0f,
+                            emotionalSimilarity = hit.score.toFloat(),
+                        )
+                    } else {
+                        existing.copy(emotionalSimilarity = hit.score.toFloat())
+                    }
+                }
+                merged.values.toList()
+            }
         } catch (failure: QdrantClientException) {
             stateMutex.withLock { resetIfCollectionMissing(failure) }
             throw failure

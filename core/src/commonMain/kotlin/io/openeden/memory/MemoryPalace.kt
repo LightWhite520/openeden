@@ -39,20 +39,23 @@ class InMemoryMemoryPalace(
                 RetrievalMode.MIXED -> listOf(request.currentVector, positiveSkew)
                 RetrievalMode.CONTRAST -> listOf(contrastTarget)
             }
-            val candidates = buildList {
+            val targetCandidatePools = buildList<List<MemoryEntry>> {
                 for (emotionalTarget in searchTargets) {
-                    index.search(
-                        VectorSearchRequest(
-                            sessionId = request.sessionId,
-                            semanticEmbedding = querySemantic,
-                            emotionalEmbedding = embeddingModel.embed(emotionalTarget),
-                            limit = overfetchLimit,
-                        ),
-                    ).forEach { hit -> hit.entry?.let(::add) }
+                    val targetCandidates = buildList {
+                        index.search(
+                            VectorSearchRequest(
+                                sessionId = request.sessionId,
+                                semanticEmbedding = querySemantic,
+                                emotionalEmbedding = embeddingModel.embed(emotionalTarget),
+                                limit = overfetchLimit,
+                            ),
+                        ).forEach { hit -> hit.entry?.let(::add) }
+                    }
+                    add(targetCandidates.distinctBy { it.id })
                 }
             }
-                .distinctBy { it.id }
-                .toList()
+            val congruentCandidates = targetCandidatePools.firstOrNull().orEmpty()
+            val positiveCandidates = targetCandidatePools.getOrNull(1).orEmpty()
             val baselineEntropy = entries.asSequence()
                 .filter { it.sessionId == request.sessionId && "daily" in it.tags && "stable" in it.tags }
                 .toList()
@@ -67,7 +70,7 @@ class InMemoryMemoryPalace(
                     }
                 }
             val filtered = MemoryUtilityFilter.filter(
-                candidates = candidates,
+                candidates = congruentCandidates,
                 querySemantic = querySemantic,
                 queryEmotion = queryEmotion,
                 baselineEntropy = baselineEntropy,
@@ -91,7 +94,7 @@ class InMemoryMemoryPalace(
                 }
                 RetrievalMode.MIXED -> {
                     val positiveFiltered = MemoryUtilityFilter.filter(
-                        candidates = candidates,
+                        candidates = positiveCandidates,
                         querySemantic = querySemantic,
                         queryEmotion = embeddingModel.embed(positiveSkew),
                         baselineEntropy = baselineEntropy,
@@ -153,7 +156,7 @@ class InMemoryMemoryPalace(
                 }
                 RetrievalMode.CONTRAST -> {
                     val contrastFiltered = MemoryUtilityFilter.filter(
-                        candidates = candidates,
+                        candidates = congruentCandidates,
                         querySemantic = querySemantic,
                         queryEmotion = embeddingModel.embed(contrastTarget),
                         baselineEntropy = baselineEntropy,

@@ -216,33 +216,46 @@ class SqlDelightMemoryRepository(
             RetrievalMode.CONTRAST -> listOf(contrastTarget)
         }
         val semanticEmbedding = embeddingModel.embed(request.userInput)
-        val hits = buildList {
+        val remotePools = buildList {
             for (emotionalTarget in searchTargets) {
-                retrievalIndex.search(
+                val targetEmbedding = embeddingModel.embed(emotionalTarget)
+                val hits = retrievalIndex.search(
                     VectorSearchRequest(
                         sessionId = request.sessionId,
                         semanticEmbedding = semanticEmbedding,
-                        emotionalEmbedding = embeddingModel.embed(emotionalTarget),
+                        emotionalEmbedding = targetEmbedding,
                         limit = overfetchLimit,
                     ),
-                ).take(overfetchLimit).forEach(::add)
-            }
-        }.distinctBy { it.memoryId }
-        val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
-        var persistedRangeExcludedCount = 0
-        val candidates = hits.mapNotNull { hit ->
-            val stored = hydrated[hit.memoryId] ?: return@mapNotNull null
-            if (stored.hasPersistedRangeOverlap(request)) {
-                persistedRangeExcludedCount += 1
-                null
-            } else {
-                stored.entry
+                ).take(overfetchLimit)
+                val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
+                val rangeExcludedIds = hits.asSequence()
+                    .map { it.memoryId }
+                    .filter { memoryId -> hydrated[memoryId]?.hasPersistedRangeOverlap(request) == true }
+                    .toSet()
+                add(
+                    TargetMemoryPool(
+                        targetEmbedding = targetEmbedding,
+                        entries = hits.asSequence()
+                            .mapNotNull { hit -> hydrated[hit.memoryId]?.entry }
+                            .filterNot { it.id in rangeExcludedIds }
+                            .distinctBy { it.id }
+                            .toList(),
+                        persistedRangeExcludedIds = rangeExcludedIds,
+                    ),
+                )
             }
         }
+        val persistedRangeExcludedCount = remotePools
+            .flatMap { it.persistedRangeExcludedIds }
+            .toSet()
+            .size
+        val candidates = remotePools.flatMap { it.entries }.distinctBy { it.id }
+        val targetPools = remotePools.map { it.targetEmbedding to it.entries }
         val palace = InMemoryMemoryPalace(
             inferenceExecutor = inferenceExecutor,
             maxResults = DEFAULT_MAX_RESULTS,
             embeddingModel = embeddingModel,
+            index = TargetPoolVectorIndex(targetPools),
         )
         candidates.forEach { palace.write(it) }
         palace.retrieve(request).let { result ->
@@ -297,6 +310,38 @@ class SqlDelightMemoryRepository(
     private fun retrievalCandidateLimit(): Int = when {
         candidateLimit <= 0 -> 0
         else -> maxOf(candidateLimit, DEFAULT_MAX_RESULTS * 3)
+    }
+
+    private data class TargetMemoryPool(
+        val targetEmbedding: List<Float>,
+        val entries: List<MemoryEntry>,
+        val persistedRangeExcludedIds: Set<String>,
+    )
+
+    private class TargetPoolVectorIndex(
+        targetPools: List<Pair<List<Float>, List<MemoryEntry>>>,
+    ) : VectorIndex {
+        private val pools = targetPools.toMap()
+
+        override suspend fun insert(entry: MemoryEntry) = Unit
+
+        override suspend fun remove(memoryId: String) = Unit
+
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) = Unit
+
+        override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> =
+            pools[request.emotionalEmbedding].orEmpty()
+                .take(request.limit)
+                .map { entry ->
+                    VectorSearchHit(
+                        memoryId = entry.id,
+                        entry = entry,
+                        semanticSimilarity = 0.0f,
+                        emotionalSimilarity = 0.0f,
+                    )
+                }
+
+        override suspend fun markDirty() = Unit
     }
 
     private fun writeEntry(entry: MemoryEntry, persistedLineage: PersistedMemoryLineage.EncodedLineage) {
