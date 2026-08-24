@@ -9,6 +9,7 @@ import io.openeden.relationship.RelationshipRole
 import io.openeden.relationship.UserAffectState
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.ShockState
+import io.openeden.transcript.ConversationTurn
 
 data class PromptInput(
     val personaConfig: PersonaConfig,
@@ -25,6 +26,7 @@ data class PromptInput(
     val relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
     val relationshipAddress: String? = null,
     val relationshipState: RelationshipState? = null,
+    val recentTurns: List<ConversationTurn> = emptyList(),
 ) {
     init {
         require(systemTime.isNotBlank()) { "System time must not be blank" }

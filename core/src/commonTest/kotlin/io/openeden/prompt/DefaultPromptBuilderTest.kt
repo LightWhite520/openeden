@@ -16,6 +16,7 @@ import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.relationship.RelationshipRole
 import io.openeden.runtime.affect.OmegaState
+import io.openeden.transcript.ConversationTurn
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -44,6 +45,44 @@ class DefaultPromptBuilderTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
         assertContains(built.contextText, "\"created_at\": \"2026-08-22 15:43\"")
+    }
+
+    @Test
+    fun `recent turns are transcript data and rag recent memories stay separate`() = runTest {
+        val base = promptInput(userInput = "刚才说了什么")
+        val built = DefaultPromptBuilder().build(
+            base.copy(
+                recentTurns = listOf(
+                    ConversationTurn(
+                        turnId = "transcript-turn",
+                        incarnationId = "incarnation-a",
+                        sessionId = "CLI:local",
+                        platform = "CLI",
+                        scopeId = "local",
+                        userId = "user-1",
+                        userText = "transcript user text",
+                        assistantText = "transcript assistant text",
+                        completedAtMs = 1_787_384_632_000L,
+                    ),
+                ),
+                retrievalResult = base.retrievalResult.copy(
+                    recentMemories = listOf(
+                        base.retrievalResult.memories.single().copy(
+                            id = "rag-recent",
+                            content = "rag recent memory",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val recentTurnsSection = built.contextText
+            .substringAfter("\"recent_turns\":")
+            .substringBefore("\"memories\":")
+        assertContains(recentTurnsSection, "transcript user text")
+        assertContains(recentTurnsSection, "transcript assistant text")
+        assertTrue("rag recent memory" !in recentTurnsSection)
+        assertContains(built.contextText, "rag recent memory")
     }
 
     @Test
@@ -319,6 +358,7 @@ class DefaultPromptBuilderTest {
         personaConfigOverride: PersonaConfig? = null,
         relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
         relationshipAddress: String? = null,
+        recentTurns: List<ConversationTurn> = emptyList(),
     ): PromptInput = PromptInput(
         personaConfig = personaConfigOverride ?: PersonaConfig(
             mode = personaMode,
@@ -376,5 +416,6 @@ class DefaultPromptBuilderTest {
         systemTime = systemTime,
         relationshipRole = relationshipRole,
         relationshipAddress = relationshipAddress,
+        recentTurns = recentTurns,
     )
 }

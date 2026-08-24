@@ -5,7 +5,10 @@ import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.memory.MemoryContentFingerprint
+import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryStore
+import io.openeden.memory.MemorySnippet
+import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
@@ -84,8 +87,26 @@ class MessagePipelineTranscriptTest {
             )
         }
         val memoryPalace = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val ragRecentMemory = MemorySnippet(
+            id = "rag-recent",
+            content = "rag recent memory",
+            metadata = MemoryMetadata(
+                snapshot8D = BioVector.Neutral,
+                omegaState = 0.0f,
+                deltaVec = io.openeden.bio.VectorDelta.Zero,
+                snapshotOrigin = BioVector.Neutral,
+                userId = "user-1",
+            ),
+        )
         var memoryRecentCalls = 0
         val memoryStore = object : MemoryStore by memoryPalace {
+            override suspend fun retrieve(request: RetrievalRequest): RetrievalResult = RetrievalResult(
+                mode = RetrievalMode.CONGRUENT,
+                injectionLabel = "[memory]",
+                memories = emptyList(),
+                recentMemories = listOf(ragRecentMemory),
+            )
+
             override suspend fun recent(sessionId: String, limit: Int): List<io.openeden.memory.MemorySnippet> {
                 memoryRecentCalls += 1
                 return emptyList()
@@ -105,6 +126,7 @@ class MessagePipelineTranscriptTest {
         assertContains(result.prompt.contextText, "previous user text 1")
         assertContains(result.prompt.contextText, "previous assistant text 2")
         assertFalse(result.prompt.contextText.contains("previous user text 0"))
+        assertContains(result.prompt.contextText, "rag recent memory")
         assertEquals(0, memoryRecentCalls)
     }
 

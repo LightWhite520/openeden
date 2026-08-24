@@ -271,7 +271,7 @@ class DevelopmentMessagePipeline(
                     mode = inference.retrievalMode,
                 ),
             )
-        }.copy(recentMemories = recentTurns.map { it.toRecentMemorySnippet() })
+        }
         trace(traceContext, "retrieval", tags = retrievalResult.traceTags, attributes = mapOf("mode" to retrievalResult.mode.name))
         val resolvedRelationship = relationshipRoleResolver.resolve(request.platform, request.userId)
         val prompt = promptBuilder.build(
@@ -293,6 +293,7 @@ class DevelopmentMessagePipeline(
                 relationshipRole = resolvedRelationship.role,
                 relationshipAddress = resolvedRelationship.address,
                 relationshipState = relationship,
+                recentTurns = recentTurns,
             ),
         )
         trace(traceContext, "prompt_construction")
@@ -663,20 +664,6 @@ class DevelopmentMessagePipeline(
         // turn must never create a NARRATIVE memory synchronously or wait for Diary inference.
         return MemoryWriteOutcome(rawId, rawTrace)
     }
-
-    private fun ConversationTurn.toRecentMemorySnippet(): MemorySnippet = MemorySnippet(
-        id = turnId,
-        content = "user=$userText\nassistant=$assistantText",
-        metadata = MemoryMetadata(
-            snapshot8D = BioVector.Neutral,
-            omegaState = 0.0f,
-            deltaVec = VectorDelta.Zero,
-            snapshotOrigin = BioVector.Neutral,
-            userId = userId,
-            lineage = MemoryLineage(sourceTurnIds = listOf(turnId)),
-        ),
-        createdAtMs = completedAtMs,
-    )
 
     companion object {
         private const val RECENT_HISTORY_LIMIT = 8

@@ -7,6 +7,7 @@ import io.openeden.persona.PersonaSubState
 import io.openeden.relationship.RelationshipState
 import io.openeden.relationship.SemanticLevel
 import io.openeden.relationship.UserAffectState
+import io.openeden.transcript.ConversationTurn
 
 class DefaultPromptBuilder(
     private val renderer: PromptRenderer = PromptRenderer(),
@@ -194,16 +195,14 @@ object OpenEdenPromptDocumentFactory {
 
     private fun PromptObjectBuilder.memoryRetrievalObject(input: PromptInput): PromptObject {
         val recentLimit = if (input.userInput.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS
-        val recent = input.retrievalResult.recentMemories.takeLast(recentLimit)
-        val recentIds = recent.mapTo(hashSetOf()) { it.id }
-        val relevant = input.retrievalResult.memories
-            .filterNot { it.id in recentIds }
-            .take((MAX_CONTEXT_MEMORIES - recent.size).coerceAtLeast(0))
+        val recentTurns = input.recentTurns.takeLast(recentLimit)
+        val relevant = input.retrievalResult.memories.take(MAX_CONTEXT_MEMORIES)
         return obj {
             "selected_mode" to input.retrievalResult.mode.name
             "injection_label" to input.retrievalResult.injectionLabel
-            "recent_turns" to array(recent.map(::memorySnippetObject))
+            "recent_turns" to array(recentTurns.map(::conversationTurnObject))
             "memories" to array(relevant.map(::memorySnippetObject))
+            "recent_memories" to array(input.retrievalResult.recentMemories.map(::memorySnippetObject))
         }
     }
 
@@ -212,6 +211,17 @@ object OpenEdenPromptDocumentFactory {
 
     private const val RECENT_CONTEXT_TURNS = 2
     private const val MAX_CONTEXT_MEMORIES = 6
+
+    private fun conversationTurnObject(turn: ConversationTurn): PromptObject =
+        PromptObject(
+            listOf(
+                PromptField("turn_id", PromptScalar(turn.turnId)),
+                PromptField("user_text", PromptScalar(turn.userText)),
+                PromptField("assistant_text", PromptScalar(turn.assistantText)),
+                PromptField("created_at", PromptScalar(PromptTime.format(turn.completedAtMs))),
+                PromptField("user_id", PromptScalar(turn.userId)),
+            ),
+        )
 
     private fun memorySnippetObject(memory: MemorySnippet): PromptObject =
         PromptObject(
