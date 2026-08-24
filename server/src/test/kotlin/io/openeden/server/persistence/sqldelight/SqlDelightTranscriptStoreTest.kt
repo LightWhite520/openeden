@@ -278,6 +278,47 @@ class SqlDelightTranscriptStoreTest {
         }
     }
 
+    @Test
+    fun `migration ten installs session recent query with ordering and limit`() = runTest {
+        createVersionFourDatabase()
+
+        val store = SqlDelightTranscriptStore.open(dbPath)
+        try {
+            val incarnationId = store.activeIncarnation().id
+            store.append(turn(1, incarnationId).copy(
+                turnId = "target-old",
+                sessionId = "QQ:target",
+                scopeId = "target",
+                completedAtMs = 10L,
+            ))
+            store.append(turn(2, incarnationId).copy(
+                turnId = "target-a",
+                sessionId = "QQ:target",
+                scopeId = "target",
+                completedAtMs = 20L,
+            ))
+            store.append(turn(3, incarnationId).copy(
+                turnId = "target-b",
+                sessionId = "QQ:target",
+                scopeId = "target",
+                completedAtMs = 20L,
+            ))
+            store.append(turn(4, incarnationId).copy(
+                turnId = "other-new",
+                sessionId = "QQ:other",
+                scopeId = "other",
+                completedAtMs = 30L,
+            ))
+
+            assertEquals(
+                listOf("target-a", "target-b"),
+                store.recentForSession("QQ:target", limit = 2).map { it.turnId },
+            )
+        } finally {
+            store.close()
+        }
+    }
+
     private suspend fun concurrentOpen(
         paths: List<Path> = listOf(dbPath, dbPath),
     ): List<SqlDelightTranscriptStore> = coroutineScope {

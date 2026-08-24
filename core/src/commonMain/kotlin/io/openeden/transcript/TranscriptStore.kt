@@ -14,16 +14,16 @@ interface TranscriptStore {
         val requestedLimit = limit.coerceAtLeast(0)
         if (requestedLimit == 0) return emptyList()
 
-        val turns = mutableListOf<ConversationTurn>()
+        val pages = mutableListOf<List<ConversationTurn>>()
         var before: HistoryCursor? = null
         var page: ConversationHistoryPage
         do {
             page = page(limit = DEFAULT_PAGE_SIZE, before = before)
-            turns += page.turns.filter { it.sessionId == sessionId }
+            pages += page.turns.filter { it.sessionId == sessionId }
             before = page.before
         } while (page.hasMore)
 
-        return turns.takeLast(requestedLimit)
+        return pages.asReversed().flatten().takeLast(requestedLimit)
     }
 
     suspend fun page(

@@ -68,19 +68,21 @@ class MessagePipelineTranscriptTest {
     @Test
     fun `prompt recent turns come from transcript instead of memory recency`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
-        transcripts.append(
-            ConversationTurn(
-                turnId = "previous-turn",
-                incarnationId = "incarnation-a",
-                sessionId = "CLI:local",
-                platform = "CLI",
-                scopeId = "local",
-                userId = "user-1",
-                userText = "previous user text",
-                assistantText = "previous assistant text",
-                completedAtMs = 10L,
-            ),
-        )
+        repeat(3) { index ->
+            transcripts.append(
+                ConversationTurn(
+                    turnId = "previous-turn-$index",
+                    incarnationId = "incarnation-a",
+                    sessionId = "CLI:local",
+                    platform = "CLI",
+                    scopeId = "local",
+                    userId = "user-1",
+                    userText = "previous user text $index",
+                    assistantText = "previous assistant text $index",
+                    completedAtMs = index.toLong() + 10L,
+                ),
+            )
+        }
         val memoryPalace = InMemoryMemoryPalace(DirectInferenceExecutor)
         var memoryRecentCalls = 0
         val memoryStore = object : MemoryStore by memoryPalace {
@@ -100,9 +102,46 @@ class MessagePipelineTranscriptTest {
 
         val result = pipeline.handle(request(turnId = "current-turn"))
 
-        assertContains(result.prompt.contextText, "previous user text")
-        assertContains(result.prompt.contextText, "previous assistant text")
+        assertContains(result.prompt.contextText, "previous user text 1")
+        assertContains(result.prompt.contextText, "previous assistant text 2")
+        assertFalse(result.prompt.contextText.contains("previous user text 0"))
         assertEquals(0, memoryRecentCalls)
+    }
+
+    @Test
+    fun `immediate reference keeps the latest four transcript turns`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        repeat(6) { index ->
+            transcripts.append(
+                ConversationTurn(
+                    turnId = "reference-turn-$index",
+                    incarnationId = "incarnation-a",
+                    sessionId = "CLI:local",
+                    platform = "CLI",
+                    scopeId = "local",
+                    userId = "user-1",
+                    userText = "reference user text $index",
+                    assistantText = "reference assistant text $index",
+                    completedAtMs = index.toLong() + 10L,
+                ),
+            )
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = transcripts),
+            transcriptStore = transcripts,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        val result = pipeline.handle(request(turnId = "current-turn").copy(text = "刚才说了什么"))
+
+        (2..5).forEach { index ->
+            assertContains(result.prompt.contextText, "reference user text $index")
+            assertContains(result.prompt.contextText, "reference assistant text $index")
+        }
+        assertFalse(result.prompt.contextText.contains("reference user text 0"))
+        assertFalse(result.prompt.contextText.contains("reference user text 1"))
     }
 
     @Test

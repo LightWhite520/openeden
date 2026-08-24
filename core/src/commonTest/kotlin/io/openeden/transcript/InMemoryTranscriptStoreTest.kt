@@ -108,6 +108,25 @@ class InMemoryTranscriptStoreTest {
         assertEquals(emptyList(), store.recentForSession("QQ:missing", limit = 2))
     }
 
+    @Test
+    fun `default recentForSession keeps latest turns across chronological pages`() = runTest {
+        val backingStore = InMemoryTranscriptStore("incarnation-a", createdAtMs = 123L)
+        repeat(60) { index -> backingStore.append(turn(index)) }
+        val pagingOnlyStore = object : TranscriptStore {
+            override suspend fun activeIncarnation(): ActiveIncarnation = backingStore.activeIncarnation()
+
+            override suspend fun append(turn: ConversationTurn) = backingStore.append(turn)
+
+            override suspend fun page(limit: Int, before: HistoryCursor?): ConversationHistoryPage =
+                backingStore.page(limit, before)
+        }
+
+        assertEquals(
+            listOf("turn-56", "turn-57", "turn-58", "turn-59"),
+            pagingOnlyStore.recentForSession("QQ:group-1", limit = 4).map { it.turnId },
+        )
+    }
+
     private fun turn(index: Int): ConversationTurn = ConversationTurn(
         turnId = "turn-$index",
         incarnationId = "incarnation-a",
