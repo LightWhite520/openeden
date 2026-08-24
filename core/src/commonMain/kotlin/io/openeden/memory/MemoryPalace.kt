@@ -27,19 +27,32 @@ class InMemoryMemoryPalace(
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult =
         inferenceExecutor.run {
             val overfetchLimit = retrievalLimit()
-            val candidates = index.search(
-                VectorSearchRequest(
-                    sessionId = request.sessionId,
-                    semanticEmbedding = embeddingModel.embed(request.userInput),
-                    emotionalEmbedding = embeddingModel.embed(request.currentVector),
-                    limit = overfetchLimit,
-                ),
-            ).asSequence()
-                .mapNotNull { it.entry }
-                .distinctBy { it.id }
-                .toList()
             val querySemantic = embeddingModel.embed(request.userInput)
             val queryEmotion = embeddingModel.embed(request.currentVector)
+            val positiveSkew = request.currentVector.copy(
+                p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
+                v = (request.currentVector.v + 0.2f).coerceAtMost(1.0f),
+            )
+            val contrastTarget = VectorMapping.centerSymmetricTarget(request.currentVector, request.origin)
+            val searchTargets = when (request.mode) {
+                RetrievalMode.CONGRUENT -> listOf(request.currentVector)
+                RetrievalMode.MIXED -> listOf(request.currentVector, positiveSkew)
+                RetrievalMode.CONTRAST -> listOf(contrastTarget)
+            }
+            val candidates = buildList {
+                for (emotionalTarget in searchTargets) {
+                    index.search(
+                        VectorSearchRequest(
+                            sessionId = request.sessionId,
+                            semanticEmbedding = querySemantic,
+                            emotionalEmbedding = embeddingModel.embed(emotionalTarget),
+                            limit = overfetchLimit,
+                        ),
+                    ).forEach { hit -> hit.entry?.let(::add) }
+                }
+            }
+                .distinctBy { it.id }
+                .toList()
             val baselineEntropy = entries.asSequence()
                 .filter { it.sessionId == request.sessionId && "daily" in it.tags && "stable" in it.tags }
                 .toList()
@@ -77,10 +90,6 @@ class InMemoryMemoryPalace(
                     congruentCount = it.selected.size
                 }
                 RetrievalMode.MIXED -> {
-                    val positiveSkew = request.currentVector.copy(
-                        p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
-                        v = (request.currentVector.v + 0.2f).coerceAtMost(1.0f),
-                    )
                     val positiveFiltered = MemoryUtilityFilter.filter(
                         candidates = candidates,
                         querySemantic = querySemantic,
@@ -90,38 +99,68 @@ class InMemoryMemoryPalace(
                     )
                     val congruentTarget = ceil(maxResults * 0.6).toInt()
                     val positiveTarget = floor(maxResults * 0.4).toInt()
+                    val congruentRanked = rank(
+                        filtered.candidates,
+                        request,
+                        request.currentVector,
+                        overfetchLimit,
+                    )
+                    val positiveRanked = rank(
+                        positiveFiltered.candidates,
+                        request,
+                        positiveSkew,
+                        overfetchLimit,
+                    )
                     val congruentResult = selectUnique(
-                        ranked = rank(filtered.candidates, request, request.currentVector, overfetchLimit),
+                        ranked = congruentRanked,
                         limit = congruentTarget,
                         exclusionContext = request.exclusionContext,
                     )
                     congruentCount = congruentResult.selected.size
                     val positiveResult = selectUnique(
-                        ranked = rank(positiveFiltered.candidates, request, positiveSkew, overfetchLimit),
+                        ranked = positiveRanked,
                         limit = positiveTarget,
                         exclusionContext = request.exclusionContext,
                         alreadySelected = congruentResult.selected,
                     )
                     positiveSkewCount = positiveResult.selected.size
-                    val fillResult = selectUnique(
-                        ranked = rank(filtered.candidates, request, request.currentVector, overfetchLimit),
-                        limit = maxResults - congruentResult.selected.size - positiveResult.selected.size,
-                        exclusionContext = request.exclusionContext,
-                        alreadySelected = congruentResult.selected + positiveResult.selected,
-                    )
-                    congruentResult + positiveResult + fillResult
+                    var selectedResult = congruentResult + positiveResult
+                    var remaining = maxResults - selectedResult.selected.size
+                    if (remaining > 0 && congruentResult.selected.size < congruentTarget) {
+                        val positiveFill = selectUnique(
+                            ranked = positiveRanked,
+                            limit = remaining,
+                            backfillBaseline = positiveTarget,
+                            exclusionContext = request.exclusionContext,
+                            alreadySelected = selectedResult.selected,
+                        )
+                        selectedResult += positiveFill
+                        positiveSkewCount += positiveFill.selected.size
+                        remaining = maxResults - selectedResult.selected.size
+                    }
+                    if (remaining > 0 && positiveResult.selected.size < positiveTarget) {
+                        val congruentFill = selectUnique(
+                            ranked = congruentRanked,
+                            limit = remaining,
+                            backfillBaseline = congruentTarget,
+                            exclusionContext = request.exclusionContext,
+                            alreadySelected = selectedResult.selected,
+                        )
+                        selectedResult += congruentFill
+                        congruentCount += congruentFill.selected.size
+                    }
+                    selectedResult
                 }
                 RetrievalMode.CONTRAST -> {
-                    val target = VectorMapping.centerSymmetricTarget(request.currentVector, request.origin)
                     val contrastFiltered = MemoryUtilityFilter.filter(
                         candidates = candidates,
                         querySemantic = querySemantic,
-                        queryEmotion = embeddingModel.embed(target),
+                        queryEmotion = embeddingModel.embed(contrastTarget),
                         baselineEntropy = baselineEntropy,
                         config = utilityFilterConfig,
                     )
                     selectUnique(
-                        ranked = rank(contrastFiltered.candidates, request, target, overfetchLimit),
+                        ranked = rank(contrastFiltered.candidates, request, contrastTarget, overfetchLimit),
                         limit = maxResults,
                         exclusionContext = request.exclusionContext,
                     )
@@ -177,6 +216,7 @@ class InMemoryMemoryPalace(
     private fun selectUnique(
         ranked: List<MemorySnippet>,
         limit: Int,
+        backfillBaseline: Int = limit,
         exclusionContext: MemoryExclusionContext,
         alreadySelected: List<MemorySnippet> = emptyList(),
     ): SelectionResult {
@@ -206,8 +246,8 @@ class InMemoryMemoryPalace(
             result += candidate
             selected += candidate
             seenIds += candidate.id
-            if (rankIndex >= limit) {
-                backfillDepth = maxOf(backfillDepth, rankIndex + 1 - limit)
+            if (rankIndex >= backfillBaseline) {
+                backfillDepth = maxOf(backfillDepth, rankIndex + 1 - backfillBaseline)
             }
             if (result.size == limit) break
         }

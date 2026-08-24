@@ -48,6 +48,7 @@ import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flow
@@ -257,9 +258,19 @@ class DevelopmentMessagePipeline(
             )
         }
         trace(traceContext, "quantization", tags = inference.quantization.traceTags)
-        val recentTurns = transcriptStore
-            ?.recentForSession(sessionId, RECENT_HISTORY_LIMIT)
-            .orEmpty()
+        var recentTurns = emptyList<ConversationTurn>()
+        var transcriptTags = emptySet<String>()
+        if (transcriptStore != null) {
+            try {
+                recentTurns = transcriptStore.recentForSession(sessionId, RECENT_HISTORY_LIMIT)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                recentTurns = emptyList()
+                transcriptTags = setOf(TraceTag.TranscriptDegraded)
+            }
+        }
+        trace(traceContext, "transcript_recent", tags = transcriptTags)
         val injectedRecentTurns = recentTurns.takeLast(
             if (request.text.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS,
         )
@@ -538,7 +549,7 @@ class DevelopmentMessagePipeline(
             traceContext,
             "turn",
             status = if (validation.isValid) TraceStatus.OK else TraceStatus.FAILED,
-            tags = inference.quantization.traceTags + retrievalResult.traceTags + centroidTags + sourceTags,
+            tags = inference.quantization.traceTags + retrievalResult.traceTags + transcriptTags + centroidTags + sourceTags,
             attributes = mapOf("source" to request.source.name, "retrieval_mode" to retrievalResult.mode.name),
         )
 
@@ -547,6 +558,7 @@ class DevelopmentMessagePipeline(
             retrievalMode = retrievalResult.mode,
             traceTags = inference.quantization.traceTags +
                 retrievalResult.traceTags +
+                transcriptTags +
                 groundingTraceTags +
                 write.traceTags +
                 diaryOutcome.traceTags +

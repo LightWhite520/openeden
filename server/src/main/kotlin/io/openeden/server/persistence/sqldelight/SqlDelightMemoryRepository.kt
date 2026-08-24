@@ -5,6 +5,7 @@ import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
+import io.openeden.bio.VectorMapping
 import io.openeden.memory.DeterministicMemoryEmbeddingModel
 import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.memory.MemoryEntry
@@ -15,6 +16,7 @@ import io.openeden.memory.MemoryRetriever
 import io.openeden.memory.MemorySnippet
 import io.openeden.memory.MemoryRoom
 import io.openeden.memory.MemoryStore
+import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
 import io.openeden.memory.RebuildableInMemoryVectorIndex
@@ -203,14 +205,29 @@ class SqlDelightMemoryRepository(
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult = inferenceExecutor.run {
         ensureIndexed(request.sessionId)
         val overfetchLimit = retrievalCandidateLimit()
-        val hits = retrievalIndex.search(
-            VectorSearchRequest(
-                sessionId = request.sessionId,
-                semanticEmbedding = embeddingModel.embed(request.userInput),
-                emotionalEmbedding = embeddingModel.embed(request.currentVector),
-                limit = overfetchLimit,
-            ),
-        ).take(overfetchLimit)
+        val positiveSkew = request.currentVector.copy(
+            p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
+            v = (request.currentVector.v + 0.2f).coerceAtMost(1.0f),
+        )
+        val contrastTarget = VectorMapping.centerSymmetricTarget(request.currentVector, request.origin)
+        val searchTargets = when (request.mode) {
+            RetrievalMode.CONGRUENT -> listOf(request.currentVector)
+            RetrievalMode.MIXED -> listOf(request.currentVector, positiveSkew)
+            RetrievalMode.CONTRAST -> listOf(contrastTarget)
+        }
+        val semanticEmbedding = embeddingModel.embed(request.userInput)
+        val hits = buildList {
+            for (emotionalTarget in searchTargets) {
+                retrievalIndex.search(
+                    VectorSearchRequest(
+                        sessionId = request.sessionId,
+                        semanticEmbedding = semanticEmbedding,
+                        emotionalEmbedding = embeddingModel.embed(emotionalTarget),
+                        limit = overfetchLimit,
+                    ),
+                ).take(overfetchLimit).forEach(::add)
+            }
+        }.distinctBy { it.memoryId }
         val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
         var persistedRangeExcludedCount = 0
         val candidates = hits.mapNotNull { hit ->

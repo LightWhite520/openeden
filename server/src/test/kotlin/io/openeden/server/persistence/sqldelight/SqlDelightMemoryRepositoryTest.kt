@@ -575,6 +575,34 @@ class SqlDelightMemoryRepositoryTest {
         }
     }
 
+    @Test
+    fun `sql delight mixed retrieval searches each emotional lane deeply`() = runTest {
+        val memories = (1..12).map { index ->
+            memoryEntry("QQ:42:${index * 1000}:raw", "QQ:42", "mixed-candidate-$index")
+        }
+        val remoteIndex = FakeVectorIndex(memories.map { entry ->
+            VectorSearchHit(entry.id, null, 1.0f, 1.0f)
+        })
+
+        SqlDelightMemoryRepository.open(
+            dbPath,
+            index = remoteIndex,
+            candidateLimit = 1,
+        ).use { repository ->
+            memories.forEach { repository.write(it, modelId = "local-v1") }
+
+            val result = repository.retrieve(
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.MIXED),
+            )
+
+            assertEquals(2, remoteIndex.searchCount)
+            assertEquals(listOf(30, 30), remoteIndex.limits)
+            assertTrue(remoteIndex.emotionalEmbeddings[0] != remoteIndex.emotionalEmbeddings[1])
+            assertEquals(10, result.memories.size)
+            assertFalse(result.underfilled)
+        }
+    }
+
     private fun createVersionEightMemoryDatabase(driver: JdbcSqliteDriver) {
         driver.execute(
             null,
@@ -650,6 +678,8 @@ class SqlDelightMemoryRepositoryTest {
         var searchCount = 0
         var rebuildCount = 0
         var lastLimit = 0
+        val limits = mutableListOf<Int>()
+        val emotionalEmbeddings = mutableListOf<List<Float>?>()
 
         override suspend fun insert(entry: MemoryEntry) = Unit
         override suspend fun remove(memoryId: String) = Unit
@@ -659,6 +689,8 @@ class SqlDelightMemoryRepositoryTest {
         override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
             searchCount += 1
             lastLimit = request.limit
+            limits += request.limit
+            emotionalEmbeddings += request.emotionalEmbedding
             return hits.take(request.limit)
         }
         override suspend fun markDirty() = Unit

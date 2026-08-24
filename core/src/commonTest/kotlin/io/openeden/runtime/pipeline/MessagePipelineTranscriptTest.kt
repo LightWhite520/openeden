@@ -275,6 +275,23 @@ class MessagePipelineTranscriptTest {
     }
 
     @Test
+    fun `transcript recent failure degrades to empty context without blocking the turn`() = runTest {
+        val transcripts = FailingRecentTranscriptStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = transcripts,
+            transcriptStore = transcripts,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        val result = pipeline.handle(request(turnId = "transcript-degraded"))
+
+        assertTrue(TraceTag.TranscriptDegraded in result.traceTags)
+        assertContains(result.prompt.contextText, "\"recent_turns\": []")
+    }
+
+    @Test
     fun `invalid user and heartbeat turns do not enter public transcript`() = runTest {
         val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
 
@@ -542,6 +559,39 @@ class MessagePipelineTranscriptTest {
             ),
             response = response,
         )
+    }
+
+    private class FailingRecentTranscriptStore : SessionStateStore, AtomicTurnCommitStore, TranscriptStore {
+        private val delegate = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+
+        override suspend fun read(sessionId: String): SessionState = delegate.read(sessionId)
+
+        override suspend fun readOrCreate(
+            sessionId: String,
+            personaMode: PersonaMode?,
+            personaStartSubState: PersonaSubState?,
+        ): SessionState = delegate.readOrCreate(sessionId, personaMode, personaStartSubState)
+
+        override suspend fun write(state: SessionState) = delegate.write(state)
+
+        override suspend fun sessionIds(): Set<String> = delegate.sessionIds()
+
+        override fun commitsTo(transcriptStore: TranscriptStore): Boolean = transcriptStore === this
+
+        override suspend fun writeCommittedTurn(
+            state: SessionState,
+            turn: ConversationTurn,
+        ): TurnCommitOutcome = delegate.writeCommittedTurn(state, turn)
+
+        override suspend fun activeIncarnation(): ActiveIncarnation = delegate.activeIncarnation()
+
+        override suspend fun append(turn: ConversationTurn) = delegate.append(turn)
+
+        override suspend fun recentForSession(sessionId: String, limit: Int): List<ConversationTurn> =
+            error("recent transcript unavailable")
+
+        override suspend fun page(limit: Int, before: HistoryCursor?): ConversationHistoryPage =
+            delegate.page(limit, before)
     }
 
     private object InvalidLlmClient : LlmClient {

@@ -125,10 +125,35 @@ class MemoryContextDeduplicationTest {
         )
 
         assertEquals(0, result.congruentCount)
-        assertEquals(4, result.positiveSkewCount)
-        assertEquals(4, result.memories.size)
+        assertEquals(5, result.positiveSkewCount)
+        assertEquals(5, result.memories.size)
         assertTrue(result.lineageExcludedCount >= 1)
         assertTrue(result.underfilled)
+        assertTrue(result.backfillDepth > 0)
+    }
+
+    @Test
+    fun `mixed and contrast retrieve independent deep emotional candidate pools`() = runTest {
+        val index = RecordingVectorIndex()
+        val palace = InMemoryMemoryPalace(
+            inferenceExecutor = DirectInferenceExecutor,
+            index = index,
+        )
+        repeat(30) { indexValue -> palace.write(entry("deep-$indexValue", "deep candidate $indexValue")) }
+
+        palace.retrieve(request(userInput = "deep", mode = RetrievalMode.MIXED))
+
+        assertEquals(listOf(30, 30), index.requests.map { it.limit })
+        assertTrue(index.requests[0].emotionalEmbedding != index.requests[1].emotionalEmbedding)
+
+        index.requests.clear()
+        palace.retrieve(
+            request(mode = RetrievalMode.CONTRAST).copy(
+                currentVector = BioVector.Neutral.copy(p = 0.1f, v = 0.2f),
+            ),
+        )
+
+        assertEquals(listOf(30), index.requests.map { it.limit })
     }
 
     @Test
@@ -184,4 +209,32 @@ class MemoryContextDeduplicationTest {
             contentFingerprint = contentFingerprint,
         ),
     )
+
+    private class RecordingVectorIndex : VectorIndex {
+        val requests = mutableListOf<VectorSearchRequest>()
+        private val entries = linkedMapOf<String, MemoryEntry>()
+
+        override suspend fun insert(entry: MemoryEntry) {
+            entries[entry.id] = entry
+        }
+
+        override suspend fun remove(memoryId: String) {
+            entries.remove(memoryId)
+        }
+
+        override suspend fun rebuild(entries: Iterable<MemoryEntry>, batchSize: Int) {
+            this.entries.clear()
+            entries.forEach { entry -> this.entries[entry.id] = entry }
+        }
+
+        override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
+            requests += request
+            return entries.values
+                .filter { it.sessionId == request.sessionId }
+                .take(request.limit)
+                .map { entry -> VectorSearchHit(entry.id, entry, 1.0f, 1.0f) }
+        }
+
+        override suspend fun markDirty() = Unit
+    }
 }
