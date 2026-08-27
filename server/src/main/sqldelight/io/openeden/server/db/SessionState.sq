@@ -32,6 +32,14 @@ WHERE session_id = ?;
 selectAllIds:
 SELECT session_id FROM session_state;
 
+selectMostEstablished:
+SELECT session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state,
+       last_user_activity_ms, last_runtime_tick_at_ms, shock_active, shock_intensity, shock_description,
+       shock_triggered_at_ms, shock_decay_lambda, shock_heartbeat_fired
+FROM session_state
+ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+LIMIT 1;
+
 selectPersonaSelectionById:
 SELECT persona_mode, persona_start_sub_state
 FROM session_state

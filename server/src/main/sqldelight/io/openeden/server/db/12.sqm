@@ -1,0 +1,98 @@
+ALTER TABLE incarnation_state ADD COLUMN vector_json TEXT;
+ALTER TABLE incarnation_state ADD COLUMN origin_json TEXT;
+ALTER TABLE incarnation_state ADD COLUMN omega REAL;
+ALTER TABLE incarnation_state ADD COLUMN evolution_index INTEGER;
+ALTER TABLE incarnation_state ADD COLUMN persona_mode TEXT;
+ALTER TABLE incarnation_state ADD COLUMN persona_start_sub_state TEXT;
+ALTER TABLE incarnation_state ADD COLUMN last_user_activity_ms INTEGER;
+ALTER TABLE incarnation_state ADD COLUMN last_runtime_tick_at_ms INTEGER;
+ALTER TABLE incarnation_state ADD COLUMN shock_active INTEGER;
+ALTER TABLE incarnation_state ADD COLUMN shock_intensity REAL;
+ALTER TABLE incarnation_state ADD COLUMN shock_description TEXT;
+ALTER TABLE incarnation_state ADD COLUMN shock_triggered_at_ms INTEGER;
+ALTER TABLE incarnation_state ADD COLUMN shock_decay_lambda REAL;
+ALTER TABLE incarnation_state ADD COLUMN shock_heartbeat_fired INTEGER;
+
+-- Versions before incarnation lifecycle persistence have no singleton row at migration time.
+-- Materialize one deterministic active incarnation before copying the established legacy Bio state.
+INSERT OR IGNORE INTO incarnation_state(
+    singleton_id, active_incarnation_id, created_at_ms, lifecycle_status, lifecycle_changed_at_ms
+)
+SELECT 1, 'legacy-incarnation', COALESCE(last_user_activity_ms, 0), 'ACTIVE',
+       COALESCE(last_user_activity_ms, 0)
+FROM session_state
+ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+LIMIT 1;
+
+UPDATE incarnation_state
+SET vector_json = (
+        SELECT vector_json FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    origin_json = (
+        SELECT origin_json FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    omega = (
+        SELECT omega FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    evolution_index = (
+        SELECT evolution_index FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    persona_mode = (
+        SELECT persona_mode FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    persona_start_sub_state = (
+        SELECT persona_start_sub_state FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    last_user_activity_ms = (
+        SELECT last_user_activity_ms FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    last_runtime_tick_at_ms = (
+        SELECT last_runtime_tick_at_ms FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    shock_active = (
+        SELECT shock_active FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    shock_intensity = (
+        SELECT shock_intensity FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    shock_description = (
+        SELECT shock_description FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    shock_triggered_at_ms = (
+        SELECT shock_triggered_at_ms FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    shock_decay_lambda = (
+        SELECT shock_decay_lambda FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    ),
+    shock_heartbeat_fired = (
+        SELECT shock_heartbeat_fired FROM session_state
+        ORDER BY evolution_index DESC, last_user_activity_ms DESC, session_id ASC
+        LIMIT 1
+    )
+WHERE singleton_id = 1;

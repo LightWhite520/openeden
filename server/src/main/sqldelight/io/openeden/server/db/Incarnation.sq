@@ -5,7 +5,21 @@ CREATE TABLE incarnation_state (
     lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE',
     lifecycle_changed_at_ms INTEGER NOT NULL DEFAULT 0,
     termination_reason TEXT,
-    lifecycle_request_id TEXT
+    lifecycle_request_id TEXT,
+    vector_json TEXT,
+    origin_json TEXT,
+    omega REAL,
+    evolution_index INTEGER,
+    persona_mode TEXT,
+    persona_start_sub_state TEXT,
+    last_user_activity_ms INTEGER,
+    last_runtime_tick_at_ms INTEGER,
+    shock_active INTEGER,
+    shock_intensity REAL,
+    shock_description TEXT,
+    shock_triggered_at_ms INTEGER,
+    shock_decay_lambda REAL,
+    shock_heartbeat_fired INTEGER
 );
 
 selectLifecycle:
@@ -27,5 +41,34 @@ WHERE singleton_id = 1;
 updateFreshIncarnation:
 UPDATE incarnation_state
 SET active_incarnation_id = ?, created_at_ms = ?, lifecycle_status = 'ACTIVE',
-    lifecycle_changed_at_ms = ?, termination_reason = NULL, lifecycle_request_id = ?
+    lifecycle_changed_at_ms = ?, termination_reason = NULL, lifecycle_request_id = ?,
+    vector_json = NULL, origin_json = NULL, omega = NULL, evolution_index = NULL,
+    persona_mode = NULL, persona_start_sub_state = NULL, last_user_activity_ms = NULL,
+    last_runtime_tick_at_ms = NULL, shock_active = NULL, shock_intensity = NULL,
+    shock_description = NULL, shock_triggered_at_ms = NULL, shock_decay_lambda = NULL,
+    shock_heartbeat_fired = NULL
 WHERE singleton_id = 1;
+
+selectBioByIncarnationId:
+SELECT active_incarnation_id, vector_json, origin_json, omega, evolution_index,
+       persona_mode, persona_start_sub_state, last_user_activity_ms, last_runtime_tick_at_ms,
+       shock_active, shock_intensity, shock_description, shock_triggered_at_ms,
+       shock_decay_lambda, shock_heartbeat_fired
+FROM incarnation_state
+WHERE singleton_id = 1 AND active_incarnation_id = ?;
+
+initializeBioIfAbsent:
+UPDATE incarnation_state
+SET vector_json = ?, origin_json = ?, omega = ?, evolution_index = ?, persona_mode = ?,
+    persona_start_sub_state = ?, last_user_activity_ms = ?, last_runtime_tick_at_ms = ?,
+    shock_active = ?, shock_intensity = ?, shock_description = ?, shock_triggered_at_ms = ?,
+    shock_decay_lambda = ?, shock_heartbeat_fired = ?
+WHERE singleton_id = 1 AND active_incarnation_id = ? AND vector_json IS NULL;
+
+updateBio:
+UPDATE incarnation_state
+SET vector_json = ?, origin_json = ?, omega = ?, evolution_index = ?, persona_mode = ?,
+    persona_start_sub_state = ?, last_user_activity_ms = ?, last_runtime_tick_at_ms = ?,
+    shock_active = ?, shock_intensity = ?, shock_description = ?, shock_triggered_at_ms = ?,
+    shock_decay_lambda = ?, shock_heartbeat_fired = ?
+WHERE singleton_id = 1 AND active_incarnation_id = ?;
