@@ -10,13 +10,14 @@ import io.openeden.runtime.pipeline.TurnSource
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
+import io.openeden.runtime.time.RuntimeClock
+import io.openeden.runtime.time.SystemRuntimeClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
 
 class HeartbeatScheduler(
     private val pipeline: DevelopmentMessagePipeline,
@@ -26,7 +27,7 @@ class HeartbeatScheduler(
     private val config: HeartbeatConfig = HeartbeatConfig(),
     private val interval: HeartbeatIntervalStrategy = RandomHeartbeatInterval(),
     private val routeResolver: HeartbeatRouteResolver = OwnerHeartbeatRouteResolver(owner = null),
-    private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val clock: RuntimeClock = SystemRuntimeClock,
     private val onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
 ) {
     fun decide(state: SessionState, now: Long): HeartbeatDecision {
@@ -41,7 +42,7 @@ class HeartbeatScheduler(
         return HeartbeatDecision.SKIP
     }
 
-    suspend fun evaluateOnce(now: Long = nowMs()) {
+    suspend fun evaluateOnce(now: Long = clock.nowMs()) {
         for (sessionId in store.sessionIds()) {
             val decision = decide(store.read(sessionId), now)
             if (decision == HeartbeatDecision.SKIP) continue

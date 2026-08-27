@@ -1,9 +1,28 @@
 package io.openeden.prompt
 
+import io.openeden.runtime.time.MutableRuntimeClock
+import io.openeden.runtime.time.TemporalContextProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class PromptTimeTest {
+    @Test
+    fun `ordinary adjacent turn omits exact timestamp`() {
+        val clock = MutableRuntimeClock(1_777_000_000_000L)
+        val context = TemporalContextProvider(clock).forTurn("今天吃什么", clock.nowMs() - 60_000L)
+
+        assertNull(context.exactTime)
+        assertEquals("recent", context.elapsedBucket)
+    }
+
+    @Test
+    fun `direct time question receives exact authoritative time`() {
+        val context = TemporalContextProvider(MutableRuntimeClock(1234L)).forTurn("现在几点", null)
+
+        assertEquals(1234L, context.exactTime)
+    }
+
     @Test
     fun `formats epoch milliseconds in Shanghai timezone`() {
         assertEquals(

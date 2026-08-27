@@ -9,6 +9,7 @@ import io.openeden.relationship.RelationshipRole
 import io.openeden.relationship.UserAffectState
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.ShockState
+import io.openeden.runtime.time.TemporalContext
 import io.openeden.transcript.ConversationTurn
 
 data class PromptInput(
@@ -21,7 +22,8 @@ data class PromptInput(
     val omegaState: OmegaState,
     val shockState: ShockState?,
     val userInput: String,
-    val systemTime: String = "1970-01-01 00:00",
+    val temporalContext: TemporalContext = TemporalContext(),
+    val systemTime: String? = null,
     val userAffect: UserAffectState = UserAffectState.Uncertain,
     val relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
     val relationshipAddress: String? = null,
@@ -29,7 +31,7 @@ data class PromptInput(
     val recentTurns: List<ConversationTurn> = emptyList(),
 ) {
     init {
-        require(systemTime.isNotBlank()) { "System time must not be blank" }
+        require(systemTime == null || systemTime.isNotBlank()) { "System time must not be blank" }
         require(relationshipRole == RelationshipRole.HOST || relationshipAddress == null) {
             "Relationship address requires HOST role"
         }

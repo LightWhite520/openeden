@@ -25,7 +25,6 @@ import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
 import io.openeden.prompt.PromptManifest
-import io.openeden.prompt.PromptTime
 import io.openeden.relationship.*
 import io.openeden.runtime.affect.EmotionSignal
 import io.openeden.runtime.affect.OmegaState
@@ -42,6 +41,9 @@ import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.session.SessionTurnGate
 import io.openeden.runtime.state.*
+import io.openeden.runtime.time.RuntimeClock
+import io.openeden.runtime.time.SystemRuntimeClock
+import io.openeden.runtime.time.TemporalContextProvider
 import io.openeden.trace.*
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.AtomicTurnCommitStore
@@ -56,7 +58,6 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.withContext
 import kotlin.math.log
-import kotlin.time.Clock
 import kotlin.time.TimeSource
 
 class DevelopmentMessagePipeline(
@@ -81,10 +82,12 @@ class DevelopmentMessagePipeline(
     private val relationshipRoleResolver: RelationshipRoleResolver,
     private val affectInfluenceMapper: UserAffectInfluenceMapper,
     private val transcriptStore: TranscriptStore?,
-    private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val clock: RuntimeClock = SystemRuntimeClock,
     private val llmGenerationPolicyConfig: LlmGenerationPolicyConfig,
     private val lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
 ) {
+    private val temporalContextProvider = TemporalContextProvider(clock)
+
     constructor(
         personaConfig: PersonaConfig,
         store: SessionStateStore,
@@ -107,7 +110,8 @@ class DevelopmentMessagePipeline(
         relationshipRoleResolver: RelationshipRoleResolver,
         affectInfluenceMapper: UserAffectInfluenceMapper,
         transcriptStore: TranscriptStore?,
-        nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+        clock: RuntimeClock = SystemRuntimeClock,
+        nowMs: (() -> Long)? = null,
     ) : this(
         personaConfig = personaConfig,
         store = store,
@@ -130,7 +134,7 @@ class DevelopmentMessagePipeline(
         relationshipRoleResolver = relationshipRoleResolver,
         affectInfluenceMapper = affectInfluenceMapper,
         transcriptStore = transcriptStore,
-        nowMs = nowMs,
+        clock = nowMs?.let { RuntimeClock { it() } } ?: clock,
         llmGenerationPolicyConfig = LlmGenerationPolicyConfig.Default,
     )
 
@@ -157,7 +161,7 @@ class DevelopmentMessagePipeline(
         emitEvent: suspend (DevelopmentMessageEvent) -> Unit,
     ): DevelopmentMessageResult {
         val traceContext = TraceContext(
-            traceId = "$sessionId:${nowMs()}",
+            traceId = "$sessionId:${clock.nowMs()}",
             turnId = request.turnId,
             sessionId = sessionId,
         )
@@ -178,10 +182,10 @@ class DevelopmentMessagePipeline(
         var relationshipDegraded = false
         val relationship = if (request.source == TurnSource.USER) {
             try {
-                relationshipStore.readOrCreate(sessionId, request.userId, nowMs())
+                relationshipStore.readOrCreate(sessionId, request.userId, clock.nowMs())
             } catch (_: Throwable) {
                 relationshipDegraded = true
-                RelationshipState.neutral(sessionId, request.userId, nowMs())
+                RelationshipState.neutral(sessionId, request.userId, clock.nowMs())
             }
         } else null
         if (relationship != null) trace(
@@ -307,7 +311,7 @@ class DevelopmentMessagePipeline(
                 omegaState = current.omega,
                 shockState = current.shockState,
                 userInput = request.text,
-                systemTime = PromptTime.format(nowMs()),
+                temporalContext = temporalContextProvider.forTurn(request.text, current.lastUserActivityMs),
                 userAffect = observedAffect,
                 relationshipRole = resolvedRelationship.role,
                 relationshipAddress = resolvedRelationship.address,
@@ -443,7 +447,7 @@ class DevelopmentMessagePipeline(
                 userId = request.userId,
                 userText = request.text,
                 assistantText = validation.output.response,
-                completedAtMs = nowMs(),
+                completedAtMs = clock.nowMs(),
             )
         } else {
             null
@@ -464,7 +468,7 @@ class DevelopmentMessagePipeline(
                 shock = null,
                 shockSignal = detectedShock,
                 // Heartbeat turns evolve state but must not silence future proactive turns.
-                lastUserActivityMs = nowMs().takeIf { request.source == TurnSource.USER },
+                lastUserActivityMs = clock.nowMs().takeIf { request.source == TurnSource.USER },
                 turn = publicTurn,
             )
         } else {
@@ -481,11 +485,11 @@ class DevelopmentMessagePipeline(
         ) {
             val evidence = relationshipEvidence(request.text)
             val updated = if (evidence != null) {
-                relationship.apply(evidence, nowMs())
+                relationship.apply(evidence, clock.nowMs())
             } else {
                 relationship.copy(
                     familiarity = (relationship.familiarity + 0.005f).coerceAtMost(1.0f),
-                    updatedAtMs = nowMs(),
+                    updatedAtMs = clock.nowMs(),
                 )
             }
             try {
@@ -527,7 +531,7 @@ class DevelopmentMessagePipeline(
             val diaryResult = inferenceExecutor.run {
                 val triggered = diaryDelta.toList().any { kotlin.math.abs(it) > 0.0f }
                 val tags = if (triggered) {
-                    diaryTriggerCoordinator?.onVectorDelta(sessionId, diaryMemoryId, diaryDelta, nowMs())
+                    diaryTriggerCoordinator?.onVectorDelta(sessionId, diaryMemoryId, diaryDelta, clock.nowMs())
                         ?: diaryQueue.tryEnqueue(DiaryEvent(sessionId, "development", "vector_delta"))
                 } else {
                     emptySet()
@@ -631,11 +635,11 @@ class DevelopmentMessagePipeline(
                 store.append(
                     TraceSpan(
                         context = context,
-                        spanId = "${context.traceId}:$stage:${nowMs()}",
+                        spanId = "${context.traceId}:$stage:${clock.nowMs()}",
                         stage = stage,
                         status = status,
-                        startedAtMs = nowMs(),
-                        finishedAtMs = nowMs(),
+                        startedAtMs = clock.nowMs(),
+                        finishedAtMs = clock.nowMs(),
                         tags = tags,
                         attributes = attributes,
                         errorCode = errorCode,
@@ -666,7 +670,7 @@ class DevelopmentMessagePipeline(
             lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf(request.turnId)),
             contentFingerprint = io.openeden.memory.MemoryContentFingerprint.of(rawContent),
         )
-        val memoryCreatedAtMs = nowMs()
+        val memoryCreatedAtMs = clock.nowMs()
         val rawId = "$sessionId:${memoryCreatedAtMs}:raw"
         val rawTags = if (omega.value < 0.75f && delta.toList().all { kotlin.math.abs(it) <= 0.05f }) {
             setOf("daily", "stable")
@@ -716,7 +720,8 @@ class DevelopmentMessagePipeline(
             relationshipRoleResolver: RelationshipRoleResolver = RelationshipRoleResolver(host = null),
             affectInfluenceMapper: UserAffectInfluenceMapper = UserAffectInfluenceMapper.Default,
             transcriptStore: TranscriptStore? = store as? TranscriptStore,
-            nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+            clock: RuntimeClock = SystemRuntimeClock,
+            nowMs: (() -> Long)? = null,
             lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
         ): DevelopmentMessagePipeline = create(
             personaConfig = personaConfig,
@@ -738,6 +743,7 @@ class DevelopmentMessagePipeline(
             relationshipRoleResolver = relationshipRoleResolver,
             affectInfluenceMapper = affectInfluenceMapper,
             transcriptStore = transcriptStore,
+            clock = clock,
             nowMs = nowMs,
             llmGenerationPolicyConfig = LlmGenerationPolicyConfig.Default,
             lifecycleGate = lifecycleGate,
@@ -763,7 +769,8 @@ class DevelopmentMessagePipeline(
             relationshipRoleResolver: RelationshipRoleResolver = RelationshipRoleResolver(host = null),
             affectInfluenceMapper: UserAffectInfluenceMapper = UserAffectInfluenceMapper.Default,
             transcriptStore: TranscriptStore? = store as? TranscriptStore,
-            nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+            clock: RuntimeClock = SystemRuntimeClock,
+            nowMs: (() -> Long)? = null,
             llmGenerationPolicyConfig: LlmGenerationPolicyConfig,
             lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
         ): DevelopmentMessagePipeline {
@@ -789,6 +796,7 @@ class DevelopmentMessagePipeline(
                 memoryStore = memoryStore,
                 fallback = StoredOriginCentroidProvider(effectiveStore),
             )
+            val effectiveClock = nowMs?.let { RuntimeClock { it() } } ?: clock
             return DevelopmentMessagePipeline(
                 personaConfig = personaConfig,
                 store = effectiveStore,
@@ -812,7 +820,7 @@ class DevelopmentMessagePipeline(
                 relationshipRoleResolver = relationshipRoleResolver,
                 affectInfluenceMapper = affectInfluenceMapper,
                 transcriptStore = effectiveTranscriptStore,
-                nowMs = nowMs,
+                clock = effectiveClock,
                 lifecycleGate = lifecycleGate,
             )
         }

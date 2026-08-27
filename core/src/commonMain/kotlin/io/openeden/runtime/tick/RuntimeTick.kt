@@ -9,6 +9,8 @@ import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.RuntimeConfig
 import io.openeden.runtime.state.VectorWriteResult
 import io.openeden.runtime.state.VectorWriteService
+import io.openeden.runtime.time.RuntimeClock
+import io.openeden.runtime.time.SystemRuntimeClock
 
 import io.openeden.bio.BioVector
 import io.openeden.trace.TraceTag
@@ -17,7 +19,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.time.Clock
 
 data class RuntimeTickResult(
     val sessionId: String,
@@ -31,11 +32,11 @@ class RuntimeTickScheduler(
     private val fluctuation: SineWaveFluctuationEngine,
     private val inferenceExecutor: InferenceExecutor,
     private val config: RuntimeConfig = RuntimeConfig.Default,
-    private val startedAtMs: Long = Clock.System.now().toEpochMilliseconds(),
-    private val nowMs: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+    private val clock: RuntimeClock = SystemRuntimeClock,
+    private val startedAtMs: Long = clock.nowMs(),
     private val onOmegaCritical: suspend (sessionId: String) -> Unit = {},
 ) {
-    suspend fun evaluateOnce(nowMs: Long = this.nowMs()): List<RuntimeTickResult> {
+    suspend fun evaluateOnce(nowMs: Long = clock.nowMs()): List<RuntimeTickResult> {
         val results = mutableListOf<RuntimeTickResult>()
         for (sessionId in store.sessionIds()) {
             val result = runCatching {

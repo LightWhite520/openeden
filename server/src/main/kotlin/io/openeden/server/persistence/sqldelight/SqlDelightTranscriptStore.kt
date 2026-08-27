@@ -15,6 +15,8 @@ import io.openeden.transcript.PromptHistoryAssembler
 import io.openeden.transcript.PromptHistoryChunk
 import io.openeden.transcript.PromptHistorySnapshot
 import io.openeden.transcript.TranscriptStore
+import io.openeden.runtime.time.RuntimeClock
+import io.openeden.runtime.time.SystemRuntimeClock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
@@ -35,6 +37,7 @@ class SqlDelightTranscriptStore private constructor(
     private val driver: SqlDriver,
     private val ioDispatcher: CoroutineDispatcher,
     private val promptHistoryAssembler: PromptHistoryAssembler,
+    private val clock: RuntimeClock,
 ) : TranscriptStore {
     private val queries get() = database.transcriptQueries
 
@@ -119,7 +122,7 @@ class SqlDelightTranscriptStore private constructor(
                 session_id = sessionId,
                 cache_epoch = snapshot.cacheEpoch,
                 serializer_version = promptHistoryAssembler.serializer.serializerVersion.toLong(),
-                updated_at_ms = System.currentTimeMillis(),
+                updated_at_ms = clock.nowMs(),
             )
             snapshot.stableChunks.forEach { chunk ->
                 queries.insertPromptHistoryChunk(
@@ -186,15 +189,17 @@ class SqlDelightTranscriptStore private constructor(
 
         suspend fun open(
             dbPath: Path,
-            ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-transcript-sqlite"),
-            promptHistoryAssembler: PromptHistoryAssembler = PromptHistoryAssembler(),
-        ): SqlDelightTranscriptStore = open(dbPath, Database.Schema, ioDispatcher, promptHistoryAssembler)
+        ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-transcript-sqlite"),
+        promptHistoryAssembler: PromptHistoryAssembler = PromptHistoryAssembler(),
+        clock: RuntimeClock = SystemRuntimeClock,
+    ): SqlDelightTranscriptStore = open(dbPath, Database.Schema, ioDispatcher, promptHistoryAssembler, clock)
 
         internal suspend fun open(
             dbPath: Path,
-            schema: SqlSchema<QueryResult.Value<Unit>>,
-            ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-transcript-sqlite"),
-            promptHistoryAssembler: PromptHistoryAssembler = PromptHistoryAssembler(),
+        schema: SqlSchema<QueryResult.Value<Unit>>,
+        ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-transcript-sqlite"),
+        promptHistoryAssembler: PromptHistoryAssembler = PromptHistoryAssembler(),
+        clock: RuntimeClock = SystemRuntimeClock,
         ): SqlDelightTranscriptStore = withContext(ioDispatcher) {
             val resolvedPath = dbPath.resolveForInitialization()
             initializationMutex.withLock {
@@ -222,10 +227,10 @@ class SqlDelightTranscriptStore private constructor(
                             driver.closeCurrentThreadConnection()
                             database.transcriptQueries.insertIncarnationIfAbsent(
                                 active_incarnation_id = UUID.randomUUID().toString(),
-                                created_at_ms = System.currentTimeMillis(),
+                                created_at_ms = clock.nowMs(),
                             )
                             driver.closeCurrentThreadConnection()
-                            SqlDelightTranscriptStore(database, driver, ioDispatcher, promptHistoryAssembler)
+                            SqlDelightTranscriptStore(database, driver, ioDispatcher, promptHistoryAssembler, clock)
                         } catch (failure: Throwable) {
                             runCatching { driver.closeCurrentThreadConnection() }
                                 .exceptionOrNull()

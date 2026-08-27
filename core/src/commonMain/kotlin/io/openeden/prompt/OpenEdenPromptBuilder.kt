@@ -96,13 +96,14 @@ object OpenEdenPromptDocumentFactory {
                 "relationship_address" to input.relationshipAddress
                 "relationship_context" to relationshipObject(input.relationshipState)
                 "memory_retrieval" to memoryRetrievalObject(input)
+                temporalContext(input.temporalContext)
                 when (input.userInput) {
                     HEARTBEAT_TRIGGER ->
                         personaSection("heartbeat_context", input.personaConfig, PromptSectionKeys.Heartbeat)
                     HEARTBEAT_SHOCK_TRIGGER ->
                         personaSection("shock_heartbeat_context", input.personaConfig, PromptSectionKeys.ShockHeartbeat)
                 }
-                "system_time" to input.systemTime
+                input.systemTime?.let { "system_time" to it }
             }
             "user" {
                 "input" to input.userInput
@@ -204,6 +205,15 @@ object OpenEdenPromptDocumentFactory {
             "recent_turns" to array(input.recentTurns.map(::conversationTurnObject))
             "memories" to array(relevant.map(::memorySnippetObject))
             "recent_memories" to array(input.retrievalResult.recentMemories.map(::memorySnippetObject))
+        }
+    }
+
+    private fun PromptObjectBuilder.temporalContext(context: io.openeden.runtime.time.TemporalContext) {
+        if (context.isEmpty()) return
+        "temporal_context" {
+            context.exactTime?.let { "exact_time" to PromptTime.format(it) }
+            context.elapsedBucket?.let { "elapsed_bucket" to it }
+            context.dayPeriod?.let { "day_period" to it }
         }
     }
 
