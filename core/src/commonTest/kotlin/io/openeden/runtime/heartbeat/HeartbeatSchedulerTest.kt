@@ -155,6 +155,62 @@ class HeartbeatSchedulerTest {
     }
 
     @Test
+    fun `rejected user output still suppresses the next heartbeat`() = runTest {
+        val transcript = InMemoryTranscriptStore("incarnation-a")
+        val store = MutableSessionStateStore(transcriptStore = transcript)
+        val incarnationStore = MutableIncarnationStateStore(transcriptStore = transcript)
+        incarnationStore.readOrCreate(
+            incarnationId = "incarnation-a",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        val writer = VectorWriteService(incarnationStore = incarnationStore)
+        val clock = MutableRuntimeClock(now)
+        val rejectedLlm = object : LlmClient {
+            override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                internalLogic = "",
+                vectorDelta = emptyMap(),
+                response = "",
+            )
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = personaConfig(),
+            llmClient = rejectedLlm,
+            store = store,
+            incarnationStateStore = incarnationStore,
+            vectorWriteService = writer,
+            transcriptStore = transcript,
+            clock = clock,
+        )
+        pipeline.handle(
+            DevelopmentMessageRequest(
+                turnId = "rejected-user-turn",
+                platform = "QQ",
+                scopeId = "active",
+                userId = "user",
+                text = "hello",
+                emotionConfidence = 0.49f,
+            ),
+        )
+        val delivery = RecordingDelivery()
+        val scheduler = HeartbeatScheduler(
+            pipeline = pipeline,
+            store = store,
+            writer = writer,
+            delivery = delivery,
+            incarnationStore = incarnationStore,
+            transcriptStore = transcript,
+            clock = clock,
+        )
+
+        scheduler.evaluateOnce(now)
+
+        assertEquals(now, store.read("QQ:active").lastUserActivityMs)
+        assertEquals(emptyList(), delivery.calls)
+        assertEquals(0L, incarnationStore.read("incarnation-a").evolutionIndex)
+    }
+
+    @Test
     fun `heartbeat turn evolves index but leaves user-activity clock untouched`() = runTest {
         val store = MutableSessionStateStore()
         store.write(neutral("QQ:silent").copy(lastUserActivityMs = sixMinAgo))

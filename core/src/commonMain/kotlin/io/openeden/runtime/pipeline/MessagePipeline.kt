@@ -171,6 +171,15 @@ class DevelopmentMessagePipeline(
             personaMode = personaConfig.mode,
             personaStartSubState = personaConfig.startSubState,
         )
+        val userActivityMs = clock.nowMs().takeIf { request.source == TurnSource.USER }
+        if (userActivityMs != null) {
+            turnGate.withSession(sessionId) {
+                val scopedState = store.read(sessionId)
+                if (scopedState.lastUserActivityMs == null || scopedState.lastUserActivityMs < userActivityMs) {
+                    store.write(scopedState.copy(lastUserActivityMs = userActivityMs))
+                }
+            }
+        }
         val incarnationId = transcriptStore?.activeIncarnation()?.id ?: DEVELOPMENT_INCARNATION_ID
         val initial = vectorWriteService.readOrCreateIncarnation(
             incarnationId = incarnationId,
@@ -438,7 +447,6 @@ class DevelopmentMessagePipeline(
         )
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.FINALIZING))
         return withContext(NonCancellable) {
-        val userActivityMs = clock.nowMs().takeIf { request.source == TurnSource.USER }
         val publicTurn = if (
             request.source == TurnSource.USER &&
             validation.isValid &&
@@ -484,14 +492,6 @@ class DevelopmentMessagePipeline(
         }
         trace(traceContext, "state_commit", tags = write.traceTags)
         val alreadyCommitted = write.turnCommitOutcome == TurnCommitOutcome.ALREADY_COMMITTED
-        if (userActivityMs != null && validation.isValid && validation.delta != null) {
-            turnGate.withSession(sessionId) {
-                val scopedState = store.read(sessionId)
-                if (scopedState.lastUserActivityMs == null || scopedState.lastUserActivityMs < userActivityMs) {
-                    store.write(scopedState.copy(lastUserActivityMs = userActivityMs))
-                }
-            }
-        }
 
         val relationshipWrite: Set<String> = if (
             !alreadyCommitted &&
