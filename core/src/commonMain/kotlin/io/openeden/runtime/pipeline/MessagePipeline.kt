@@ -438,6 +438,7 @@ class DevelopmentMessagePipeline(
         )
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.FINALIZING))
         return withContext(NonCancellable) {
+        val userActivityMs = clock.nowMs().takeIf { request.source == TurnSource.USER }
         val publicTurn = if (
             request.source == TurnSource.USER &&
             validation.isValid &&
@@ -475,7 +476,7 @@ class DevelopmentMessagePipeline(
                 shock = null,
                 shockSignal = detectedShock,
                 // Heartbeat turns evolve state but must not silence future proactive turns.
-                lastUserActivityMs = clock.nowMs().takeIf { request.source == TurnSource.USER },
+                lastUserActivityMs = userActivityMs,
                 turn = publicTurn,
             )
         } else {
@@ -483,6 +484,14 @@ class DevelopmentMessagePipeline(
         }
         trace(traceContext, "state_commit", tags = write.traceTags)
         val alreadyCommitted = write.turnCommitOutcome == TurnCommitOutcome.ALREADY_COMMITTED
+        if (userActivityMs != null && validation.isValid && validation.delta != null) {
+            turnGate.withSession(sessionId) {
+                val scopedState = store.read(sessionId)
+                if (scopedState.lastUserActivityMs == null || scopedState.lastUserActivityMs < userActivityMs) {
+                    store.write(scopedState.copy(lastUserActivityMs = userActivityMs))
+                }
+            }
+        }
 
         val relationshipWrite: Set<String> = if (
             !alreadyCommitted &&

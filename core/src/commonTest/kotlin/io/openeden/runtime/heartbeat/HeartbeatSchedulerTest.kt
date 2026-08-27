@@ -3,6 +3,7 @@ package io.openeden.runtime.heartbeat
 import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
+import io.openeden.runtime.pipeline.DevelopmentMessageRequest
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
@@ -101,6 +102,56 @@ class HeartbeatSchedulerTest {
         assertEquals(1L, incarnationStore.read("incarnation-a").evolutionIndex)
         assertEquals(1, delivery.calls.size)
         assertEquals("owner", delivery.calls.single().userId)
+    }
+
+    @Test
+    fun `user activity suppresses that scope while an idle scope advances the shared incarnation`() = runTest {
+        val transcript = InMemoryTranscriptStore("incarnation-a")
+        val store = MutableSessionStateStore(transcriptStore = transcript)
+        val incarnationStore = MutableIncarnationStateStore(transcriptStore = transcript)
+        incarnationStore.readOrCreate(
+            incarnationId = "incarnation-a",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        val writer = VectorWriteService(incarnationStore = incarnationStore)
+        val clock = MutableRuntimeClock(now)
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = personaConfig(),
+            llmClient = validLlm(),
+            store = store,
+            incarnationStateStore = incarnationStore,
+            vectorWriteService = writer,
+            transcriptStore = transcript,
+            clock = clock,
+        )
+        pipeline.handle(
+            DevelopmentMessageRequest(
+                turnId = "user-turn",
+                platform = "QQ",
+                scopeId = "active",
+                userId = "user",
+                text = "hello",
+                emotionConfidence = 0.49f,
+            ),
+        )
+        store.write(neutral("WEB:idle").copy(lastUserActivityMs = sixMinAgo))
+        val delivery = RecordingDelivery()
+        val scheduler = HeartbeatScheduler(
+            pipeline = pipeline,
+            store = store,
+            writer = writer,
+            delivery = delivery,
+            incarnationStore = incarnationStore,
+            transcriptStore = transcript,
+            clock = clock,
+        )
+
+        scheduler.evaluateOnce(now)
+
+        assertEquals(now, store.read("QQ:active").lastUserActivityMs)
+        assertEquals(listOf("WEB:idle"), delivery.calls.map { it.sessionId })
+        assertEquals(2L, incarnationStore.read("incarnation-a").evolutionIndex)
     }
 
     @Test
