@@ -528,6 +528,26 @@ class MessagePipelineTest {
     }
 
     @Test
+    fun `prompt manifest trace append runs inside inference executor`() = runTest {
+        val executor = BoundaryRecordingInferenceExecutor()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            inferenceExecutor = executor,
+            traceStore = object : TraceStore {
+                override suspend fun append(span: TraceSpan) {
+                    if (span.stage == "prompt_manifest") {
+                        executor.promptManifestTraceAppendedInsideRun = executor.inferenceRunning
+                    }
+                }
+            },
+        )
+
+        pipeline.handle(testRequest())
+
+        assertEquals(true, executor.promptManifestTraceAppendedInsideRun)
+    }
+
+    @Test
     fun `pre tick trace append runs inside inference executor`() = runTest {
         val executor = BoundaryRecordingInferenceExecutor()
         val pipeline = DevelopmentMessagePipeline.create(
@@ -617,6 +637,7 @@ private fun validDelta(): Map<String, Float> = mapOf(
     private class BoundaryRecordingInferenceExecutor : InferenceExecutor {
         var inferenceRunning = false
         var policyTraceAppendedInsideRun = false
+        var promptManifestTraceAppendedInsideRun = false
         var preTickTraceAppendedInsideRun = false
         var affectMappingTraceAppendedInsideRun = false
 

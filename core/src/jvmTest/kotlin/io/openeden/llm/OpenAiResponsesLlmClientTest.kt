@@ -27,6 +27,30 @@ import kotlin.test.assertTrue
 
 class OpenAiResponsesLlmClientTest {
     @Test
+    fun `marks input token usage without cache details as unobservable`() = runTest {
+        val engine = MockEngine {
+            respond(
+                content = """
+                    {
+                      "output_text":"{\"internal_logic\":\"logic\",\"vector_delta\":{\"L\":0.0,\"P\":0.0,\"E\":0.0,\"S\":0.0,\"tau\":0.0,\"V\":0.0,\"M\":0.0,\"F\":0.0},\"response\":\"ok\"}",
+                      "usage":{"input_tokens":100}
+                    }
+                """.trimIndent(),
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.5",
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        val output = client.complete(BuiltPrompt("system", "persona", "user"))
+
+        assertEquals(CacheMetricAvailability.UNOBSERVABLE, output.cacheMetrics?.availability)
+    }
+
+    @Test
     fun `parses prompt caching modes and detects supported model families`() {
         assertEquals(OpenAiPromptCachingMode.AUTO, OpenAiPromptCachingMode.parse("auto"))
         assertEquals(OpenAiPromptCachingMode.EXPLICIT, OpenAiPromptCachingMode.parse("EXPLICIT"))

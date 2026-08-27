@@ -401,6 +401,11 @@ private data class ResponsesUsage(
             inputTokens = it,
             cachedInputTokens = inputTokensDetails?.cachedTokens ?: 0L,
             cacheWriteTokens = inputTokensDetails?.cacheWriteTokens ?: 0L,
+            availability = if (inputTokensDetails == null) {
+                CacheMetricAvailability.UNOBSERVABLE
+            } else {
+                CacheMetricAvailability.REPORTED
+            },
         )
     }
 }

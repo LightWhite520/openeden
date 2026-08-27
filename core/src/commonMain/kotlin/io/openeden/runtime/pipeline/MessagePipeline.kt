@@ -316,12 +316,14 @@ class DevelopmentMessagePipeline(
             ),
         )
         trace(traceContext, "prompt_construction")
-        trace(
-            traceContext,
-            "prompt_manifest",
-            tags = setOf(TraceTag.PromptManifestRecorded),
-            attributes = PromptManifest.from(prompt).traceAttributes(),
-        )
+        inferenceExecutor.run {
+            trace(
+                traceContext,
+                "prompt_manifest",
+                tags = setOf(TraceTag.PromptManifestRecorded),
+                attributes = PromptManifest.from(prompt).traceAttributes(),
+            )
+        }
         inferenceExecutor.run {
             trace(
                 traceContext,
