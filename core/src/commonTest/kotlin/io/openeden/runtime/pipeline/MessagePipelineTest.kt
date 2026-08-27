@@ -38,14 +38,43 @@ import io.openeden.relationship.UserAffectInfluenceMapper
 import io.openeden.trace.TraceTag
 import io.openeden.trace.TraceSpan
 import io.openeden.trace.TraceStore
+import io.openeden.llm.CacheMetricAvailability
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 class MessagePipelineTest {
+    @Test
+    fun `pipeline traces redacted manifest and unavailable provider cache metrics`() = runTest {
+        val traces = io.openeden.trace.InMemoryTraceStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            traceStore = traces,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "logic references NODE_12",
+                    vectorDelta = validDelta(),
+                    response = "response",
+                )
+            },
+            quantizer = object : CodebookQuantizer {
+                override suspend fun quantize(vector: BioVector, dissonance: Float): QuantizationResult =
+                    QuantizationResult(listOf("NODE_12"), listOf("node definition"), 0.9f)
+            },
+        )
+
+        val result = pipeline.handle(testRequest().copy(text = "user secret"))
+
+        assertEquals(CacheMetricAvailability.UNOBSERVABLE, assertNotNull(result.cacheMetrics).availability)
+        val manifestTrace = traces.snapshot().single { it.stage == "prompt_manifest" }
+        assertEquals("4", manifestTrace.attributes["entry_count"])
+        assertFalse(traces.snapshot().toString().contains("user secret"))
+    }
+
     @Test
     fun `ungrounded schema-valid output gets one repair attempt`() = runTest {
         var calls = 0

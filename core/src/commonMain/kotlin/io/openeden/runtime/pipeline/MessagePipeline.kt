@@ -24,6 +24,7 @@ import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
+import io.openeden.prompt.PromptManifest
 import io.openeden.prompt.PromptTime
 import io.openeden.relationship.*
 import io.openeden.runtime.affect.EmotionSignal
@@ -315,6 +316,12 @@ class DevelopmentMessagePipeline(
             ),
         )
         trace(traceContext, "prompt_construction")
+        trace(
+            traceContext,
+            "prompt_manifest",
+            tags = setOf(TraceTag.PromptManifestRecorded),
+            attributes = PromptManifest.from(prompt).traceAttributes(),
+        )
         inferenceExecutor.run {
             trace(
                 traceContext,
@@ -340,12 +347,13 @@ class DevelopmentMessagePipeline(
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.GENERATING))
         val llmCacheMeasurements = mutableListOf<LlmCacheMetrics>()
         val firstOutput = collectLlmOutput(prompt, inference.generationSettings, emitEvent)
-        firstOutput.cacheMetrics?.let { llmCacheMeasurements += it }
+        val firstCacheMetrics = firstOutput.cacheMetrics ?: LlmCacheMetrics.Unobservable
+        llmCacheMeasurements += firstCacheMetrics
         trace(
             traceContext,
             "llm_inference",
-            tags = firstOutput.cacheMetrics?.let { setOf(TraceTag.LlmCacheMeasured) }.orEmpty(),
-            attributes = firstOutput.cacheMetrics?.traceAttributes().orEmpty(),
+            tags = firstCacheMetrics.traceTags(),
+            attributes = firstCacheMetrics.traceAttributes(),
         )
         val firstValidation = LlmOutputValidator.validate(firstOutput)
         var validation = firstValidation
@@ -365,13 +373,14 @@ class DevelopmentMessagePipeline(
                         inference.quantization.activeNodes.joinToString(", ") + ".",
                 )
                 val repairedOutput = collectLlmOutput(repairPrompt, inference.generationSettings, emitEvent)
-                repairedOutput.cacheMetrics?.let { llmCacheMeasurements += it }
+                val repairedCacheMetrics = repairedOutput.cacheMetrics ?: LlmCacheMetrics.Unobservable
+                llmCacheMeasurements += repairedCacheMetrics
                 trace(
                     traceContext,
                     "llm_regeneration",
                     tags = setOf(TraceTag.LlmGroundingRegenerated) +
-                        repairedOutput.cacheMetrics?.let { setOf(TraceTag.LlmCacheMeasured) }.orEmpty(),
-                    attributes = repairedOutput.cacheMetrics?.traceAttributes().orEmpty(),
+                        repairedCacheMetrics.traceTags(),
+                    attributes = repairedCacheMetrics.traceAttributes(),
                 )
                 val repairedValidation = LlmOutputValidator.validate(repairedOutput)
                 if (!repairedValidation.isValid) {
@@ -407,16 +416,13 @@ class DevelopmentMessagePipeline(
             errorCode = if (validation.isValid) null else "TURN_REJECTED",
             errorSummary = validation.errors.joinToString("; "),
         )
-        val aggregatedCacheMetrics = llmCacheMeasurements.takeIf { it.isNotEmpty() }
-            ?.let(LlmCacheMetrics::aggregate)
-        if (aggregatedCacheMetrics != null) {
-            trace(
-                traceContext,
-                "llm_cache",
-                tags = setOf(TraceTag.LlmCacheMeasured),
-                attributes = aggregatedCacheMetrics.traceAttributes(),
-            )
-        }
+        val aggregatedCacheMetrics = LlmCacheMetrics.aggregate(llmCacheMeasurements)
+        trace(
+            traceContext,
+            "llm_cache",
+            tags = aggregatedCacheMetrics.traceTags(),
+            attributes = aggregatedCacheMetrics.traceAttributes(),
+        )
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.FINALIZING))
         return withContext(NonCancellable) {
         val publicTurn = if (
@@ -820,6 +826,11 @@ class DevelopmentMessagePipeline(
 
 private fun String.requiresRecentContext(): Boolean =
     contains(Regex("刚刚|刚才|上一句|上一次|之前|前面|刚才说了什么|刚刚说了什么|记得吗"))
+
+private fun LlmCacheMetrics.traceTags(): Set<String> = when (availability) {
+    io.openeden.llm.CacheMetricAvailability.REPORTED -> setOf(TraceTag.LlmCacheMeasured)
+    io.openeden.llm.CacheMetricAvailability.UNOBSERVABLE -> setOf(TraceTag.LlmCacheUnobservable)
+}
 
 private data class DiaryOutcome(
     val label: String,

@@ -1,10 +1,26 @@
 package io.openeden.llm
 
+import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.PromptManifest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 class LlmCacheMetricsTest {
+    @Test
+    fun `manifest records hashes and sizes without prompt text`() {
+        val manifest = PromptManifest.from(BuiltPrompt("system secret", "persona", "user", "context"))
+
+        assertEquals(listOf("system", "persona", "context", "user"), manifest.entries.map { it.id })
+        assertFalse(manifest.toString().contains("system secret"))
+    }
+
+    @Test
+    fun `unreported provider usage remains unobservable`() {
+        assertEquals(CacheMetricAvailability.UNOBSERVABLE, LlmCacheMetrics.Unobservable.availability)
+    }
+
     @Test
     fun `aggregates cache hit rate by token count`() {
         val metrics = LlmCacheMetrics.aggregate(
