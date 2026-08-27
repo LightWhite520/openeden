@@ -41,6 +41,57 @@ class SqlDelightIncarnationStateStoreTest {
     }
 
     @Test
+    fun `version four migration preserves established state with growth awakened selection`() = runTest {
+        openVersionFourDatabase()
+
+        SqlDelightIncarnationStateStore.open(dbPath).use { store ->
+            val state = store.read("legacy-incarnation")
+
+            assertEquals(99L, state.evolutionIndex)
+            assertEquals(PersonaMode.GROWTH, state.personaMode)
+            assertEquals(PersonaSubState.AWAKENED, state.personaStartSubState)
+            assertEquals(BioVector(0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f), state.vector)
+            assertEquals(1_500L, state.lastUserActivityMs)
+            assertEquals(null, state.lastRuntimeTickAtMs)
+        }
+    }
+
+    @Test
+    fun `version ten migration creates singleton state from established legacy scope`() = runTest {
+        openVersionTenDatabaseWithoutSingleton()
+
+        SqlDelightIncarnationStateStore.open(dbPath).use { store ->
+            val state = store.read("legacy-incarnation")
+
+            assertEquals(52L, state.evolutionIndex)
+            assertEquals(PersonaSubState.TRUE_SELF, state.personaStartSubState)
+            assertEquals(BioVector(0.6f, 0.5f, 0.4f, 0.3f, 0.2f, 0.1f, 0.2f, 0.3f), state.vector)
+            assertEquals(1_200L, state.lastRuntimeTickAtMs)
+        }
+    }
+
+    @Test
+    fun `fresh schema initializes Bio state for transcript active incarnation`() = runTest {
+        val transcriptStore = SqlDelightTranscriptStore.open(dbPath)
+        val incarnation = try {
+            transcriptStore.activeIncarnation()
+        } finally {
+            transcriptStore.close()
+        }
+
+        SqlDelightIncarnationStateStore.open(dbPath).use { store ->
+            assertEquals(
+                IncarnationStateStore.neutral(
+                    incarnation.id,
+                    PersonaMode.LEGACY,
+                    PersonaSubState.AWAKENED,
+                ),
+                store.readOrCreate(incarnation.id, PersonaMode.LEGACY, PersonaSubState.AWAKENED),
+            )
+        }
+    }
+
+    @Test
     fun `write preserves full Bio state across restart`() = runTest {
         val transcriptStore = SqlDelightTranscriptStore.open(dbPath)
         val incarnation = try {
@@ -155,6 +206,111 @@ class SqlDelightIncarnationStateStoreTest {
             )
             driver.execute(null, "PRAGMA user_version = 11", 0)
         }
+    }
+
+    private fun openVersionFourDatabase() {
+        JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            driver.execute(
+                null,
+                """
+                CREATE TABLE session_state (
+                    session_id TEXT NOT NULL PRIMARY KEY,
+                    vector_json TEXT NOT NULL,
+                    origin_json TEXT NOT NULL,
+                    omega REAL NOT NULL,
+                    evolution_index INTEGER NOT NULL,
+                    last_user_activity_ms INTEGER,
+                    shock_active INTEGER,
+                    shock_intensity REAL,
+                    shock_description TEXT,
+                    shock_triggered_at_ms INTEGER,
+                    shock_decay_lambda REAL,
+                    shock_heartbeat_fired INTEGER
+                )
+                """.trimIndent(),
+                0,
+            )
+            val vector = BioVector(0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f)
+            val vectorJson = Json.encodeToString(BioVector.serializer(), vector)
+            driver.execute(
+                null,
+                """
+                INSERT INTO session_state(
+                    session_id, vector_json, origin_json, omega, evolution_index, last_user_activity_ms
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                6,
+            ) {
+                bindString(0, "QQ:pre-v5")
+                bindString(1, vectorJson)
+                bindString(2, vectorJson)
+                bindDouble(3, 0.25)
+                bindLong(4, 99L)
+                bindLong(5, 1_500L)
+            }
+            driver.execute(null, "PRAGMA user_version = 4", 0)
+        }
+    }
+
+    private fun openVersionTenDatabaseWithoutSingleton() {
+        JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            driver.execute(
+                null,
+                """
+                CREATE TABLE incarnation_state (
+                    singleton_id INTEGER NOT NULL PRIMARY KEY CHECK(singleton_id = 1),
+                    active_incarnation_id TEXT NOT NULL,
+                    created_at_ms INTEGER NOT NULL,
+                    lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE',
+                    lifecycle_changed_at_ms INTEGER NOT NULL DEFAULT 0,
+                    termination_reason TEXT,
+                    lifecycle_request_id TEXT
+                )
+                """.trimIndent(),
+                0,
+            )
+            createCurrentSessionStateTable(driver)
+            insertLegacyState(
+                driver = driver,
+                sessionId = "QQ:v10",
+                vector = BioVector(0.6f, 0.5f, 0.4f, 0.3f, 0.2f, 0.1f, 0.2f, 0.3f),
+                evolutionIndex = 52L,
+                personaStartSubState = "true_self",
+                lastUserActivityMs = 1_100L,
+            )
+            driver.execute(
+                null,
+                "UPDATE session_state SET last_runtime_tick_at_ms = 1200 WHERE session_id = 'QQ:v10'",
+                0,
+            )
+            driver.execute(null, "PRAGMA user_version = 10", 0)
+        }
+    }
+
+    private fun createCurrentSessionStateTable(driver: JdbcSqliteDriver) {
+        driver.execute(
+            null,
+            """
+            CREATE TABLE session_state (
+                session_id TEXT NOT NULL PRIMARY KEY,
+                vector_json TEXT NOT NULL,
+                origin_json TEXT NOT NULL,
+                omega REAL NOT NULL,
+                evolution_index INTEGER NOT NULL,
+                persona_mode TEXT,
+                persona_start_sub_state TEXT,
+                last_user_activity_ms INTEGER,
+                last_runtime_tick_at_ms INTEGER,
+                shock_active INTEGER,
+                shock_intensity REAL,
+                shock_description TEXT,
+                shock_triggered_at_ms INTEGER,
+                shock_decay_lambda REAL,
+                shock_heartbeat_fired INTEGER
+            )
+            """.trimIndent(),
+            0,
+        )
     }
 
     private fun insertLegacyState(
