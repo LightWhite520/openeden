@@ -16,6 +16,10 @@ openeden:
     model: "$OPENEDEN_OPENAI_MODEL:gpt-5.6-luna"
     baseUrl: "$OPENEDEN_OPENAI_BASE_URL:https://api.openai.com/v1"
     promptCachingMode: "$OPENEDEN_OPENAI_PROMPT_CACHING_MODE:auto"
+    capabilityProbe:
+      enabled: "$OPENEDEN_OPENAI_CAPABILITY_PROBE_ENABLED:false"
+      routingFingerprint: "$OPENEDEN_OPENAI_ROUTING_FINGERPRINT:default"
+      ttlSeconds: "$OPENEDEN_OPENAI_CAPABILITY_PROBE_TTL_SECONDS:900"
     reasoningEffort: "$OPENEDEN_LLM_REASONING_EFFORT:medium"
     temperatureMin: "$OPENEDEN_LLM_TEMPERATURE_MIN:0.2"
     temperatureMax: "$OPENEDEN_LLM_TEMPERATURE_MAX:1.0"

@@ -45,6 +45,8 @@ import io.openeden.bio.BioVector
 import io.openeden.llm.LlmGenerationPolicyConfig
 import io.openeden.llm.OpenAiResponsesLlmClient
 import io.openeden.llm.OpenAiPromptCachingMode
+import io.openeden.llm.OpenAiCapabilityProbe
+import io.openeden.llm.OpenAiCapabilityCache
 import io.openeden.llm.ReasoningEffort
 import io.openeden.server.persistence.sqldelight.SqlDelightDiaryTaskStore
 import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
@@ -234,6 +236,18 @@ private suspend fun Application.startRuntime(
         defaultGenerationSettings = staticGenerationSettings,
     )
     startupClosers.addFirst { llmClient.close() }
+    if (serverConfig.capabilityProbeEnabled) {
+        val capabilityCache = OpenAiCapabilityCache()
+        OpenAiCapabilityProbe(
+            apiKey = serverConfig.apiKey,
+            baseUrl = serverConfig.baseUrl,
+            model = serverConfig.model,
+            routingFingerprint = serverConfig.capabilityProbeRoutingFingerprint,
+            ttlMs = serverConfig.capabilityProbeTtlSeconds * 1_000L,
+        ).use { probe ->
+            capabilityCache.getOrProbe(probe.cacheKey, probe::probe)
+        }
+    }
     val diaryCoordinator = DiaryTriggerCoordinator(
         diaryTaskStore, diaryTaskStore, memoryStore,
         DiaryTriggerConfig(serverConfig.diaryDeltaThreshold, serverConfig.diaryElapsedHours * 60L * 60L * 1000L),
@@ -519,6 +533,9 @@ private data class ServerRuntimeConfig(
     val reasoningEffort: ReasoningEffort,
     val baseUrl: String,
     val promptCachingMode: OpenAiPromptCachingMode,
+    val capabilityProbeEnabled: Boolean,
+    val capabilityProbeRoutingFingerprint: String,
+    val capabilityProbeTtlSeconds: Long,
     val llmGenerationPolicy: LlmGenerationPolicyConfig,
     val personaPath: Path,
     val runtimeDbPath: Path,
@@ -561,6 +578,11 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         reasoningEffort = ReasoningEffort.parse(optional("openeden.llm.reasoningEffort", "medium")),
         baseUrl = required("openeden.llm.baseUrl"),
         promptCachingMode = OpenAiPromptCachingMode.parse(optional("openeden.llm.promptCachingMode", "auto")),
+        capabilityProbeEnabled = optional("openeden.llm.capabilityProbe.enabled", "false")
+            .equals("true", ignoreCase = true),
+        capabilityProbeRoutingFingerprint = optional("openeden.llm.capabilityProbe.routingFingerprint", "default"),
+        capabilityProbeTtlSeconds = optional("openeden.llm.capabilityProbe.ttlSeconds", "900")
+            .toLong().coerceAtLeast(0L),
         llmGenerationPolicy = loadLlmGenerationPolicyConfig(config),
         personaPath = rootPath("openeden.runtime.personaPath", "persona/atri.yaml"),
         runtimeDbPath = rootPath("openeden.runtime.databasePath", "data/runtime/openeden.db"),
