@@ -219,6 +219,8 @@ class SqlDelightIncarnationStateStoreTest {
                     origin_json TEXT NOT NULL,
                     omega REAL NOT NULL,
                     evolution_index INTEGER NOT NULL,
+                    persona_mode TEXT,
+                    persona_start_sub_state TEXT,
                     last_user_activity_ms INTEGER,
                     shock_active INTEGER,
                     shock_intensity REAL,
@@ -236,8 +238,9 @@ class SqlDelightIncarnationStateStoreTest {
                 null,
                 """
                 INSERT INTO session_state(
-                    session_id, vector_json, origin_json, omega, evolution_index, last_user_activity_ms
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    session_id, vector_json, origin_json, omega, evolution_index, persona_mode,
+                    persona_start_sub_state, last_user_activity_ms
+                ) VALUES (?, ?, ?, ?, ?, 'growth', 'awakened', ?)
                 """.trimIndent(),
                 6,
             ) {
