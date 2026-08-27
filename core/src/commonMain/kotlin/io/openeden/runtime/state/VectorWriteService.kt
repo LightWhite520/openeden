@@ -9,6 +9,8 @@ import io.openeden.runtime.incarnation.IncarnationMutexRegistry
 import io.openeden.runtime.incarnation.IncarnationState
 import io.openeden.runtime.incarnation.IncarnationStateStore
 import io.openeden.runtime.incarnation.IncarnationTurnGate
+import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
 import io.openeden.runtime.session.SessionMutexRegistry
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
@@ -225,7 +227,7 @@ class VectorWriteService(
     suspend fun commitIncarnationTurn(
         incarnationId: String,
         preTickedSnapshot: BioVector,
-        originSnapshot: BioVector,
+        baseSnapshot: BioVector = preTickedSnapshot,
         delta: VectorDelta,
         shockSignal: ShockSignal?,
         lastUserActivityMs: Long?,
@@ -233,15 +235,16 @@ class VectorWriteService(
     ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
         val latest = bioStore.read(incarnationId)
         val updatedVector = inferenceExecutor.run {
-            val relativePreTickDelta = latest.vector.deltaTo(preTickedSnapshot)
-            latest.vector.apply(relativePreTickDelta).apply(delta)
+            // Rebase this turn's pre-tick effect onto the latest serialized Bio state.
+            val preTickDelta = baseSnapshot.deltaTo(preTickedSnapshot)
+            latest.vector.apply(preTickDelta).apply(delta)
         }
         val shockMerge = shockSignal?.let { signal ->
             inferenceExecutor.run { ShockStateEngine.merge(latest.shockState, signal) }
         }
         val updated = latest.copy(
             vector = updatedVector,
-            origin = originSnapshot,
+            origin = latest.origin,
             evolutionIndex = latest.evolutionIndex + 1,
             shockState = shockMerge?.state ?: latest.shockState,
             omega = if (shockMerge?.activated == true) {
@@ -249,7 +252,7 @@ class VectorWriteService(
             } else {
                 latest.omega
             },
-            lastUserActivityMs = lastUserActivityMs ?: latest.lastUserActivityMs,
+            lastUserActivityMs = maxOfNullable(latest.lastUserActivityMs, lastUserActivityMs),
         )
         val outcome = if (turn == null) {
             bioStore.write(updated)
@@ -272,6 +275,14 @@ class VectorWriteService(
         )
     }
 
+    suspend fun readOrCreateIncarnation(
+        incarnationId: String,
+        personaMode: PersonaMode,
+        personaStartSubState: PersonaSubState,
+    ): IncarnationState = incarnationTurnGate.withIncarnation(incarnationId) {
+        bioStore.readOrCreate(incarnationId, personaMode, personaStartSubState)
+    }
+
     suspend fun updateIncarnation(
         incarnationId: String,
         transform: (IncarnationState) -> IncarnationState,
@@ -279,6 +290,12 @@ class VectorWriteService(
         val updated = transform(bioStore.read(incarnationId))
         bioStore.write(updated)
         updated
+    }
+
+    private fun maxOfNullable(first: Long?, second: Long?): Long? = when {
+        first == null -> second
+        second == null -> first
+        else -> maxOf(first, second)
     }
 
     suspend fun markUserActivityForIncarnation(incarnationId: String, nowMs: Long): IncarnationState =

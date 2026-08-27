@@ -8,7 +8,6 @@ import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.pipeline.DevelopmentMessageRequest
 import io.openeden.runtime.pipeline.TurnSource
 import io.openeden.runtime.incarnation.IncarnationStateStore
-import io.openeden.runtime.incarnation.IncarnationState
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
@@ -39,9 +38,6 @@ class HeartbeatScheduler(
         return decide(state.lastUserActivityMs, state.shockState, now)
     }
 
-    private fun decide(state: IncarnationState, now: Long): HeartbeatDecision =
-        decide(state.lastUserActivityMs, state.shockState, now)
-
     private fun decide(lastUserActivityMs: Long?, shock: ShockState?, now: Long): HeartbeatDecision {
         val silenceMs = lastUserActivityMs?.let { now - it } ?: Long.MAX_VALUE
         if (shock != null && shock.active && shock.intensity >= config.shockIntensityGate &&
@@ -54,11 +50,18 @@ class HeartbeatScheduler(
     }
 
     suspend fun evaluateOnce(now: Long = clock.nowMs()) {
+        val activeIncarnationId = transcriptStore?.activeIncarnation()?.id
+        val activeIncarnation = activeIncarnationId?.let { incarnationStore?.read(it) }
+        val processedIncarnations = mutableSetOf<String>()
         for (sessionId in store.sessionIds()) {
-            val incarnationId = transcriptStore?.activeIncarnation()?.id
-            val incarnationState = incarnationId?.let { id -> incarnationStore?.read(id) }
-            val decision = if (incarnationState != null) decide(incarnationState, now) else decide(store.read(sessionId), now)
+            val scopeState = store.read(sessionId)
+            val decision = if (activeIncarnation != null) {
+                decide(scopeState.lastUserActivityMs, activeIncarnation.shockState, now)
+            } else {
+                decide(scopeState, now)
+            }
             if (decision == HeartbeatDecision.SKIP) continue
+            if (activeIncarnationId != null && !processedIncarnations.add(activeIncarnationId)) continue
             val shock = decision == HeartbeatDecision.SHOCK
             val platform = sessionId.substringBefore(':')
             val scopeId = sessionId.substringAfter(':')
@@ -74,8 +77,8 @@ class HeartbeatScheduler(
                 ),
             )
             if (shock) {
-                if (incarnationId != null && incarnationStore != null) {
-                    writer.markShockHeartbeatFiredForIncarnation(incarnationId)
+                if (activeIncarnationId != null && incarnationStore != null) {
+                    writer.markShockHeartbeatFiredForIncarnation(activeIncarnationId)
                 } else {
                     writer.markShockHeartbeatFired(sessionId)
                 }

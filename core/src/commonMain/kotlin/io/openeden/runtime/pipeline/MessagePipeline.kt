@@ -172,7 +172,7 @@ class DevelopmentMessagePipeline(
             personaStartSubState = personaConfig.startSubState,
         )
         val incarnationId = transcriptStore?.activeIncarnation()?.id ?: DEVELOPMENT_INCARNATION_ID
-        val initial = incarnationStore.readOrCreate(
+        val initial = vectorWriteService.readOrCreateIncarnation(
             incarnationId = incarnationId,
             personaMode = personaConfig.mode,
             personaStartSubState = personaConfig.startSubState,
@@ -469,8 +469,8 @@ class DevelopmentMessagePipeline(
             }
             vectorWriteService.commitIncarnationTurn(
                 incarnationId = incarnationId,
+                baseSnapshot = current.vector,
                 preTickedSnapshot = preTick.preTicked,
-                originSnapshot = current.origin,
                 delta = validation.delta,
                 shock = null,
                 shockSignal = detectedShock,

@@ -1,12 +1,14 @@
 package io.openeden.runtime.heartbeat
 
 import io.openeden.runtime.affect.ShockState
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
 import io.openeden.runtime.time.MutableRuntimeClock
 import io.openeden.runtime.time.RuntimeClock
+import io.openeden.transcript.InMemoryTranscriptStore
 
 
 import io.openeden.bio.BioVector
@@ -59,6 +61,46 @@ class HeartbeatSchedulerTest {
         scheduler(store, delivery, clock = clock).evaluateOnce()
 
         assertEquals(listOf("QQ:silent"), delivery.calls.map { it.sessionId })
+    }
+
+    @Test
+    fun `one scheduled heartbeat advances a shared incarnation once`() = runTest {
+        val transcript = InMemoryTranscriptStore("incarnation-a")
+        val store = MutableSessionStateStore(transcriptStore = transcript)
+        val incarnationStore = MutableIncarnationStateStore(transcriptStore = transcript)
+        incarnationStore.readOrCreate(
+            incarnationId = "incarnation-a",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        store.write(neutral("QQ:group-a").copy(lastUserActivityMs = sixMinAgo))
+        store.write(neutral("WEB:user-a").copy(lastUserActivityMs = sixMinAgo))
+        val writer = VectorWriteService(incarnationStore = incarnationStore)
+        val delivery = RecordingDelivery()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = personaConfig(),
+            llmClient = validLlm(),
+            store = store,
+            incarnationStateStore = incarnationStore,
+            vectorWriteService = writer,
+            transcriptStore = transcript,
+            clock = MutableRuntimeClock(now),
+        )
+        val scheduler = HeartbeatScheduler(
+            pipeline = pipeline,
+            store = store,
+            writer = writer,
+            delivery = delivery,
+            incarnationStore = incarnationStore,
+            transcriptStore = transcript,
+            clock = MutableRuntimeClock(now),
+        )
+
+        scheduler.evaluateOnce(now)
+
+        assertEquals(1L, incarnationStore.read("incarnation-a").evolutionIndex)
+        assertEquals(1, delivery.calls.size)
+        assertEquals("owner", delivery.calls.single().userId)
     }
 
     @Test

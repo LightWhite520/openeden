@@ -28,15 +28,33 @@ import kotlinx.coroutines.test.runTest
 
 class TurnCoordinatorConcurrencyTest {
     @Test
-    fun `different scopes of one incarnation cannot race bio writes`() = runTest {
+    fun `concurrent deltas from different scopes accumulate on one incarnation`() = runTest {
         val fixture = GlobalIncarnationPipelineFixture()
+        (1..100).map { index ->
+            async {
+                fixture.send(
+                    turnId = "turn-$index",
+                    sessionId = if (index % 2 == 0) "QQ:group-a" else "WEB:user-a",
+                    text = "positive-$index",
+                )
+            }
+        }.awaitAll()
+
+        assertEquals(100L, fixture.state().evolutionIndex)
+        assertTrue(fixture.state().vector.p >= 0.99f)
+        assertEquals(1, fixture.maximumConcurrentBioWrites)
+    }
+
+    @Test
+    fun `concurrent first turns initialize one incarnation through its gate`() = runTest {
+        val fixture = GlobalIncarnationPipelineFixture()
+
         coroutineScope {
-            launch { fixture.send("QQ:group-a", "a") }
-            launch { fixture.send("WEB:user-a", "b") }
+            launch { fixture.send("turn-a", "QQ:group-a", "a") }
+            launch { fixture.send("turn-b", "WEB:user-a", "b") }
         }
 
-        assertEquals(2L, fixture.state().evolutionIndex)
-        assertEquals(1, fixture.maximumConcurrentBioWrites)
+        assertEquals(1, fixture.maximumConcurrentBioInitializations)
     }
 
     @Test
@@ -147,11 +165,14 @@ private class GlobalIncarnationPipelineFixture {
     val maximumConcurrentBioWrites: Int
         get() = store.maximumConcurrentWrites
 
-    suspend fun send(sessionId: String, text: String) {
+    val maximumConcurrentBioInitializations: Int
+        get() = store.maximumConcurrentInitializations
+
+    suspend fun send(turnId: String, sessionId: String, text: String) {
         val (platform, scopeId) = sessionId.split(':', limit = 2)
         pipeline.handle(
             DevelopmentMessageRequest(
-                turnId = "turn-$sessionId",
+                turnId = turnId,
                 platform = platform,
                 scopeId = scopeId,
                 userId = "user-$scopeId",
@@ -169,9 +190,14 @@ private class TrackingIncarnationStateStore : IncarnationStateStore {
     private val measurementMutex = Mutex()
     private var concurrentWrites = 0
     private var maximumWrites = 0
+    private var concurrentInitializations = 0
+    private var maximumInitializations = 0
 
     val maximumConcurrentWrites: Int
         get() = maximumWrites
+
+    val maximumConcurrentInitializations: Int
+        get() = maximumInitializations
 
     override suspend fun read(incarnationId: String): IncarnationState = delegate.read(incarnationId)
 
@@ -179,7 +205,18 @@ private class TrackingIncarnationStateStore : IncarnationStateStore {
         incarnationId: String,
         personaMode: PersonaMode,
         personaStartSubState: PersonaSubState,
-    ): IncarnationState = delegate.readOrCreate(incarnationId, personaMode, personaStartSubState)
+    ): IncarnationState {
+        measurementMutex.withLock {
+            concurrentInitializations += 1
+            maximumInitializations = maxOf(maximumInitializations, concurrentInitializations)
+        }
+        try {
+            delay(1)
+            return delegate.readOrCreate(incarnationId, personaMode, personaStartSubState)
+        } finally {
+            measurementMutex.withLock { concurrentInitializations -= 1 }
+        }
+    }
 
     override suspend fun write(state: IncarnationState) {
         measurementMutex.withLock {
