@@ -185,7 +185,8 @@ class MessagePipelineTest {
         assertEquals(1, result.evolutionIndex)
         assertEquals(BioVector.Neutral, result.updatedVector)
         assertContains(result.promptPreview, "\"bio_core_state\"")
-        assertContains(result.prompt.contextText, "\"system_time\": \"2026-08-23 00:05\"")
+        assertContains(result.prompt.contextText, "\"temporal_context\"")
+        assertFalse(result.prompt.contextText.contains("\"exact_time\""))
         assertEquals("not_triggered", result.diaryOutcome)
     }
 

@@ -23,7 +23,6 @@ data class PromptInput(
     val shockState: ShockState?,
     val userInput: String,
     val temporalContext: TemporalContext = TemporalContext(),
-    val systemTime: String? = null,
     val userAffect: UserAffectState = UserAffectState.Uncertain,
     val relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
     val relationshipAddress: String? = null,
@@ -31,7 +30,6 @@ data class PromptInput(
     val recentTurns: List<ConversationTurn> = emptyList(),
 ) {
     init {
-        require(systemTime == null || systemTime.isNotBlank()) { "System time must not be blank" }
         require(relationshipRole == RelationshipRole.HOST || relationshipAddress == null) {
             "Relationship address requires HOST role"
         }

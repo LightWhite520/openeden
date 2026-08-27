@@ -5,6 +5,8 @@ import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
+import io.openeden.runtime.time.MutableRuntimeClock
+import io.openeden.runtime.time.RuntimeClock
 
 
 import io.openeden.bio.BioVector
@@ -45,6 +47,18 @@ class HeartbeatSchedulerTest {
         val call = delivery.calls.single()
         assertEquals("QQ:silent", call.sessionId)
         assertTrue(!call.shock)
+    }
+
+    @Test
+    fun `default evaluation reads the injected runtime clock`() = runTest {
+        val clock = MutableRuntimeClock(now)
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:silent").copy(lastUserActivityMs = sixMinAgo))
+        val delivery = RecordingDelivery()
+
+        scheduler(store, delivery, clock = clock).evaluateOnce()
+
+        assertEquals(listOf("QQ:silent"), delivery.calls.map { it.sessionId })
     }
 
     @Test
@@ -330,12 +344,14 @@ class HeartbeatSchedulerTest {
         store: MutableSessionStateStore,
         delivery: HeartbeatDelivery,
         routeResolver: HeartbeatRouteResolver = OwnerHeartbeatRouteResolver(HeartbeatOwner("QQ", "owner")),
+        clock: RuntimeClock = MutableRuntimeClock(now),
         onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
     ): HeartbeatScheduler {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = personaConfig(),
             llmClient = validLlm(),
             store = store,
+            clock = clock,
         )
         return HeartbeatScheduler(
             pipeline = pipeline,
@@ -343,6 +359,7 @@ class HeartbeatSchedulerTest {
             writer = VectorWriteService(store),
             delivery = delivery,
             routeResolver = routeResolver,
+            clock = clock,
             onDeliveryDropped = onDeliveryDropped,
         )
     }

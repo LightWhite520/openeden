@@ -31,8 +31,11 @@ class TemporalContextProvider(
     }
 
     private fun String.requestsExactTime(): Boolean {
-        val normalized = lowercase()
-        return exactTimeMarkers.any(normalized::contains)
+        val normalized = trim().lowercase()
+            .removePrefix("请问")
+            .removeSuffix("？")
+            .removeSuffix("?")
+        return normalized in directTimeQuestions
     }
 
     private companion object {
@@ -42,17 +45,22 @@ class TemporalContextProvider(
         const val HOURS_PER_DAY = 24L
         const val SHANGHAI_UTC_OFFSET_HOURS = 8L
 
-        val exactTimeMarkers = listOf(
-            "几点",
-            "时间",
-            "日期",
-            "星期",
-            "周几",
-            "几号",
+        val directTimeQuestions = setOf(
+            "现在几点",
+            "现在几点了",
+            "当前几点",
+            "现在时间",
+            "现在时间是几点",
+            "当前时间",
+            "今天星期几",
+            "今天周几",
+            "今天几号",
+            "今天日期",
             "what time",
-            "what date",
-            "what day",
-            "current time",
+            "what time is it",
+            "what date is it",
+            "what day is it",
+            "what is the current time",
         )
     }
 }

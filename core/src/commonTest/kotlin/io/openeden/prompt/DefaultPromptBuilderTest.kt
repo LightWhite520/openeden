@@ -22,6 +22,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
@@ -36,7 +37,7 @@ class DefaultPromptBuilderTest {
         assertContains(built.contextText, "\"active_nodes\":")
         assertContains(built.contextText, "\"NODE_088\"")
         assertContains(built.contextText, "\"Definition A\"")
-        assertContains(built.contextText, "\"system_time\": \"1970-01-01 00:00\"")
+        assertFalse(built.contextText.contains("\"system_time\""))
         assertEquals("hello", built.userText)
     }
 
@@ -119,10 +120,10 @@ class DefaultPromptBuilderTest {
     @Test
     fun `runtime changes do not invalidate stable prompt layers`() = runTest {
         val first = DefaultPromptBuilder().build(
-            promptInput(evolutionIndex = 1, systemTime = "2026-08-23 00:05"),
+            promptInput(evolutionIndex = 1),
         )
         val later = DefaultPromptBuilder().build(
-            promptInput(evolutionIndex = 2, systemTime = "2026-08-23 00:06"),
+            promptInput(evolutionIndex = 2),
         )
 
         assertEquals(first.systemText, later.systemText)
@@ -376,7 +377,6 @@ class DefaultPromptBuilderTest {
                 "relationship_address",
                 "relationship_context",
                 "memory_retrieval",
-                "system_time",
             ),
             context.fields.map { it.name },
         )
@@ -387,7 +387,6 @@ class DefaultPromptBuilderTest {
         personaMode: PersonaMode = PersonaMode.GROWTH,
         personaStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
         userInput: String = "hello",
-        systemTime: String = "1970-01-01 00:00",
         personaConfigOverride: PersonaConfig? = null,
         relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
         relationshipAddress: String? = null,
@@ -446,7 +445,6 @@ class DefaultPromptBuilderTest {
         omegaState = OmegaState(0.1f),
         shockState = null,
         userInput = userInput,
-        systemTime = systemTime,
         relationshipRole = relationshipRole,
         relationshipAddress = relationshipAddress,
         recentTurns = recentTurns,

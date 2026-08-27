@@ -103,7 +103,6 @@ object OpenEdenPromptDocumentFactory {
                     HEARTBEAT_SHOCK_TRIGGER ->
                         personaSection("shock_heartbeat_context", input.personaConfig, PromptSectionKeys.ShockHeartbeat)
                 }
-                input.systemTime?.let { "system_time" to it }
             }
             "user" {
                 "input" to input.userInput

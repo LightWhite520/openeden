@@ -24,6 +24,13 @@ class PromptTimeTest {
     }
 
     @Test
+    fun `ordinary statement mentioning time omits exact timestamp`() {
+        val context = TemporalContextProvider(MutableRuntimeClock(1234L)).forTurn("我没有时间", null)
+
+        assertNull(context.exactTime)
+    }
+
+    @Test
     fun `formats epoch milliseconds in Shanghai timezone`() {
         assertEquals(
             "2026-08-23 00:05",
