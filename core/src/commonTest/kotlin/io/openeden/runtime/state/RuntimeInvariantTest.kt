@@ -29,6 +29,12 @@ import kotlin.time.Instant
 
 class RuntimeInvariantTest {
     @Test
+    fun `bio ownership is incarnation global while transcript ownership is conversation scoped`() {
+        assertEquals(StateOwnership.INCARNATION, RuntimeInvariantConstants.bioStateOwnership)
+        assertEquals(StateOwnership.CONVERSATION, RuntimeInvariantConstants.transcriptOwnership)
+    }
+
+    @Test
     fun `pre tick skips low confidence signals`() {
         val original = BioVector.Neutral
 

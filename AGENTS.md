@@ -47,7 +47,7 @@ The system MUST support two top-level operational modes:
    * Treated as fully mature agent
 
 #### evolution_index Definition
-`evolution_index` is a monotonically increasing integer counter representing the total number of completed dialogue turns (user message + ATRI response = 1 turn) across the lifetime of the session.
+`evolution_index` is a monotonically increasing integer counter representing the total number of completed dialogue turns (user message + ATRI response = 1 turn) across the lifetime of one incarnation. The same incarnation owns its 8D vector, Omega, ShockState, homeostasis centroid, persona selection, and `evolution_index` across all conversation scopes.
 
 #### Starting-Point Selection
 
@@ -64,14 +64,15 @@ The three persona patches are canonical self-model starting points, not schedule
  * Prompt construction MUST inject only the selected starting-point patch. It MUST NOT select or replace patches from `evolution_index`.
  * `evolution_index` MUST be injected as a continuous lived-experience signal so the LLM can develop within the selected starting point using actual conversation, memory, relationship state, and 8D state.
  * Heartbeat turns (§9.3) MUST increment `evolution_index` — proactive turns count as lived experience.
- * `evolution_index` MUST be persisted alongside the 8D vector. Loss of this value resets growth state.
+ * `evolution_index` MUST be persisted alongside the incarnation's 8D vector. Loss of this value resets growth state.
  * Changing the mode or starting point requires explicit reinitialization. Runtime downgrade or automatic promotion is forbidden.
  * Schema migration from the former threshold-driven model is the sole compatibility exception: because old rows did not persist their active patch, pre-v5 sessions MUST migrate once to `Growth` + `Awakened` to guarantee that no established session is downgraded. This MUST NOT affect newly created sessions.
 
 #### Constraints
  * Mode selection MUST occur at initialization
  * Runtime logic MUST remain mode-agnostic
- * `evolution_index` counter MUST be protected by the same per-session Mutex as vector writes (§14.2)
+ * `evolution_index` counter MUST be protected by the incarnation Mutex used for all Bio writes (§14.2).
+ * Conversation scopes retain transcript, delivery, recent history, and cache epoch state; they MUST NOT own or duplicate Bio state.
 
 ### 1.2 Persona-as-Data (CRITICAL)
 Personality is **fully externalized**.
@@ -406,6 +407,9 @@ Memories are no longer static coordinate points — they carry "momentum" as vec
 ---
 
 ## 9. Proactive Engine & Temporal Layer
+
+All proactive and temporal operations address the single incarnation's Bio state. Heartbeat delivery remains conversation-scoped and owner-targeted, but heartbeat state updates use the incarnation-wide 8D vector, Omega, ShockState, centroid, persona selection, and `evolution_index`.
+
 ### 9.1 Background Drift
 The 8D Vector MUST decay/shift asynchronously. Even without user interaction, Entropy (S) and Vitality (V) MUST fluctuate based on time passed (Δt).
 
@@ -477,9 +481,9 @@ MUST speak directly without explaining the trigger or runtime state.
 |---|---|
 | DJL + Codebook CSV | 8D Vector to Semantic Translation; heuristic fallback when codebook unavailable |
 | Prompt Builder | Bilingual Persona + State + derived D injection + immutable starting-point patch injection |
-| Runtime | Vector math, derived D computation, dual-space mapping, centroid tracking, Ω tracking, ShockState decay, session Mutex management, evolution_index tracking, DJL execution |
+| Runtime | Incarnation-global Bio vector math, derived D computation, dual-space mapping, centroid tracking, Ω tracking, ShockState decay, incarnation Mutex management, evolution_index tracking, DJL execution |
 | Surface / Adapter Layer | Local CLI, Web UI, and third-party platform adapters (currently QQ/OneBot) call the shared runtime pipeline without duplicating logic |
-| Session Manager | session identity resolution (platform:scope_id), owner-only heartbeat delivery target resolution |
+| Session Manager | conversation identity resolution (platform:scope_id), transcript/delivery/recent-history/cache-epoch ownership, owner-only heartbeat delivery target resolution, and linkage to the shared incarnation |
 | Relationship Role Resolver | exact authoritative host identity matching and prompt role metadata |
 | AGENTS.md | System Constraints |
 
@@ -510,24 +514,24 @@ Agents generating code MUST ensure:
 
 ## 13. Session and Group Scope
 ### 13.1 Shared State Model
-OpenEden uses a **group-shared state model**: all users in a QQ group (or equivalent platform group) share a single ATRI instance. Every user's messages influence the same 8D vector, the same Ω, and the same Memory Palace.
+OpenEden uses a **single-incarnation Bio state model**: one incarnation owns the same 8D vector, Ω, ShockState, homeostasis centroid, persona selection, and `evolution_index` across every conversation scope. Conversation scopes own their transcript, delivery, recent history, and cache epoch.
 
-This is a deliberate design choice reflecting ATRI's nature as a singular entity with a unified experiential continuity. She does not fork into independent copies per user.
+This is a deliberate design choice reflecting ATRI's nature as a singular entity with a unified experiential continuity. Bio state MUST NOT fork per user, group, or conversation scope.
 
 ### 13.2 Session Identity
-A session is identified by `platform:scope_id`. `scope_id` is the shared conversation scope, not necessarily the individual sender.
+A conversation is identified by `platform:scope_id`. `scope_id` is the conversation scope, not the identity key for Bio state. The incarnation identity is resolved separately as `incarnation_id`.
 
- * Group deployments: `scope_id = group_id`; all users in the group share the same session.
- * Private/direct deployments: `scope_id = user_id`; the user is the conversation scope.
+ * Group deployments: `scope_id = group_id`; all users in the group share one conversation transcript and the same incarnation Bio state.
+ * Private/direct deployments: `scope_id = user_id`; the user is the conversation scope while Bio state remains owned by the same incarnation.
  * Individual sender `user_id` values MUST still be stored as metadata on memory entries and in vector-delta context for traceability, but they do NOT define session boundaries in group deployments.
 
 ```
-sessionId = "${platform}:${scopeId}"
+conversationId = "${platform}:${scopeId}"
 ```
 
 For single-user deployments (CLI, direct message, Web 1-on-1), `scopeId` is the `userId`:
 ```
-sessionId = "${platform}:${userId}"
+conversationId = "${platform}:${userId}"
 ```
 
 ### 13.3 Per-User Metadata in Memory
@@ -578,7 +582,7 @@ The pre-ticked snapshot MUST be captured before LLM inference and passed through
 ### 14.2 Vector Write Serialization Invariant — Mutex on all write-back operations
 **Problem:** Concurrent messages from the same user produce concurrent coroutines. Each reads the same "current" vector, computes an independent delta, and writes back — last write wins, intermediate deltas are lost. The vector evolves non-sequentially.
 
-**Rule:** All `applyDelta` and `preTick` write-back operations MUST acquire a per-session `Mutex` before executing. The write MUST read the latest persisted vector inside the lock, not use the snapshot captured before the lock.
+**Rule:** All `applyDelta` and `preTick` write-back operations MUST acquire the incarnation `Mutex` before executing. The write MUST read the latest persisted vector inside the lock, not use the snapshot captured before the lock.
 ```kotlin
 // REQUIRED pattern
 mutex.withLock {
@@ -587,7 +591,7 @@ mutex.withLock {
     storage.write(updated)
 }
 ```
-The Mutex MUST be scoped per session (per user), not global — independent users MUST NOT block each other.
+One incarnation Mutex MUST serialize all Bio writes across every conversation scope. Transcript-only writes MAY remain conversation-scoped, but no scope may bypass the incarnation Mutex for 8D, Ω, ShockState, centroid, persona selection, or `evolution_index` writes.
 
 ### 14.3 Pre-tick Magnitude Cap Invariant — Single-frame perturbation is bounded
 **Problem:** Rapid hostile messages each trigger a full pre-tick perturbation. Compounded across frames, the vector can jump from normal to collapse in 2-3 messages, bypassing all intermediate narrative states.
