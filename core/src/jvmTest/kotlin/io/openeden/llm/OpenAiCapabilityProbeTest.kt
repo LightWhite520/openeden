@@ -7,6 +7,9 @@ import io.ktor.client.request.HttpRequestData
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -15,6 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import java.io.IOException
 
 class OpenAiCapabilityProbeTest {
     @Test
@@ -110,6 +114,84 @@ class OpenAiCapabilityProbeTest {
         assertEquals(capability, cache.getOrProbe(key) { calls += 1; capability })
         assertEquals(2, calls)
         assertEquals(null, cache.get(OpenAiCapabilityCacheKey(key.baseUrl, key.model, "route-b")))
+    }
+
+    @Test
+    fun `probe degrades transport failures to an expired unavailable result`() = runTest {
+        val probe = OpenAiCapabilityProbe(
+            apiKey = "test-key",
+            baseUrl = "https://relay.example.test/v1",
+            model = "test-model",
+            routingFingerprint = "route-a",
+            httpClient = OpenAiCapabilityProbe.httpClient(MockEngine { throw IOException("offline") }, installTimeout = false),
+            nowMs = { 1_000L },
+        )
+
+        assertEquals(OpenAiProviderCapabilities.unavailable(1_000L), probe.probe())
+    }
+
+    @Test
+    fun `probe degrades an oversized relay response to an expired unavailable result`() = runTest {
+        val probe = OpenAiCapabilityProbe(
+            apiKey = "test-key",
+            baseUrl = "https://relay.example.test/v1",
+            model = "test-model",
+            routingFingerprint = "route-a",
+            httpClient = OpenAiCapabilityProbe.httpClient(
+                MockEngine {
+                    respond(
+                        content = "x".repeat(OpenAiCapabilityProbe.MaxResponseBodyBytes + 1),
+                        headers = headersOf("Content-Type", ContentType.Application.Json.toString()),
+                    )
+                },
+                installTimeout = false,
+            ),
+            nowMs = { 1_000L },
+        )
+
+        assertEquals(OpenAiProviderCapabilities.unavailable(1_000L), probe.probe())
+    }
+
+    @Test
+    fun `capability cache coordinates only callers for the same provider route`() = runTest {
+        val cache = OpenAiCapabilityCache(nowMs = { 1_000L })
+        val firstKey = OpenAiCapabilityCacheKey("https://relay.example.test/v1", "test-model", "route-a")
+        val secondKey = OpenAiCapabilityCacheKey("https://relay.example.test/v1", "test-model", "route-b")
+        val first = OpenAiProviderCapabilities.unavailable(2_000L)
+        val second = first.copy(expiresAtMs = 3_000L)
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        var firstCalls = 0
+
+        val firstCaller = async {
+            cache.getOrProbe(firstKey) {
+                firstCalls += 1
+                firstStarted.complete(Unit)
+                releaseFirst.await()
+                first
+            }
+        }
+        firstStarted.await()
+        val sameRouteCaller = async { cache.getOrProbe(firstKey) { error("must join in-flight probe") } }
+        val otherRouteCaller = async { cache.getOrProbe(secondKey) { second } }
+
+        assertEquals(second, withTimeout(1_000L) { otherRouteCaller.await() })
+        releaseFirst.complete(Unit)
+        assertEquals(first, firstCaller.await())
+        assertEquals(first, sameRouteCaller.await())
+        assertEquals(1, firstCalls)
+    }
+
+    @Test
+    fun `cached provider degrades a probe exception instead of propagating it`() = runTest {
+        val provider = CachedOpenAiCapabilityProvider(
+            cache = OpenAiCapabilityCache(nowMs = { 1_000L }),
+            key = OpenAiCapabilityCacheKey("https://relay.example.test/v1", "test-model", "route-a"),
+            probe = { throw IOException("offline") },
+            nowMs = { 1_000L },
+        )
+
+        assertEquals(OpenAiProviderCapabilities.unavailable(1_000L), provider.capabilities())
     }
 
     private suspend fun probeAgainstScriptedServer(

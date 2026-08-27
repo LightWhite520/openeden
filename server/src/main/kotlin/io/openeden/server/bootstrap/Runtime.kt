@@ -47,6 +47,9 @@ import io.openeden.llm.OpenAiResponsesLlmClient
 import io.openeden.llm.OpenAiPromptCachingMode
 import io.openeden.llm.OpenAiCapabilityProbe
 import io.openeden.llm.OpenAiCapabilityCache
+import io.openeden.llm.CachedOpenAiCapabilityProvider
+import io.openeden.llm.OpenAiCapabilityProvider
+import io.openeden.llm.OpenAiProviderCapabilities
 import io.openeden.llm.ReasoningEffort
 import io.openeden.server.persistence.sqldelight.SqlDelightDiaryTaskStore
 import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
@@ -100,6 +103,7 @@ val TranscriptStoreKey = AttributeKey<TranscriptStore>("openeden.transcript-stor
 val VectorDatabaseStatusKey = AttributeKey<VectorDatabaseStatusProvider>("openeden.vector-database-status")
 val IncarnationTerminationCoordinatorKey = AttributeKey<IncarnationTerminationCoordinator>("openeden.incarnation-termination-coordinator")
 val OneBotAdapterKey = AttributeKey<OneBotAdapter>("openeden.onebot-adapter")
+val OpenAiCapabilityProviderKey = AttributeKey<OpenAiCapabilityProvider>("openeden.openai-capability-provider")
 
 /**
  * Boots the persona runtime: durable SQLite store → pipeline → heartbeat scheduler. Runs before
@@ -236,18 +240,22 @@ private suspend fun Application.startRuntime(
         defaultGenerationSettings = staticGenerationSettings,
     )
     startupClosers.addFirst { llmClient.close() }
-    if (serverConfig.capabilityProbeEnabled) {
+    val capabilityProvider: OpenAiCapabilityProvider = if (serverConfig.capabilityProbeEnabled) {
         val capabilityCache = OpenAiCapabilityCache()
-        OpenAiCapabilityProbe(
+        val capabilityProbe = OpenAiCapabilityProbe(
             apiKey = serverConfig.apiKey,
             baseUrl = serverConfig.baseUrl,
             model = serverConfig.model,
             routingFingerprint = serverConfig.capabilityProbeRoutingFingerprint,
             ttlMs = serverConfig.capabilityProbeTtlSeconds * 1_000L,
-        ).use { probe ->
-            capabilityCache.getOrProbe(probe.cacheKey, probe::probe)
-        }
+        )
+        startupClosers.addFirst { capabilityProbe.close() }
+        CachedOpenAiCapabilityProvider(capabilityCache, capabilityProbe.cacheKey, capabilityProbe::probe)
+    } else {
+        OpenAiCapabilityProvider { OpenAiProviderCapabilities.unavailable(System.currentTimeMillis()) }
     }
+    attributes.put(OpenAiCapabilityProviderKey, capabilityProvider)
+    if (serverConfig.capabilityProbeEnabled) capabilityProvider.capabilities()
     val diaryCoordinator = DiaryTriggerCoordinator(
         diaryTaskStore, diaryTaskStore, memoryStore,
         DiaryTriggerConfig(serverConfig.diaryDeltaThreshold, serverConfig.diaryElapsedHours * 60L * 60L * 1000L),

@@ -7,10 +7,13 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.contentType
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.utils.io.core.readBytes
+import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -34,7 +37,15 @@ class OpenAiCapabilityProbe(
         require(ttlMs >= 0L) { "ttlMs must not be negative" }
     }
 
-    suspend fun probe(): OpenAiProviderCapabilities {
+    suspend fun probe(): OpenAiProviderCapabilities = try {
+        probeCanaries()
+    } catch (failure: CancellationException) {
+        throw failure
+    } catch (_: Throwable) {
+        OpenAiProviderCapabilities.unavailable(nowMs())
+    }
+
+    private suspend fun probeCanaries(): OpenAiProviderCapabilities {
         val basic = sendCanary()
         val cacheKey = sendCanary(promptCacheKey = CanaryCacheKey)
         val cacheOptions = sendCanary(
@@ -95,7 +106,7 @@ class OpenAiCapabilityProbe(
             )
         }
         if (response.status.value !in 200..299) return CanaryResponse.Rejected
-        val body = response.bodyAsText()
+        val body = boundedBody(response.bodyAsChannel())
         val objectBody = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
         val hasCacheMetrics = objectBody?.get("usage")?.let { usage ->
             runCatching { usage.jsonObject["input_tokens_details"]?.jsonObject != null }.getOrDefault(false)
@@ -105,6 +116,12 @@ class OpenAiCapabilityProbe(
             responseId = objectBody?.get("id")?.jsonPrimitive?.contentOrNull,
             hasCacheMetrics = hasCacheMetrics,
         )
+    }
+
+    private suspend fun boundedBody(channel: io.ktor.utils.io.ByteReadChannel): String {
+        val bytes = channel.readRemaining(MaxResponseBodyBytes.toLong() + 1L).readBytes()
+        check(bytes.size <= MaxResponseBodyBytes) { "OpenAI capability probe response exceeded limit" }
+        return bytes.decodeToString()
     }
 
     private fun canaryInput(breakpoint: Boolean): JsonArray = JsonArray(
@@ -138,6 +155,7 @@ class OpenAiCapabilityProbe(
 
     companion object {
         const val DefaultTtlMs: Long = 15L * 60L * 1000L
+        const val MaxResponseBodyBytes: Int = 16 * 1024
 
         fun httpClient(engine: HttpClientEngine, installTimeout: Boolean = true): HttpClient = HttpClient(engine) {
             if (installTimeout) {
