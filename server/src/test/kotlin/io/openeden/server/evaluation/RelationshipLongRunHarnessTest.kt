@@ -3,8 +3,11 @@ package io.openeden.server.evaluation
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 
 class RelationshipLongRunHarnessTest {
     @Test
@@ -38,6 +41,54 @@ class RelationshipLongRunHarnessTest {
     }
 
     @Test
+    fun `injected pipeline observes every authoritative turn and supplies exported records`() = runTest {
+        val observer = RecordingEvaluationPipeline(RelationshipLongRunHarness.fakePipeline(EvaluationVariant.A))
+        val scenario = RelationshipScenario.canonical(EvaluationVariant.A)
+        val result = RelationshipLongRunHarness(DeterministicRuntimeClock(), observer).run(scenario)
+
+        assertEquals(scenario.turns.size, observer.requests.size)
+        assertEquals(result.turns.map(EvaluatedTurn::nowMs), observer.requests.map(EvaluationRequest::nowMs))
+        assertTrue(result.observations.all { it.diagnostics.isNotEmpty() && it.trace.traceId.isNotBlank() })
+        assertEquals(result.turns.size, result.relationshipEvents.size)
+        assertEquals(result.turns.size, result.promptCacheManifest.size)
+    }
+
+    @Test
+    fun `canonical fake makes required relationship behavior observable`() = runTest {
+        val result = RelationshipLongRunHarness.fake(EvaluationVariant.A).run(RelationshipScenario.canonical(EvaluationVariant.A))
+        val byTag = result.turns.associateBy { it.tags.singleOrNull { tag -> tag !in setOf("daily", "stranger", "negative") } }
+
+        assertTrue(
+            result.turns.filter { "negative" in it.tags }.all {
+                it.userText.startsWith("要不要") && it.outcome == "invitation_declined_without_pressure"
+            },
+        )
+        assertEquals("mutual_romance_reciprocated", byTag.getValue("hot-romance").outcome)
+        assertEquals("boundary_respected", byTag.getValue("boundary").outcome)
+        assertEquals("conflict_acknowledged", byTag.getValue("conflict").outcome)
+        assertEquals("repair_completed", byTag.getValue("repair").outcome)
+        assertEquals("silence_observed", byTag.getValue("silence").outcome)
+        assertEquals("heartbeat_delivered", byTag.getValue("heartbeat").outcome)
+        assertEquals("CONFESSED", byTag.getValue("confession").relationshipState)
+        assertEquals("COUPLE", byTag.getValue("acceptance").relationshipState)
+        assertEquals("COUPLE", byTag.getValue("restart").relationshipState)
+    }
+
+    @Test
+    fun `variants produce distinct scenario and exported output fingerprints`() = runTest {
+        val scenarioA = RelationshipScenario.canonical(EvaluationVariant.A)
+        val scenarioB = RelationshipScenario.canonical(EvaluationVariant.B)
+        val outputA = Files.createTempDirectory("relationship-evaluation-a")
+        val outputB = Files.createTempDirectory("relationship-evaluation-b")
+
+        val artifactsA = RelationshipLongRunHarness.fake(EvaluationVariant.A).run(scenarioA).exportTo(outputA)
+        val artifactsB = RelationshipLongRunHarness.fake(EvaluationVariant.B).run(scenarioB).exportTo(outputB)
+
+        assertNotEquals(scenarioA.fingerprint(), scenarioB.fingerprint())
+        assertNotEquals(artifactsA.fingerprints, artifactsB.fingerprints)
+    }
+
+    @Test
     fun `fake baseline writes stable fingerprints for every required artifact`() = runTest {
         val firstOutput = Files.createTempDirectory("relationship-evaluation-first")
         val secondOutput = Files.createTempDirectory("relationship-evaluation-second")
@@ -59,12 +110,43 @@ class RelationshipLongRunHarnessTest {
             firstArtifacts.files.map { it.fileName.toString() }.toSet(),
         )
         assertTrue(firstArtifacts.files.all(Files::exists))
+
+        val transcript = firstArtifacts.file("transcript.jsonl").jsonLines()
+        val bio = Files.readAllLines(firstArtifacts.file("bio.csv"))
+        val relationshipEvents = firstArtifacts.file("relationship-events.jsonl").jsonLines()
+        val cacheManifest = firstArtifacts.file("prompt-cache-manifest.jsonl").jsonLines()
+
+        assertEquals(first.turns.size, transcript.size)
+        assertEquals(first.turns.size + 1, bio.size)
+        assertEquals(first.turns.size, relationshipEvents.size)
+        assertEquals(first.turns.size, cacheManifest.size)
+        assertEquals("turn,now_ms,L,P,E,S,tau,V,M,F", bio.first())
+        assertTrue(bio.drop(1).all { it.split(',').size == 10 })
+        assertTrue(transcript.all { it.keys.containsAll(setOf("turn", "now_ms", "user_text", "response", "outcome", "relationship_state", "diagnostics")) })
+        assertTrue(relationshipEvents.all { it.keys.containsAll(setOf("turn", "now_ms", "events", "relationship_state")) })
+        assertTrue(cacheManifest.all { it.keys.containsAll(setOf("turn", "now_ms", "trace_id", "input_tokens", "cached_input_tokens", "cache_read_rate")) })
     }
 
     @Test
     fun `exports the configured baseline directory for the PowerShell runner`() = runTest {
         val outputDirectory = System.getenv("OPENEDEN_EVALUATION_OUTPUT_DIRECTORY") ?: return@runTest
 
-        RelationshipLongRunHarness.fake().run(RelationshipScenario.canonical()).exportTo(java.nio.file.Path.of(outputDirectory))
+        val variant = EvaluationVariant.valueOf(System.getenv("OPENEDEN_EVALUATION_VARIANT") ?: "A")
+        RelationshipLongRunHarness.fake(variant).run(RelationshipScenario.canonical(variant)).exportTo(java.nio.file.Path.of(outputDirectory))
+    }
+
+    private fun ExportedArtifacts.file(name: String) = files.single { it.fileName.toString() == name }
+
+    private fun java.nio.file.Path.jsonLines() = Files.readAllLines(this).map { Json.parseToJsonElement(it).jsonObject }
+
+    private class RecordingEvaluationPipeline(
+        private val delegate: RelationshipEvaluationPipeline,
+    ) : RelationshipEvaluationPipeline {
+        val requests = mutableListOf<EvaluationRequest>()
+
+        override suspend fun evaluate(request: EvaluationRequest): EvaluationObservation {
+            requests += request
+            return delegate.evaluate(request)
+        }
     }
 }

@@ -13,6 +13,7 @@ for ($run = 1; $run -le $Runs; $run++) {
     $runDirectory = Join-Path $outputRoot "run-$run"
     New-Item -ItemType Directory -Force -Path $runDirectory | Out-Null
     $env:OPENEDEN_EVALUATION_OUTPUT_DIRECTORY = $runDirectory
+    $env:OPENEDEN_EVALUATION_VARIANT = $Variant
     & (Join-Path $projectRoot "gradlew.bat") :server:test --tests "io.openeden.server.evaluation.RelationshipLongRunHarnessTest"
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE

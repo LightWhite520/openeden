@@ -8,11 +8,21 @@ data class ScenarioTurn(
 
 data class RelationshipScenario(
     val name: String,
+    val variant: EvaluationVariant,
     val turns: List<ScenarioTurn>,
 ) {
+    fun fingerprint(): String = listOf(
+        name,
+        variant.name,
+        turns.joinToString("|") { "${it.advanceMs}:${it.userText}:${it.tags.sorted()}" },
+    ).joinToString("\n")
+        .encodeToByteArray()
+        .let { bytes -> java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) } }
+
     companion object {
-        fun canonical(): RelationshipScenario = RelationshipScenario(
-            name = "canonical-stranger-to-lover",
+        fun canonical(variant: EvaluationVariant = EvaluationVariant.A): RelationshipScenario = RelationshipScenario(
+            name = "canonical-stranger-to-lover-${variant.name.lowercase()}",
+            variant = variant,
             turns = buildList {
                 repeat(20) { index ->
                     add(
