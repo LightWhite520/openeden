@@ -89,6 +89,18 @@ class RelationshipLongRunHarnessTest {
     }
 
     @Test
+    fun `variants expose a cache behavior difference independent of labels`() = runTest {
+        val baseline = RelationshipLongRunHarness.fake(EvaluationVariant.A).run(RelationshipScenario.canonical(EvaluationVariant.A))
+        val candidate = RelationshipLongRunHarness.fake(EvaluationVariant.B).run(RelationshipScenario.canonical(EvaluationVariant.B))
+
+        assertTrue(baseline.cacheReadRate!! > candidate.cacheReadRate!!)
+        assertNotEquals(
+            baseline.promptCacheManifest.map { it.metrics.cachedInputTokens },
+            candidate.promptCacheManifest.map { it.metrics.cachedInputTokens },
+        )
+    }
+
+    @Test
     fun `fake baseline writes stable fingerprints for every required artifact`() = runTest {
         val firstOutput = Files.createTempDirectory("relationship-evaluation-first")
         val secondOutput = Files.createTempDirectory("relationship-evaluation-second")
@@ -112,19 +124,26 @@ class RelationshipLongRunHarnessTest {
         assertTrue(firstArtifacts.files.all(Files::exists))
 
         val transcript = firstArtifacts.file("transcript.jsonl").jsonLines()
-        val bio = Files.readAllLines(firstArtifacts.file("bio.csv"))
+        val bio = firstArtifacts.file("bio.csv").csvRecords()
         val relationshipEvents = firstArtifacts.file("relationship-events.jsonl").jsonLines()
         val cacheManifest = firstArtifacts.file("prompt-cache-manifest.jsonl").jsonLines()
 
         assertEquals(first.turns.size, transcript.size)
-        assertEquals(first.turns.size + 1, bio.size)
+        assertEquals(first.turns.size, bio.size)
         assertEquals(first.turns.size, relationshipEvents.size)
         assertEquals(first.turns.size, cacheManifest.size)
-        assertEquals("turn,now_ms,L,P,E,S,tau,V,M,F", bio.first())
-        assertTrue(bio.drop(1).all { it.split(',').size == 10 })
+        assertTrue(
+            bio.all {
+                it.keys.containsAll(
+                    setOf("turn", "now_ms", "L", "P", "E", "S", "tau", "V", "M", "F", "trace_stage", "diagnostics", "evolution_index", "omega"),
+                ) && it.values.all(String::isNotBlank)
+            },
+        )
+        assertTrue(bio.all { "evaluation_profile=" in it.getValue("diagnostics") && "outcome=" in it.getValue("diagnostics") })
         assertTrue(transcript.all { it.keys.containsAll(setOf("turn", "now_ms", "user_text", "response", "outcome", "relationship_state", "diagnostics")) })
-        assertTrue(relationshipEvents.all { it.keys.containsAll(setOf("turn", "now_ms", "events", "relationship_state")) })
-        assertTrue(cacheManifest.all { it.keys.containsAll(setOf("turn", "now_ms", "trace_id", "input_tokens", "cached_input_tokens", "cache_read_rate")) })
+        assertTrue(transcript.all { it.getValue("diagnostics").jsonObject.isNotEmpty() })
+        assertTrue(relationshipEvents.all { it.keys.containsAll(setOf("turn", "now_ms", "events", "relationship_state", "evolution_index", "omega")) })
+        assertTrue(cacheManifest.all { it.keys.containsAll(setOf("turn", "now_ms", "trace_id", "trace_stage", "input_tokens", "cached_input_tokens", "cache_read_rate")) })
     }
 
     @Test
@@ -138,6 +157,37 @@ class RelationshipLongRunHarnessTest {
     private fun ExportedArtifacts.file(name: String) = files.single { it.fileName.toString() == name }
 
     private fun java.nio.file.Path.jsonLines() = Files.readAllLines(this).map { Json.parseToJsonElement(it).jsonObject }
+
+    private fun java.nio.file.Path.csvRecords(): List<Map<String, String>> {
+        val rows = Files.readAllLines(this).map(::parseCsvRow)
+        val header = rows.first()
+        return rows.drop(1).map { header.zip(it).toMap() }
+    }
+
+    private fun parseCsvRow(row: String): List<String> {
+        val fields = mutableListOf<String>()
+        val field = StringBuilder()
+        var quoted = false
+        var index = 0
+        while (index < row.length) {
+            when (val character = row[index]) {
+                '"' -> if (quoted && row.getOrNull(index + 1) == '"') {
+                    field.append(character)
+                    index++
+                } else {
+                    quoted = !quoted
+                }
+                ',' -> if (quoted) field.append(character) else {
+                    fields += field.toString()
+                    field.clear()
+                }
+                else -> field.append(character)
+            }
+            index++
+        }
+        fields += field.toString()
+        return fields
+    }
 
     private class RecordingEvaluationPipeline(
         private val delegate: RelationshipEvaluationPipeline,

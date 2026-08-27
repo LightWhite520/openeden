@@ -84,11 +84,26 @@ data class LongRunResult(
                 "{\"turn\":${turn.index},\"now_ms\":${turn.nowMs},\"user_text\":\"${turn.userText.jsonEscape()}\",\"response\":\"${turn.response.jsonEscape()}\",\"outcome\":\"${turn.outcome}\",\"relationship_state\":\"${turn.relationshipState}\",\"tags\":${turn.tags.jsonArray()},\"diagnostics\":${observation.diagnostics.jsonObject()}}"
             },
             outputDirectory.resolve("bio.csv") to buildString {
-                appendLine("turn,now_ms,L,P,E,S,tau,V,M,F")
+                appendLine("turn,now_ms,L,P,E,S,tau,V,M,F,trace_stage,diagnostics,evolution_index,omega")
                 observations.forEach { observation ->
                     val turn = observation.transcript
                     val bio = observation.bio
-                    appendLine("${turn.index},${turn.nowMs},${bio.l},${bio.p},${bio.e},${bio.s},${bio.tau},${bio.v},${bio.m},${bio.f}")
+                    listOf(
+                        turn.index.toString(),
+                        turn.nowMs.toString(),
+                        bio.l.toString(),
+                        bio.p.toString(),
+                        bio.e.toString(),
+                        bio.s.toString(),
+                        bio.tau.toString(),
+                        bio.v.toString(),
+                        bio.m.toString(),
+                        bio.f.toString(),
+                        observation.trace.stage,
+                        observation.diagnostics.csvDiagnostics(),
+                        observation.state.evolutionIndex.toString(),
+                        observation.state.omega.toString(),
+                    ).joinToString(",") { it.csvField() }.also(::appendLine)
                 }
             }.trimEnd(),
             outputDirectory.resolve("relationship-events.jsonl") to observations.joinToString("\n") { observation ->
@@ -168,23 +183,24 @@ private class FakeEvaluationPipeline(
     private var relationshipState = "STRANGERS"
 
     override suspend fun evaluate(request: EvaluationRequest): EvaluationObservation {
+        require(request.variant == variant) { "Fake pipeline variant must match request variant" }
         val tags = request.scenarioTurn.tags
         val outcome = outcomeFor(tags)
         relationshipState = nextRelationshipState(tags)
         val turn = EvaluatedTurn(
             request.index, request.nowMs, request.scenarioTurn.userText, tags,
-            responseFor(outcome), outcome, relationshipState,
+            responseFor(outcome, request.variant), outcome, relationshipState,
         )
         return EvaluationObservation(
             transcript = turn,
             bio = deterministicBio(request.index),
             diagnostics = mapOf(
-                "variant" to variant.name,
+                "evaluation_profile" to profileFor(request.variant),
                 "outcome" to outcome,
                 "source" to if ("heartbeat" in tags) "HEARTBEAT" else "USER",
             ),
-            trace = EvaluationTrace("${variant.name.lowercase()}-turn-${request.index}", "evaluation-pipeline"),
-            cacheMetrics = LlmCacheMetrics(1_000L, if (request.index == 1) 0L else 900L),
+            trace = EvaluationTrace("${variant.name.lowercase()}-turn-${request.index}", traceStageFor(request.variant)),
+            cacheMetrics = cacheMetricsFor(request.index, request.variant),
             relationshipEvent = RelationshipEvent(request.index, request.nowMs, tags.intersect(relationshipEventTags), relationshipState),
             state = EvaluationState(relationshipState, request.index.toLong(), omegaFor(request.index)),
         )
@@ -210,7 +226,29 @@ private class FakeEvaluationPipeline(
         else -> relationshipState
     }
 
-    private fun responseFor(outcome: String): String = "${variant.name}:$outcome"
+    private fun responseFor(outcome: String, variant: EvaluationVariant): String = when (variant) {
+        EvaluationVariant.A -> "baseline evaluation: $outcome"
+        EvaluationVariant.B -> "candidate evaluation: $outcome"
+    }
+
+    private fun profileFor(variant: EvaluationVariant): String = when (variant) {
+        EvaluationVariant.A -> "baseline-stable-prefix"
+        EvaluationVariant.B -> "candidate-dynamic-prefix"
+    }
+
+    private fun traceStageFor(variant: EvaluationVariant): String = when (variant) {
+        EvaluationVariant.A -> "baseline-prompt-cache"
+        EvaluationVariant.B -> "candidate-prompt-cache"
+    }
+
+    private fun cacheMetricsFor(index: Int, variant: EvaluationVariant): LlmCacheMetrics = LlmCacheMetrics(
+        inputTokens = 1_000L,
+        cachedInputTokens = when {
+            index == 1 -> 0L
+            variant == EvaluationVariant.A -> 900L
+            else -> 650L
+        },
+    )
 
     private fun deterministicBio(index: Int): BioVector {
         val offset = (index % 20) / 100.0f
@@ -235,6 +273,15 @@ private fun Set<String>.jsonArray(): String = sorted().joinToString(prefix = "["
 
 private fun Map<String, String>.jsonObject(): String = entries.sortedBy(Map.Entry<String, String>::key)
     .joinToString(prefix = "{", postfix = "}") { (key, value) -> "\"${key.jsonEscape()}\":\"${value.jsonEscape()}\"" }
+
+private fun Map<String, String>.csvDiagnostics(): String = entries.sortedBy(Map.Entry<String, String>::key)
+    .joinToString(";") { (key, value) -> "$key=$value" }
+
+private fun String.csvField(): String = if (any { it == ',' || it == '"' || it == '\n' }) {
+    "\"${replace("\"", "\"\"")}\""
+} else {
+    this
+}
 
 private fun Path.sha256(): String = MessageDigest.getInstance("SHA-256")
     .digest(Files.readAllBytes(this))
