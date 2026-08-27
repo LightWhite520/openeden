@@ -7,11 +7,14 @@ import io.openeden.prompt.HEARTBEAT_TRIGGER
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.pipeline.DevelopmentMessageRequest
 import io.openeden.runtime.pipeline.TurnSource
+import io.openeden.runtime.incarnation.IncarnationStateStore
+import io.openeden.runtime.incarnation.IncarnationState
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
 import io.openeden.runtime.time.RuntimeClock
 import io.openeden.runtime.time.SystemRuntimeClock
+import io.openeden.transcript.TranscriptStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -29,10 +32,18 @@ class HeartbeatScheduler(
     private val routeResolver: HeartbeatRouteResolver = OwnerHeartbeatRouteResolver(owner = null),
     private val clock: RuntimeClock = SystemRuntimeClock,
     private val onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
+    private val incarnationStore: IncarnationStateStore? = null,
+    private val transcriptStore: TranscriptStore? = null,
 ) {
     fun decide(state: SessionState, now: Long): HeartbeatDecision {
-        val silenceMs = state.lastUserActivityMs?.let { now - it } ?: Long.MAX_VALUE
-        val shock = state.shockState
+        return decide(state.lastUserActivityMs, state.shockState, now)
+    }
+
+    private fun decide(state: IncarnationState, now: Long): HeartbeatDecision =
+        decide(state.lastUserActivityMs, state.shockState, now)
+
+    private fun decide(lastUserActivityMs: Long?, shock: ShockState?, now: Long): HeartbeatDecision {
+        val silenceMs = lastUserActivityMs?.let { now - it } ?: Long.MAX_VALUE
         if (shock != null && shock.active && shock.intensity >= config.shockIntensityGate &&
             !shock.shockHeartbeatFired && silenceMs >= config.shockSilenceGateMs
         ) {
@@ -44,7 +55,9 @@ class HeartbeatScheduler(
 
     suspend fun evaluateOnce(now: Long = clock.nowMs()) {
         for (sessionId in store.sessionIds()) {
-            val decision = decide(store.read(sessionId), now)
+            val incarnationId = transcriptStore?.activeIncarnation()?.id
+            val incarnationState = incarnationId?.let { id -> incarnationStore?.read(id) }
+            val decision = if (incarnationState != null) decide(incarnationState, now) else decide(store.read(sessionId), now)
             if (decision == HeartbeatDecision.SKIP) continue
             val shock = decision == HeartbeatDecision.SHOCK
             val platform = sessionId.substringBefore(':')
@@ -60,7 +73,13 @@ class HeartbeatScheduler(
                     source = TurnSource.HEARTBEAT,
                 ),
             )
-            if (shock) writer.markShockHeartbeatFired(sessionId)
+            if (shock) {
+                if (incarnationId != null && incarnationStore != null) {
+                    writer.markShockHeartbeatFiredForIncarnation(incarnationId)
+                } else {
+                    writer.markShockHeartbeatFired(sessionId)
+                }
+            }
             for (target in routeResolver.targetsFor(sessionId, now)) {
                 try {
                     if (!delivery.isConnected(target)) continue

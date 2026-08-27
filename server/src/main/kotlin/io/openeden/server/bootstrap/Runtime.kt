@@ -56,6 +56,7 @@ import io.openeden.server.persistence.sqldelight.SqlDelightMemoryRepository
 import io.openeden.server.persistence.sqldelight.MemoryVectorProjectionStore
 import io.openeden.server.persistence.sqldelight.SqlDelightTraceStore
 import io.openeden.server.persistence.sqldelight.SqlDelightSessionStateStore
+import io.openeden.server.persistence.sqldelight.SqlDelightIncarnationStateStore
 import io.openeden.server.persistence.sqldelight.SqlDelightRelationshipStateStore
 import io.openeden.server.persistence.sqldelight.SqlDelightTranscriptStore
 import io.openeden.server.vector.QdrantCircuitBreaker
@@ -159,6 +160,13 @@ private suspend fun Application.startRuntime(
         )
     }
     startupClosers.addFirst { store.close() }
+    val incarnationStore = persistenceIo.open {
+        SqlDelightIncarnationStateStore.open(
+            serverConfig.runtimeDbPath,
+            committedTranscriptStore = transcriptStore,
+        )
+    }
+    startupClosers.addFirst { incarnationStore.close() }
     val relationshipStore = persistenceIo.open {
         SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
     }
@@ -173,9 +181,7 @@ private suspend fun Application.startRuntime(
     startupClosers.addFirst { traceStore.close() }
     val inferenceExecutor = JvmInferenceExecutor()
     startupClosers.addFirst { inferenceExecutor.close() }
-    // One VectorWriteService shared by the pipeline and the scheduler so all per-session writes
-    // (user deltas + shock-heartbeat latch) serialize on the same Mutex registry (§14.2).
-    val writer = VectorWriteService(store, inferenceExecutor = inferenceExecutor)
+    val writer = VectorWriteService(incarnationStore = incarnationStore, inferenceExecutor = inferenceExecutor)
     val runtimeConfig = RuntimeConfig.Default.copy(owner = serverConfig.heartbeatOwner)
     val models = loadRuntimeModels(serverConfig)
     startupClosers.addFirst { models.close() }
@@ -264,6 +270,7 @@ private suspend fun Application.startRuntime(
         personaConfig = persona, llmClient = llmClient,
         llmGenerationPolicyConfig = serverConfig.llmGenerationPolicy,
         store = store,
+        incarnationStateStore = incarnationStore,
         vectorWriteService = writer,
         inferenceExecutor = inferenceExecutor,
         memoryStore = memoryStore,
@@ -393,6 +400,8 @@ private suspend fun Application.startRuntime(
                 failure,
             )
         },
+        incarnationStore = incarnationStore,
+        transcriptStore = transcriptStore,
     )
     val heartbeatJob = scheduler.start(scope)
     val tickJob = RuntimeTickScheduler(
@@ -402,6 +411,8 @@ private suspend fun Application.startRuntime(
         inferenceExecutor = inferenceExecutor,
         config = runtimeConfig,
         onOmegaCritical = { lifecycleRepository.markCritical() },
+        incarnationStore = incarnationStore,
+        transcriptStore = transcriptStore,
     ).start(scope)
     val terminationCoordinator = IncarnationTerminationCoordinator(
         gate = lifecycleGate,
@@ -417,6 +428,7 @@ private suspend fun Application.startRuntime(
             { lifecycleRepository.close() },
             { transcriptStore.close() },
             { store.close() },
+            { incarnationStore.close() },
             { memoryStore.close(); Unit },
             { qdrantRuntime?.client?.close() },
             { projectionStore.close() },

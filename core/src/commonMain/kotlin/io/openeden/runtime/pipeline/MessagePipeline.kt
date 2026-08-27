@@ -36,6 +36,8 @@ import io.openeden.runtime.diary.DiaryTriggerCoordinator
 import io.openeden.runtime.diary.SessionDiaryQueue
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.inference.InferenceExecutor
+import io.openeden.runtime.incarnation.IncarnationStateStore
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.runtime.lifecycle.IncarnationLifecycleGate
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
@@ -85,6 +87,7 @@ class DevelopmentMessagePipeline(
     private val clock: RuntimeClock = SystemRuntimeClock,
     private val llmGenerationPolicyConfig: LlmGenerationPolicyConfig,
     private val lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
+    private val incarnationStore: IncarnationStateStore = MutableIncarnationStateStore(),
 ) {
     private val temporalContextProvider = TemporalContextProvider(clock)
 
@@ -147,11 +150,9 @@ class DevelopmentMessagePipeline(
     fun handleStreaming(request: DevelopmentMessageRequest): Flow<DevelopmentMessageEvent> = flow {
         lifecycleGate.withActiveTurn {
             val sessionId = "${request.platform}:${request.scopeId}"
-            turnGate.withSession(sessionId) {
-                emit(DevelopmentMessageEvent.Stage(DevelopmentStage.PREPARING))
-                val result = handleLocked(request, sessionId, ::emit)
-                emit(DevelopmentMessageEvent.Completed(result))
-            }
+            emit(DevelopmentMessageEvent.Stage(DevelopmentStage.PREPARING))
+            val result = handleLocked(request, sessionId, ::emit)
+            emit(DevelopmentMessageEvent.Completed(result))
         }
     }
 
@@ -165,8 +166,14 @@ class DevelopmentMessagePipeline(
             turnId = request.turnId,
             sessionId = sessionId,
         )
-        val initial = store.readOrCreate(
+        store.readOrCreate(
             sessionId = sessionId,
+            personaMode = personaConfig.mode,
+            personaStartSubState = personaConfig.startSubState,
+        )
+        val incarnationId = transcriptStore?.activeIncarnation()?.id ?: DEVELOPMENT_INCARNATION_ID
+        val initial = incarnationStore.readOrCreate(
+            incarnationId = incarnationId,
             personaMode = personaConfig.mode,
             personaStartSubState = personaConfig.startSubState,
         )
@@ -440,7 +447,7 @@ class DevelopmentMessagePipeline(
         ) {
             ConversationTurn(
                 turnId = request.turnId,
-                incarnationId = transcriptStore.activeIncarnation().id,
+                incarnationId = incarnationId,
                 sessionId = sessionId,
                 platform = request.platform,
                 scopeId = request.scopeId,
@@ -460,8 +467,8 @@ class DevelopmentMessagePipeline(
                     internalLogic = validation.output?.internalLogic.orEmpty(),
                 )
             }
-            vectorWriteService.commitTurnLocked(
-                sessionId = sessionId,
+            vectorWriteService.commitIncarnationTurn(
+                incarnationId = incarnationId,
                 preTickedSnapshot = preTick.preTicked,
                 originSnapshot = current.origin,
                 delta = validation.delta,
@@ -550,7 +557,7 @@ class DevelopmentMessagePipeline(
             inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
         }
         val centroidTags: Set<String> = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
-            vectorWriteService.updateLocked(sessionId) { it.copy(origin = updatedOrigin) }
+            vectorWriteService.updateIncarnation(incarnationId) { it.copy(origin = updatedOrigin) }
             setOf(TraceTag.CentroidUpdated)
         } else {
             emptySet<String>()
@@ -584,8 +591,8 @@ class DevelopmentMessagePipeline(
                 .filter(String::isNotEmpty)
                 .joinToString("\n\n"),
             response = validation.output?.response,
-            updatedVector = store.read(sessionId).vector,
-            evolutionIndex = store.read(sessionId).evolutionIndex,
+            updatedVector = write.state.vector,
+            evolutionIndex = write.state.evolutionIndex,
             diaryOutcome = diaryOutcome.label,
             validationErrors = validation.errors,
             cacheMetrics = aggregatedCacheMetrics,
@@ -699,11 +706,13 @@ class DevelopmentMessagePipeline(
     companion object {
         private const val RECENT_HISTORY_LIMIT = 8
         private const val RECENT_CONTEXT_TURNS = 2
+        private const val DEVELOPMENT_INCARNATION_ID = "development"
 
         fun create(
             personaConfig: PersonaConfig,
             llmClient: LlmClient = DevelopmentLlmStub(),
             store: SessionStateStore? = null,
+            incarnationStateStore: IncarnationStateStore? = null,
             vectorWriteService: VectorWriteService? = null,
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
             quantizer: CodebookQuantizer = HeuristicCodebookFallback(),
@@ -727,6 +736,7 @@ class DevelopmentMessagePipeline(
             personaConfig = personaConfig,
             llmClient = llmClient,
             store = store,
+            incarnationStateStore = incarnationStateStore,
             vectorWriteService = vectorWriteService,
             inferenceExecutor = inferenceExecutor,
             quantizer = quantizer,
@@ -753,6 +763,7 @@ class DevelopmentMessagePipeline(
             personaConfig: PersonaConfig,
             llmClient: LlmClient = DevelopmentLlmStub(),
             store: SessionStateStore? = null,
+            incarnationStateStore: IncarnationStateStore? = null,
             vectorWriteService: VectorWriteService? = null,
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
             quantizer: CodebookQuantizer = HeuristicCodebookFallback(),
@@ -779,17 +790,19 @@ class DevelopmentMessagePipeline(
                 is InMemoryTranscriptStore -> MutableSessionStateStore(transcriptStore = transcriptStore)
                 else -> error("A non-memory transcript store requires an explicitly co-backed session state store")
             }
+            val effectiveIncarnationStore = incarnationStateStore ?: when (effectiveStore) {
+                is MutableSessionStateStore -> MutableIncarnationStateStore(transcriptStore = effectiveStore.transcript)
+                else -> MutableIncarnationStateStore()
+            }
             val effectiveVectorWriteService = vectorWriteService
-                ?: VectorWriteService(effectiveStore, inferenceExecutor = inferenceExecutor)
-            require(effectiveVectorWriteService.isBackedBy(effectiveStore)) {
-                "vectorWriteService must use the same session state store as the pipeline"
+                ?: VectorWriteService(incarnationStore = effectiveIncarnationStore, inferenceExecutor = inferenceExecutor)
+            require(effectiveVectorWriteService.isBackedBy(effectiveIncarnationStore)) {
+                "vectorWriteService must use the same incarnation state store as the pipeline"
             }
             val effectiveTranscriptStore = transcriptStore ?: (effectiveStore as? TranscriptStore)
             if (effectiveTranscriptStore != null) {
-                val atomicStore = effectiveStore as? AtomicTurnCommitStore
-                    ?: error("Public turns require an atomic session state store")
-                require(atomicStore.commitsTo(effectiveTranscriptStore)) {
-                    "Session state and transcript stores must share one atomic backend"
+                require(effectiveIncarnationStore.commitsTo(effectiveTranscriptStore)) {
+                    "Incarnation state and transcript stores must share one atomic backend"
                 }
             }
             val effectiveCentroidProvider = centroidProvider ?: SlidingWindowHomeostasisCentroidProvider(
@@ -822,6 +835,7 @@ class DevelopmentMessagePipeline(
                 transcriptStore = effectiveTranscriptStore,
                 clock = effectiveClock,
                 lifecycleGate = lifecycleGate,
+                incarnationStore = effectiveIncarnationStore,
             )
         }
     }

@@ -18,7 +18,7 @@ class MutableSessionStateStore(
     activeIncarnationCreatedAtMs: Long = 0L,
     transcriptStore: InMemoryTranscriptStore? = null,
 ) : SessionStateStore, AtomicTurnCommitStore, TranscriptStore {
-    private val transcript = transcriptStore ?: InMemoryTranscriptStore(
+    internal val transcript = transcriptStore ?: InMemoryTranscriptStore(
         activeIncarnationId = activeIncarnationId,
         createdAtMs = activeIncarnationCreatedAtMs,
     )

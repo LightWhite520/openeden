@@ -10,6 +10,9 @@ import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.incarnation.IncarnationState
 import io.openeden.runtime.incarnation.IncarnationStateStore
 import io.openeden.server.db.Database
+import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.TranscriptStore
+import io.openeden.transcript.TurnCommitOutcome
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -24,8 +27,10 @@ class SqlDelightIncarnationStateStore(
     private val driver: SqlDriver,
     private val json: Json = Json,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val committedTranscriptStore: TranscriptStore? = null,
 ) : IncarnationStateStore {
     private val queries get() = database.incarnationQueries
+    private val transcriptQueries get() = database.transcriptQueries
 
     override suspend fun read(incarnationId: String): IncarnationState = withContext(ioDispatcher) {
         queries.selectBioByIncarnationId(incarnationId, ::toIncarnationState)
@@ -55,6 +60,50 @@ class SqlDelightIncarnationStateStore(
                 current.personaStartSubState == state.personaStartSubState,
         ) { "Persona mode and starting point are immutable for an existing incarnation" }
         updateBio(state)
+    }
+
+    override fun commitsTo(transcriptStore: TranscriptStore): Boolean =
+        transcriptStore === committedTranscriptStore
+
+    override suspend fun writeCommittedTurn(
+        state: IncarnationState,
+        turn: ConversationTurn,
+    ): TurnCommitOutcome = withContext(ioDispatcher) {
+        var outcome = TurnCommitOutcome.INSERTED
+        database.transaction {
+            val activeIncarnationId = transcriptQueries.selectActiveIncarnation { id, _ -> id }.executeAsOne()
+            require(state.incarnationId == activeIncarnationId) {
+                "Bio state incarnation '${state.incarnationId}' does not match active incarnation '$activeIncarnationId'"
+            }
+            require(turn.incarnationId == activeIncarnationId) {
+                "Turn incarnation '${turn.incarnationId}' does not match active incarnation '$activeIncarnationId'"
+            }
+            transcriptQueries.selectTurnById(turn.turnId, ::toConversationTurn)
+                .executeAsOneOrNull()
+                ?.let { existing ->
+                    require(existing.matchesRetry(turn)) {
+                        "Turn ID '${turn.turnId}' already exists with a different payload"
+                    }
+                    outcome = TurnCommitOutcome.ALREADY_COMMITTED
+                    return@transaction
+                }
+            updateBio(state)
+            transcriptQueries.insertTurnIfAbsent(
+                turn_id = turn.turnId,
+                incarnation_id = turn.incarnationId,
+                session_id = turn.sessionId,
+                platform = turn.platform,
+                scope_id = turn.scopeId,
+                user_id = turn.userId,
+                user_text = turn.userText,
+                assistant_text = turn.assistantText,
+                completed_at_ms = turn.completedAtMs,
+            )
+            require(transcriptQueries.selectTurnById(turn.turnId, ::toConversationTurn).executeAsOne() == turn) {
+                "Turn ID '${turn.turnId}' was not committed with the expected payload"
+            }
+        }
+        outcome
     }
 
     fun close() = driver.close()
@@ -176,6 +225,31 @@ class SqlDelightIncarnationStateStore(
         else -> error("Unsupported persisted persona start sub-state: $this")
     }
 
+    private fun ConversationTurn.matchesRetry(other: ConversationTurn): Boolean =
+        copy(completedAtMs = other.completedAtMs) == other
+
+    private fun toConversationTurn(
+        turnId: String,
+        incarnationId: String,
+        sessionId: String,
+        platform: String,
+        scopeId: String,
+        userId: String,
+        userText: String,
+        assistantText: String,
+        completedAtMs: Long,
+    ) = ConversationTurn(
+        turnId = turnId,
+        incarnationId = incarnationId,
+        sessionId = sessionId,
+        platform = platform,
+        scopeId = scopeId,
+        userId = userId,
+        userText = userText,
+        assistantText = assistantText,
+        completedAtMs = completedAtMs,
+    )
+
     private data class LoadedIncarnationState(
         val incarnationId: String,
         val vector: BioVector?,
@@ -193,10 +267,16 @@ class SqlDelightIncarnationStateStore(
         fun open(
             dbPath: Path,
             ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+            committedTranscriptStore: TranscriptStore? = null,
         ): SqlDelightIncarnationStateStore {
             dbPath.parent?.let(Files::createDirectories)
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            return SqlDelightIncarnationStateStore(Database(driver), driver, ioDispatcher = ioDispatcher)
+            return SqlDelightIncarnationStateStore(
+                Database(driver),
+                driver,
+                ioDispatcher = ioDispatcher,
+                committedTranscriptStore = committedTranscriptStore,
+            )
         }
     }
 }

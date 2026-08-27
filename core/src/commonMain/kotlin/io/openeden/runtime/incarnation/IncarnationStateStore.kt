@@ -4,6 +4,9 @@ import io.openeden.bio.BioVector
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.runtime.affect.OmegaState
+import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.TranscriptStore
+import io.openeden.transcript.TurnCommitOutcome
 
 interface IncarnationStateStore {
     suspend fun read(incarnationId: String): IncarnationState
@@ -15,6 +18,13 @@ interface IncarnationStateStore {
     ): IncarnationState
 
     suspend fun write(state: IncarnationState)
+
+    fun commitsTo(transcriptStore: TranscriptStore): Boolean = false
+
+    suspend fun writeCommittedTurn(
+        state: IncarnationState,
+        turn: ConversationTurn,
+    ): TurnCommitOutcome = error("Incarnation state store does not support atomic turn commits")
 
     companion object {
         fun neutral(

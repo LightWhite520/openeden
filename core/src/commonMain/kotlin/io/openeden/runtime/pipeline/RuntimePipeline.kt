@@ -5,6 +5,8 @@ import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.diary.DiaryTaskStore
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.inference.InferenceExecutor
+import io.openeden.runtime.incarnation.IncarnationStateStore
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
@@ -46,6 +48,7 @@ data class LocalRuntimeResult(
 class OpenEdenRuntimePipeline private constructor(
     private val delegate: DevelopmentMessagePipeline,
     private val store: SessionStateStore,
+    private val incarnationStore: IncarnationStateStore,
 ) {
     suspend fun handle(request: LocalRuntimeRequest): LocalRuntimeResult {
         val result = delegate.handle(
@@ -59,7 +62,7 @@ class OpenEdenRuntimePipeline private constructor(
                 emotionDelta = request.emotionDelta,
             ),
         )
-        val state = store.read(result.sessionId)
+        val state = incarnationStore.read("development")
         return LocalRuntimeResult(
             sessionId = result.sessionId,
             retrievalMode = result.retrievalMode,
@@ -81,6 +84,7 @@ class OpenEdenRuntimePipeline private constructor(
             personaConfig: PersonaConfig,
             llmClient: LlmClient,
             store: SessionStateStore = MutableSessionStateStore(),
+            incarnationStateStore: IncarnationStateStore? = null,
             vectorWriteService: VectorWriteService? = null,
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
             quantizer: CodebookQuantizer = HeuristicCodebookFallback(),
@@ -89,12 +93,17 @@ class OpenEdenRuntimePipeline private constructor(
             diaryTaskStore: DiaryTaskStore? = null,
             traceStore: io.openeden.trace.TraceStore? = null,
         ): OpenEdenRuntimePipeline {
+            val resolvedIncarnationStore = incarnationStateStore ?: when (store) {
+                is MutableSessionStateStore -> MutableIncarnationStateStore(transcriptStore = store.transcript)
+                else -> MutableIncarnationStateStore()
+            }
             val resolvedVectorWriteService = vectorWriteService
-                ?: VectorWriteService(store, inferenceExecutor = inferenceExecutor)
+                ?: VectorWriteService(incarnationStore = resolvedIncarnationStore, inferenceExecutor = inferenceExecutor)
             val pipeline = DevelopmentMessagePipeline.create(
                 personaConfig = personaConfig,
                 llmClient = llmClient,
                 store = store,
+                incarnationStateStore = resolvedIncarnationStore,
                 vectorWriteService = resolvedVectorWriteService,
                 inferenceExecutor = inferenceExecutor,
                 quantizer = quantizer,
@@ -103,7 +112,7 @@ class OpenEdenRuntimePipeline private constructor(
                 diaryTaskStore = diaryTaskStore,
                 traceStore = traceStore,
             )
-            return OpenEdenRuntimePipeline(pipeline, store)
+            return OpenEdenRuntimePipeline(pipeline, store, resolvedIncarnationStore)
         }
     }
 }
