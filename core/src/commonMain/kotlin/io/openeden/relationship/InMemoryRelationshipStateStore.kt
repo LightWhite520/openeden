@@ -12,7 +12,17 @@ class InMemoryRelationshipStateStore : RelationshipStateStore {
         states[relationshipKey(state.sessionId, state.userId)] = state
     }
 
-    override suspend fun reset(sessionId: String, userId: String) {
-        states.remove(relationshipKey(sessionId, userId))
-    }
+    override suspend fun reset(
+        incarnationId: String,
+        canonicalSubjectId: String,
+        sourceTurnId: String,
+        eventId: String,
+        createdAtMs: Long,
+    ): RelationshipState = super<RelationshipStateStore>.reset(
+        incarnationId,
+        canonicalSubjectId,
+        sourceTurnId,
+        eventId,
+        createdAtMs,
+    )
 }

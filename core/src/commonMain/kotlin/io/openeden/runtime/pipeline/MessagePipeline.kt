@@ -201,10 +201,10 @@ class DevelopmentMessagePipeline(
         var relationshipDegraded = false
         val relationship = if (request.source == TurnSource.USER) {
             try {
-                relationshipStore.readOrCreate(sessionId, request.userId, clock.nowMs())
+                relationshipStore.readOrCreate(incarnationId, canonicalSubjectId, clock.nowMs())
             } catch (_: Throwable) {
                 relationshipDegraded = true
-                RelationshipState.neutral(sessionId, request.userId, clock.nowMs())
+                RelationshipState.neutral(incarnationId, canonicalSubjectId, clock.nowMs())
             }
         } else null
         if (relationship != null) trace(

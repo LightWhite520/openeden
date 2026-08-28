@@ -170,9 +170,7 @@ private suspend fun Application.startRuntime(
         )
     }
     startupClosers.addFirst { incarnationStore.close() }
-    val relationshipStore = persistenceIo.open {
-        SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
-    }
+    val relationshipStore = SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
     startupClosers.addFirst { relationshipStore.close() }
     val diaryTaskStore = persistenceIo.open {
         SqlDelightDiaryTaskStore.open(serverConfig.runtimeDbPath)

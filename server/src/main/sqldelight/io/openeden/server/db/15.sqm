@@ -1,0 +1,53 @@
+ALTER TABLE relationship_state RENAME TO relationship_state_legacy;
+
+CREATE TABLE relationship_state (
+    incarnation_id TEXT NOT NULL,
+    canonical_subject_id TEXT NOT NULL,
+    trust REAL NOT NULL,
+    familiarity REAL NOT NULL,
+    safety REAL NOT NULL,
+    boundary_sensitivity REAL NOT NULL,
+    unresolved_tension REAL NOT NULL,
+    reciprocal_interest REAL NOT NULL,
+    evidence_count INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    phase TEXT NOT NULL,
+    user_confessed_at_ms INTEGER,
+    atri_accepted_at_ms INTEGER,
+    mutual_commitment_at_ms INTEGER,
+    preferred_addresses_json TEXT NOT NULL,
+    PRIMARY KEY(incarnation_id, canonical_subject_id)
+);
+
+INSERT OR IGNORE INTO relationship_state(
+    incarnation_id, canonical_subject_id, trust, familiarity, safety, boundary_sensitivity,
+    unresolved_tension, reciprocal_interest, evidence_count, updated_at_ms, phase,
+    user_confessed_at_ms, atri_accepted_at_ms, mutual_commitment_at_ms, preferred_addresses_json
+)
+SELECT
+    'legacy-incarnation',
+    CASE
+        WHEN INSTR(session_id, ':') > 0 THEN SUBSTR(session_id, 1, INSTR(session_id, ':') - 1)
+        ELSE session_id
+    END || ':' || CASE WHEN TRIM(user_id) = '' THEN 'anonymous' ELSE user_id END,
+    0.5, 0.0, 0.5, 0.0, 0.0, 0.0, 0, 0, 'STRANGER', NULL, NULL, NULL, '[]'
+FROM relationship_state_legacy;
+
+DROP TABLE relationship_state_legacy;
+
+CREATE TABLE relationship_events (
+    event_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    canonical_subject_id TEXT NOT NULL,
+    source_turn_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    evidence_digest TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    supersedes_event_id TEXT,
+    preferred_address TEXT,
+    UNIQUE(source_turn_id, event_type, incarnation_id, canonical_subject_id)
+);
+
+CREATE INDEX relationship_events_identity_created
+ON relationship_events(incarnation_id, canonical_subject_id, created_at_ms, event_id);

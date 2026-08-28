@@ -1,79 +1,210 @@
 package io.openeden.server.persistence.sqldelight
 
-import io.openeden.server.db.Database
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import io.openeden.relationship.RelationshipCorrection
+import io.openeden.relationship.RelationshipEvent
+import io.openeden.relationship.RelationshipEventType
+import io.openeden.relationship.RelationshipFacts
+import io.openeden.relationship.RelationshipPhase
+import io.openeden.relationship.RelationshipReducer
 import io.openeden.relationship.RelationshipState
 import io.openeden.relationship.RelationshipStateStore
-import kotlinx.coroutines.Dispatchers
+import io.openeden.server.db.Database
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
 
-class SqlDelightRelationshipStateStore(
+class SqlDelightRelationshipStateStore private constructor(
     private val database: Database,
     private val driver: SqlDriver,
+    private val ioDispatcher: CoroutineDispatcher,
 ) : RelationshipStateStore {
     private val queries get() = database.relationshipQueries
 
-    override suspend fun readOrCreate(sessionId: String, userId: String, nowMs: Long): RelationshipState =
-        withContext(Dispatchers.IO) {
-            queries.selectByKey(sessionId, userId, ::map).executeAsOneOrNull()
-                ?: RelationshipState.neutral(sessionId, userId, nowMs)
-        }
+    override suspend fun readOrCreate(
+        incarnationId: String,
+        canonicalSubjectId: String,
+        nowMs: Long,
+    ): RelationshipState = withContext(ioDispatcher) {
+        read(incarnationId, canonicalSubjectId)
+            ?: RelationshipState.neutral(incarnationId, canonicalSubjectId, nowMs)
+    }
 
-    override suspend fun write(state: RelationshipState) {
-        withContext(Dispatchers.IO) {
-            queries.upsert(
-                session_id = state.sessionId,
-                user_id = state.userId,
-                trust = state.trust.toDouble(),
-                familiarity = state.familiarity.toDouble(),
-                safety = state.safety.toDouble(),
-                boundary_sensitivity = state.boundarySensitivity.toDouble(),
-                unresolved_tension = state.unresolvedTension.toDouble(),
-                evidence_count = state.evidenceCount,
-                updated_at_ms = state.updatedAtMs,
-            )
+    override suspend fun write(state: RelationshipState) = withContext(ioDispatcher) {
+        database.transaction {
+            state.events.forEach(::insertEvent)
+            writeSnapshot(state)
         }
     }
 
-    override suspend fun reset(sessionId: String, userId: String) {
-        withContext(Dispatchers.IO) {
-            queries.deleteByKey(sessionId, userId)
+    override suspend fun append(event: RelationshipEvent): RelationshipState = withContext(ioDispatcher) {
+        database.transactionWithResult {
+            insertEvent(event)
+            val current = read(event.incarnationId, event.canonicalSubjectId)
+                ?: RelationshipState.neutral(event.incarnationId, event.canonicalSubjectId, event.createdAtMs)
+            val reduced = RelationshipReducer.reduce(current, emptyList())
+            writeSnapshot(reduced)
+            reduced
         }
     }
 
-    fun close() = driver.close()
+    override suspend fun events(incarnationId: String, canonicalSubjectId: String): List<RelationshipEvent> =
+        withContext(ioDispatcher) {
+            queries.selectEvents(incarnationId, canonicalSubjectId, ::toEvent).executeAsList()
+        }
 
-    private fun map(
-        sessionId: String,
-        userId: String,
+    override suspend fun correct(correction: RelationshipCorrection): RelationshipState = append(correction.event)
+
+    override suspend fun reset(
+        incarnationId: String,
+        canonicalSubjectId: String,
+        sourceTurnId: String,
+        eventId: String,
+        createdAtMs: Long,
+    ): RelationshipState = super<RelationshipStateStore>.reset(
+        incarnationId,
+        canonicalSubjectId,
+        sourceTurnId,
+        eventId,
+        createdAtMs,
+    )
+
+    suspend fun close() = withContext(ioDispatcher) {
+        if (driver is JdbcSqliteDriver) driver.closeCurrentThreadConnection()
+        driver.close()
+        (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
+    }
+
+    private fun read(incarnationId: String, canonicalSubjectId: String): RelationshipState? {
+        val state = queries.selectByIdentity(incarnationId, canonicalSubjectId, ::toState).executeAsOneOrNull()
+            ?: return null
+        val events = queries.selectEvents(incarnationId, canonicalSubjectId, ::toEvent).executeAsList()
+        return RelationshipReducer.reduce(state.copy(events = events), emptyList())
+    }
+
+    private fun insertEvent(event: RelationshipEvent) {
+        queries.insertEventIfAbsent(
+            event_id = event.eventId,
+            incarnation_id = event.incarnationId,
+            canonical_subject_id = event.canonicalSubjectId,
+            source_turn_id = event.sourceTurnId,
+            event_type = event.type.name,
+            confidence = event.confidence.toDouble(),
+            evidence_digest = event.evidenceDigest,
+            created_at_ms = event.createdAtMs,
+            supersedes_event_id = event.supersedesEventId,
+            preferred_address = event.preferredAddress,
+        )
+    }
+
+    private fun writeSnapshot(state: RelationshipState) {
+        queries.upsert(
+            incarnation_id = state.incarnationId,
+            canonical_subject_id = state.canonicalSubjectId,
+            trust = state.trust.toDouble(),
+            familiarity = state.familiarity.toDouble(),
+            safety = state.safety.toDouble(),
+            boundary_sensitivity = state.boundarySensitivity.toDouble(),
+            unresolved_tension = state.unresolvedTension.toDouble(),
+            reciprocal_interest = state.reciprocalInterest.toDouble(),
+            evidence_count = state.evidenceCount,
+            updated_at_ms = state.updatedAtMs,
+            phase = state.facts.phase.name,
+            user_confessed_at_ms = state.facts.userConfessedAtMs,
+            atri_accepted_at_ms = state.facts.atriAcceptedAtMs,
+            mutual_commitment_at_ms = state.facts.mutualCommitmentAtMs,
+            preferred_addresses_json = json.encodeToString(state.facts.preferredAddresses.toList()),
+        )
+    }
+
+    @Suppress("LongParameterList")
+    private fun toState(
+        incarnationId: String,
+        canonicalSubjectId: String,
         trust: Double,
         familiarity: Double,
         safety: Double,
         boundarySensitivity: Double,
         unresolvedTension: Double,
+        reciprocalInterest: Double,
         evidenceCount: Long,
         updatedAtMs: Long,
+        phase: String,
+        userConfessedAtMs: Long?,
+        atriAcceptedAtMs: Long?,
+        mutualCommitmentAtMs: Long?,
+        preferredAddressesJson: String,
     ): RelationshipState = RelationshipState(
-        sessionId = sessionId,
-        userId = userId,
+        incarnationId = incarnationId,
+        canonicalSubjectId = canonicalSubjectId,
         trust = trust.toFloat(),
         familiarity = familiarity.toFloat(),
         safety = safety.toFloat(),
         boundarySensitivity = boundarySensitivity.toFloat(),
         unresolvedTension = unresolvedTension.toFloat(),
+        reciprocalInterest = reciprocalInterest.toFloat(),
         evidenceCount = evidenceCount,
         updatedAtMs = updatedAtMs,
+        facts = RelationshipFacts(
+            phase = RelationshipPhase.valueOf(phase),
+            userConfessedAtMs = userConfessedAtMs,
+            atriAcceptedAtMs = atriAcceptedAtMs,
+            mutualCommitmentAtMs = mutualCommitmentAtMs,
+            preferredAddresses = json.decodeFromString<List<String>>(preferredAddressesJson).toSet(),
+        ),
     )
 
+    @Suppress("LongParameterList")
+    private fun toEvent(
+        eventId: String,
+        incarnationId: String,
+        canonicalSubjectId: String,
+        sourceTurnId: String,
+        eventType: String,
+        confidence: Double,
+        evidenceDigest: String,
+        createdAtMs: Long,
+        supersedesEventId: String?,
+        preferredAddress: String?,
+    ): RelationshipEvent = RelationshipEvent(
+        eventId = eventId,
+        incarnationId = incarnationId,
+        canonicalSubjectId = canonicalSubjectId,
+        sourceTurnId = sourceTurnId,
+        type = RelationshipEventType.valueOf(eventType),
+        confidence = confidence.toFloat(),
+        evidenceDigest = evidenceDigest,
+        createdAtMs = createdAtMs,
+        supersedesEventId = supersedesEventId,
+        preferredAddress = preferredAddress,
+    )
+
+    private fun JdbcSqliteDriver.closeCurrentThreadConnection() {
+        closeConnection(getConnection())
+    }
+
     companion object {
-        fun open(dbPath: Path): SqlDelightRelationshipStateStore {
-            dbPath.parent?.let { Files.createDirectories(it) }
-            val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
-            return SqlDelightRelationshipStateStore(Database(driver), driver)
+        private val json = Json
+
+        suspend fun open(
+            dbPath: Path,
+            ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-relationship-sqlite"),
+        ): SqlDelightRelationshipStateStore = withContext(ioDispatcher) {
+            try {
+                dbPath.parent?.let(Files::createDirectories)
+                val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
+                SqlDelightRelationshipStateStore(Database(driver), driver, ioDispatcher)
+            } catch (failure: Throwable) {
+                (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
+                throw failure
+            }
         }
     }
 }

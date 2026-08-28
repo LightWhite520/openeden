@@ -1,19 +1,22 @@
 package io.openeden.relationship
 
 data class RelationshipState(
-    val sessionId: String,
-    val userId: String,
+    val incarnationId: String,
+    val canonicalSubjectId: String,
     val trust: Float = 0.5f,
     val familiarity: Float = 0.0f,
     val safety: Float = 0.5f,
     val boundarySensitivity: Float = 0.0f,
     val unresolvedTension: Float = 0.0f,
+    val reciprocalInterest: Float = 0.0f,
     val evidenceCount: Long = 0L,
     val updatedAtMs: Long = 0L,
+    val facts: RelationshipFacts = RelationshipFacts(),
+    val events: List<RelationshipEvent> = emptyList(),
 ) {
     init {
-        require(sessionId.isNotBlank()) { "sessionId must not be blank" }
-        require(userId.isNotBlank()) { "userId must not be blank" }
+        require(incarnationId.isNotBlank()) { "incarnationId must not be blank" }
+        require(canonicalSubjectId.isNotBlank()) { "canonicalSubjectId must not be blank" }
         require(evidenceCount >= 0L) { "evidenceCount must not be negative" }
         listOf(
             trust to "trust",
@@ -21,11 +24,18 @@ data class RelationshipState(
             safety to "safety",
             boundarySensitivity to "boundarySensitivity",
             unresolvedTension to "unresolvedTension",
+            reciprocalInterest to "reciprocalInterest",
         ).forEach { (value, name) ->
             require(value.isFinite()) { "$name must be finite" }
             require(value in 0.0f..1.0f) { "$name must be in [0, 1]" }
         }
     }
+
+    @Deprecated("Use incarnationId")
+    val sessionId: String get() = incarnationId
+
+    @Deprecated("Use canonicalSubjectId")
+    val userId: String get() = canonicalSubjectId
 
     fun apply(evidence: RelationshipEvidence, nowMs: Long): RelationshipState {
         var trustDelta = 0.0f
@@ -72,7 +82,7 @@ data class RelationshipState(
     }
 
     companion object {
-        fun neutral(sessionId: String, userId: String, nowMs: Long = 0L): RelationshipState =
-            RelationshipState(sessionId = sessionId, userId = userId, updatedAtMs = nowMs)
+        fun neutral(incarnationId: String, canonicalSubjectId: String, nowMs: Long = 0L): RelationshipState =
+            RelationshipState(incarnationId = incarnationId, canonicalSubjectId = canonicalSubjectId, updatedAtMs = nowMs)
     }
 }

@@ -1,30 +1,79 @@
 CREATE TABLE relationship_state (
-    session_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
+    incarnation_id TEXT NOT NULL,
+    canonical_subject_id TEXT NOT NULL,
     trust REAL NOT NULL,
     familiarity REAL NOT NULL,
     safety REAL NOT NULL,
     boundary_sensitivity REAL NOT NULL,
     unresolved_tension REAL NOT NULL,
+    reciprocal_interest REAL NOT NULL,
     evidence_count INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
-    PRIMARY KEY(session_id, user_id)
+    phase TEXT NOT NULL,
+    user_confessed_at_ms INTEGER,
+    atri_accepted_at_ms INTEGER,
+    mutual_commitment_at_ms INTEGER,
+    preferred_addresses_json TEXT NOT NULL,
+    PRIMARY KEY(incarnation_id, canonical_subject_id)
 );
 
-selectByKey:
-SELECT session_id, user_id, trust, familiarity, safety, boundary_sensitivity,
-       unresolved_tension, evidence_count, updated_at_ms
+CREATE TABLE relationship_events (
+    event_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    canonical_subject_id TEXT NOT NULL,
+    source_turn_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    evidence_digest TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    supersedes_event_id TEXT,
+    preferred_address TEXT,
+    UNIQUE(source_turn_id, event_type, incarnation_id, canonical_subject_id)
+);
+
+CREATE INDEX relationship_events_identity_created
+ON relationship_events(incarnation_id, canonical_subject_id, created_at_ms, event_id);
+
+selectByIdentity:
+SELECT incarnation_id, canonical_subject_id, trust, familiarity, safety, boundary_sensitivity,
+       unresolved_tension, reciprocal_interest, evidence_count, updated_at_ms, phase,
+       user_confessed_at_ms, atri_accepted_at_ms, mutual_commitment_at_ms, preferred_addresses_json
 FROM relationship_state
-WHERE session_id = ? AND user_id = ?;
+WHERE incarnation_id = ? AND canonical_subject_id = ?;
 
 upsert:
-INSERT OR REPLACE INTO relationship_state(
-    session_id, user_id, trust, familiarity, safety, boundary_sensitivity,
-    unresolved_tension, evidence_count, updated_at_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO relationship_state(
+    incarnation_id, canonical_subject_id, trust, familiarity, safety, boundary_sensitivity,
+    unresolved_tension, reciprocal_interest, evidence_count, updated_at_ms, phase,
+    user_confessed_at_ms, atri_accepted_at_ms, mutual_commitment_at_ms, preferred_addresses_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(incarnation_id, canonical_subject_id) DO UPDATE SET
+    trust = excluded.trust,
+    familiarity = excluded.familiarity,
+    safety = excluded.safety,
+    boundary_sensitivity = excluded.boundary_sensitivity,
+    unresolved_tension = excluded.unresolved_tension,
+    reciprocal_interest = excluded.reciprocal_interest,
+    evidence_count = excluded.evidence_count,
+    updated_at_ms = excluded.updated_at_ms,
+    phase = excluded.phase,
+    user_confessed_at_ms = excluded.user_confessed_at_ms,
+    atri_accepted_at_ms = excluded.atri_accepted_at_ms,
+    mutual_commitment_at_ms = excluded.mutual_commitment_at_ms,
+    preferred_addresses_json = excluded.preferred_addresses_json;
 
-deleteByKey:
-DELETE FROM relationship_state WHERE session_id = ? AND user_id = ?;
+selectEvents:
+SELECT event_id, incarnation_id, canonical_subject_id, source_turn_id, event_type,
+       confidence, evidence_digest, created_at_ms, supersedes_event_id, preferred_address
+FROM relationship_events
+WHERE incarnation_id = ? AND canonical_subject_id = ?
+ORDER BY created_at_ms, event_id;
+
+insertEventIfAbsent:
+INSERT OR IGNORE INTO relationship_events(
+    event_id, incarnation_id, canonical_subject_id, source_turn_id, event_type,
+    confidence, evidence_digest, created_at_ms, supersedes_event_id, preferred_address
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteAllRelationships:
 DELETE FROM relationship_state;
