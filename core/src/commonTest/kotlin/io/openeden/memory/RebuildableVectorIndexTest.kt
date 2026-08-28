@@ -58,6 +58,37 @@ class RebuildableVectorIndexTest {
         assertEquals(listOf(MemoryKind.RAW), hits.map { assertNotNull(it.entry).kind })
     }
 
+    @Test
+    fun `search excludes unauthorized candidates before applying capacity`() = runTest {
+        val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
+        index.rebuild(
+            listOf(
+                entry(
+                    id = "private-other",
+                    content = "alpha",
+                    incarnationId = "incarnation-1",
+                    visibility = MemoryVisibility.PrivateSubject("QQ:other"),
+                ),
+                entry(
+                    id = "scope-shared",
+                    content = "beta",
+                    incarnationId = "incarnation-1",
+                    visibility = MemoryVisibility.ScopeShared("CLI:u1"),
+                ),
+                entry(
+                    id = "incarnation-shared",
+                    content = "beta",
+                    incarnationId = "incarnation-1",
+                    visibility = MemoryVisibility.IncarnationShared,
+                ),
+            ),
+        )
+
+        val hits = index.search(query("alpha").copy(limit = 2, incarnationId = "incarnation-1"))
+
+        assertEquals(listOf("scope-shared", "incarnation-shared"), ids(hits))
+    }
+
     private fun query(text: String): VectorSearchRequest = VectorSearchRequest(
         sessionId = "CLI:u1",
         semanticEmbedding = if (text == "alpha") listOf(1.0f, 0.0f) else listOf(0.0f, 1.0f),
@@ -75,6 +106,8 @@ class RebuildableVectorIndexTest {
         sessionId: String = "CLI:u1",
         room: MemoryRoom = MemoryRoom.EVENT_ROOM,
         kind: MemoryKind = MemoryKind.RAW,
+        incarnationId: String = "",
+        visibility: MemoryVisibility = MemoryVisibility.ScopeShared(sessionId),
     ): MemoryEntry = MemoryEntry(
         id = id,
         sessionId = sessionId,
@@ -89,6 +122,8 @@ class RebuildableVectorIndexTest {
             deltaVec = io.openeden.bio.VectorDelta.Zero,
             snapshotOrigin = BioVector.Neutral,
             userId = "u1",
+            incarnationId = incarnationId,
+            visibility = visibility,
         ),
     )
 }

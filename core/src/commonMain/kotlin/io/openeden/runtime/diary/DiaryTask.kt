@@ -13,6 +13,8 @@ data class DiaryTask(
     val lastError: String? = null,
     val incarnationId: String = "",
     val sourceSessionId: String = "",
+    val platform: String = "",
+    val userId: String = "",
     val canonicalSubjectId: String = "",
     val visibility: io.openeden.memory.MemoryVisibility = io.openeden.memory.MemoryVisibility.ScopeShared(""),
 )

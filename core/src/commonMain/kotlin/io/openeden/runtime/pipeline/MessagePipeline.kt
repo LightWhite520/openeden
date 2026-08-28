@@ -7,6 +7,7 @@ import io.openeden.bio.VectorMapping
 import io.openeden.codebook.CodebookQuantizer
 import io.openeden.codebook.HeuristicCodebookFallback
 import io.openeden.codebook.QuantizationResult
+import io.openeden.identity.CanonicalSubjectResolver
 import io.openeden.llm.DevelopmentLlmStub
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmCacheMetrics
@@ -88,6 +89,7 @@ class DevelopmentMessagePipeline(
     private val llmGenerationPolicyConfig: LlmGenerationPolicyConfig,
     private val lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
     private val incarnationStore: IncarnationStateStore = MutableIncarnationStateStore(),
+    private val canonicalSubjectResolver: CanonicalSubjectResolver = CanonicalSubjectResolver(),
 ) {
     private val temporalContextProvider = TemporalContextProvider(clock)
 
@@ -181,6 +183,7 @@ class DevelopmentMessagePipeline(
             }
         }
         val incarnationId = transcriptStore?.activeIncarnation()?.id ?: DEVELOPMENT_INCARNATION_ID
+        val canonicalSubjectId = canonicalSubjectResolver.resolve(request.platform, request.userId).value
         val initial = vectorWriteService.readOrCreateIncarnation(
             incarnationId = incarnationId,
             personaMode = personaConfig.mode,
@@ -306,6 +309,7 @@ class DevelopmentMessagePipeline(
                     origin = current.origin,
                     mode = inference.retrievalMode,
                     incarnationId = incarnationId,
+                    canonicalSubjectId = canonicalSubjectId,
                     exclusionContext = MemoryExclusionContext(
                         sourceTurnIds = injectedRecentTurns.mapTo(hashSetOf()) { it.turnId },
                     ),
@@ -537,6 +541,8 @@ class DevelopmentMessagePipeline(
                     omega = write.state.omega,
                     delta = validation.delta,
                     response = validation.output.response,
+                    incarnationId = incarnationId,
+                    canonicalSubjectId = canonicalSubjectId,
                 )
             }
         } else {
@@ -545,28 +551,27 @@ class DevelopmentMessagePipeline(
         val diaryDelta = validation.delta
         val diaryMemoryId = memoryTraceTags.rawMemoryId
         if (validation.isValid && diaryDelta != null && validation.output != null && diaryMemoryId != null) {
-            val diaryResult = inferenceExecutor.run {
-                val triggered = diaryDelta.toList().any { kotlin.math.abs(it) > 0.0f }
-                val tags = if (triggered) {
-                    diaryTriggerCoordinator?.onVectorDelta(sessionId, diaryMemoryId, diaryDelta, clock.nowMs())
+            val triggered = diaryDelta.toList().any { kotlin.math.abs(it) > 0.0f }
+            val tags = if (triggered) {
+                    diaryTriggerCoordinator?.onVectorDelta(
+                        sessionId, diaryMemoryId, diaryDelta, requireNotNull(memoryTraceTags.rawMetadata), clock.nowMs(),
+                    )
                         ?: diaryQueue.tryEnqueue(
                             DiaryEvent(
                                 sessionId = sessionId,
                                 traceId = "development",
                                 reason = "vector_delta",
                                 incarnationId = incarnationId,
-                                canonicalSubjectId = io.openeden.identity.CanonicalSubjectResolver()
-                                    .resolve(request.platform, request.userId).value,
+                                platform = request.platform,
+                                userId = request.userId,
+                                canonicalSubjectId = canonicalSubjectId,
                                 visibility = io.openeden.memory.MemoryVisibility.ScopeShared(sessionId),
                             ),
                         )
-                } else {
-                    emptySet()
-                }
-                triggered to tags
+            } else {
+                emptySet()
             }
-            if (diaryResult.first) {
-                val tags = diaryResult.second
+            if (triggered) {
                 diaryOutcome = DiaryOutcome(if (tags.isEmpty()) "enqueued" else "overflow", tags)
             }
         }
@@ -685,6 +690,8 @@ class DevelopmentMessagePipeline(
         omega: OmegaState,
         delta: VectorDelta,
         response: String,
+        incarnationId: String,
+        canonicalSubjectId: String,
     ): MemoryWriteOutcome {
         val store = memoryStore ?: return MemoryWriteOutcome(null, emptySet())
         val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
@@ -694,6 +701,10 @@ class DevelopmentMessagePipeline(
             deltaVec = delta,
             snapshotOrigin = origin,
             userId = request.userId,
+            incarnationId = incarnationId,
+            sourceSessionId = sessionId,
+            canonicalSubjectId = canonicalSubjectId,
+            visibility = MemoryVisibility.ScopeShared(sessionId),
             lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf(request.turnId)),
             contentFingerprint = io.openeden.memory.MemoryContentFingerprint.of(rawContent),
         )
@@ -720,7 +731,7 @@ class DevelopmentMessagePipeline(
         )
         // Diary generation is consumed by the asynchronous worker after the RAW commit. The user
         // turn must never create a NARRATIVE memory synchronously or wait for Diary inference.
-        return MemoryWriteOutcome(rawId, rawTrace)
+        return MemoryWriteOutcome(rawId, rawTrace, metadata)
     }
 
     companion object {
@@ -752,6 +763,7 @@ class DevelopmentMessagePipeline(
             clock: RuntimeClock = SystemRuntimeClock,
             nowMs: (() -> Long)? = null,
             lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
+            canonicalSubjectResolver: CanonicalSubjectResolver = CanonicalSubjectResolver(),
         ): DevelopmentMessagePipeline = create(
             personaConfig = personaConfig,
             llmClient = llmClient,
@@ -777,6 +789,7 @@ class DevelopmentMessagePipeline(
             nowMs = nowMs,
             llmGenerationPolicyConfig = LlmGenerationPolicyConfig.Default,
             lifecycleGate = lifecycleGate,
+            canonicalSubjectResolver = canonicalSubjectResolver,
         )
 
         fun create(
@@ -804,6 +817,7 @@ class DevelopmentMessagePipeline(
             nowMs: (() -> Long)? = null,
             llmGenerationPolicyConfig: LlmGenerationPolicyConfig,
             lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
+            canonicalSubjectResolver: CanonicalSubjectResolver = CanonicalSubjectResolver(),
         ): DevelopmentMessagePipeline {
             val effectiveStore = store ?: when (transcriptStore) {
                 null -> MutableSessionStateStore()
@@ -856,6 +870,7 @@ class DevelopmentMessagePipeline(
                 clock = effectiveClock,
                 lifecycleGate = lifecycleGate,
                 incarnationStore = effectiveIncarnationStore,
+                canonicalSubjectResolver = canonicalSubjectResolver,
             )
         }
     }
@@ -881,7 +896,11 @@ private data class DiaryOutcome(
     val traceTags: Set<String>,
 )
 
-private data class MemoryWriteOutcome(val rawMemoryId: String?, val traceTags: Set<String>)
+private data class MemoryWriteOutcome(
+    val rawMemoryId: String?,
+    val traceTags: Set<String>,
+    val rawMetadata: MemoryMetadata? = null,
+)
 
 private data class PipelineInferenceResult(
     val dissonance: Float,

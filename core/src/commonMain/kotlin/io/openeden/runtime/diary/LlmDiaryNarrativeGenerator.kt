@@ -106,7 +106,7 @@ class LlmDiaryNarrativeGenerator private constructor(
             embeddingModel.embed(response) to embeddingModel.embed(state.vector)
         }
         val users = slice.memories.map { it.metadata.userId }.distinct()
-        val userId = users.singleOrNull() ?: DIARY_WORKER_USER
+        val userId = task.userId.ifBlank { users.singleOrNull() ?: DIARY_WORKER_USER }
         val enrichedLineage = enrichLineage(slice.memories)
         val lineage = MemoryLineage(
             sourceTurnIds = enrichedLineage.sourceTurnIds,

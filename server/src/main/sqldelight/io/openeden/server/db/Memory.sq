@@ -267,6 +267,8 @@ CREATE TABLE diary_tasks (
     last_error TEXT,
     incarnation_id TEXT NOT NULL,
     source_session_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    diary_user_id TEXT NOT NULL,
     canonical_subject_id TEXT NOT NULL,
     visibility_kind TEXT NOT NULL,
     visibility_subject_id TEXT,
@@ -280,17 +282,17 @@ insertDiaryTask:
 INSERT INTO diary_tasks(
     id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms,
     lease_expires_at_ms, lease_token, last_error, incarnation_id, source_session_id,
-    canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
+    platform, diary_user_id, canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 insertDiaryTaskIfAbsent:
 INSERT OR IGNORE INTO diary_tasks(
     id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms,
     lease_expires_at_ms, lease_token, last_error, incarnation_id, source_session_id,
-    canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
+    platform, diary_user_id, canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 countActiveDiaryTasks:
 SELECT COUNT(*) FROM diary_tasks
@@ -298,7 +300,7 @@ WHERE session_id = ? AND status IN ('PENDING', 'RUNNING');
 
 selectPendingDiaryTask:
 SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, lease_token, last_error,
-       incarnation_id, source_session_id, canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
+       incarnation_id, source_session_id, platform, diary_user_id, canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
 FROM diary_tasks
 WHERE session_id = ? AND status = 'PENDING' AND available_at_ms <= ?
 ORDER BY created_at_ms ASC LIMIT 1;
@@ -324,7 +326,7 @@ WHERE status = 'RUNNING' AND lease_expires_at_ms IS NOT NULL AND lease_expires_a
 
 selectDiaryTask:
 SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, lease_token, last_error,
-       incarnation_id, source_session_id, canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
+       incarnation_id, source_session_id, platform, diary_user_id, canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
 FROM diary_tasks WHERE id = ?;
 
 CREATE TABLE diary_checkpoints (

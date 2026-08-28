@@ -62,6 +62,7 @@ class SqlDelightMemoryRepository(
     private val fallbackIndex: RebuildableInMemoryVectorIndex? = null,
     private val ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-memory-sqlite"),
     private val inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
+    private val canonicalSubjectResolver: CanonicalSubjectResolver = CanonicalSubjectResolver(),
 ) : MemoryStore, DiaryRawMemorySource {
     private val queries get() = database.memoryQueries
     private val localFallbackIndex = fallbackIndex ?: RebuildableInMemoryVectorIndex(inferenceExecutor)
@@ -180,12 +181,12 @@ class SqlDelightMemoryRepository(
 
     override suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor? =
         withContext(ioDispatcher) { queries.selectLatestRawMemory(sessionId, ::mapRow).executeAsOneOrNull()?.entry }?.let {
-            DiaryRawMemoryCursor(it.id, it.createdAtMs)
+            DiaryRawMemoryCursor(it.id, it.createdAtMs, it.metadata)
         }
 
     override suspend fun firstRawMemoryAfter(sessionId: String, coveredRawMemoryId: String?): DiaryRawMemoryCursor? =
         rawMemoryRange(sessionId, coveredRawMemoryId, null, 1).firstOrNull()?.let {
-            DiaryRawMemoryCursor(it.id, it.createdAtMs)
+            DiaryRawMemoryCursor(it.id, it.createdAtMs, it.metadata)
         }
 
     override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> = withContext(ioDispatcher) {
@@ -206,11 +207,10 @@ class SqlDelightMemoryRepository(
             .asReversed()
     }
 
-    override suspend fun retrieve(request: RetrievalRequest): RetrievalResult = inferenceExecutor.run {
-        val resolvedRequest = request.copy(
-            incarnationId = request.incarnationId.ifBlank { activeIncarnationId() },
-        )
-        ensureIndexed(resolvedRequest.incarnationId)
+    override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
+        val indexedIncarnationId = request.incarnationId.ifBlank { activeIncarnationId() }
+        ensureIndexed(indexedIncarnationId)
+        return inferenceExecutor.run {
         val overfetchLimit = retrievalCandidateLimit()
         val positiveSkew = request.currentVector.copy(
             p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
@@ -229,7 +229,8 @@ class SqlDelightMemoryRepository(
                 val hits = retrievalIndex.search(
                     VectorSearchRequest(
                         sessionId = request.sessionId,
-                        incarnationId = resolvedRequest.incarnationId,
+                        incarnationId = request.incarnationId,
+                        canonicalSubjectId = request.canonicalSubjectId,
                         semanticEmbedding = semanticEmbedding,
                         emotionalEmbedding = targetEmbedding,
                         limit = overfetchLimit,
@@ -238,10 +239,10 @@ class SqlDelightMemoryRepository(
                 // Preserve that per-source capacity before hydrating; truncating at 3*K loses
                 // emotional-only candidates that occur after the semantic side.
                 ).take(remoteUnionLimit(overfetchLimit))
-                val hydrated = hydrateRemoteCandidates(resolvedRequest, hits)
+                val hydrated = hydrateRemoteCandidates(request, hits)
                 val rangeExcludedIds = hits.asSequence()
                     .map { it.memoryId }
-                    .filter { memoryId -> hydrated[memoryId]?.hasPersistedRangeOverlap(resolvedRequest) == true }
+                    .filter { memoryId -> hydrated[memoryId]?.hasPersistedRangeOverlap(request) == true }
                     .toSet()
                 add(
                     TargetMemoryPool(
@@ -269,10 +270,11 @@ class SqlDelightMemoryRepository(
             index = TargetPoolVectorIndex(targetPools),
         )
         candidates.forEach { palace.write(it) }
-        palace.retrieve(resolvedRequest).let { result ->
+        palace.retrieve(request).let { result ->
             if (persistedRangeExcludedCount == 0) result else result.copy(
                 lineageExcludedCount = result.lineageExcludedCount + persistedRangeExcludedCount,
             )
+        }
         }
     }
 
@@ -288,7 +290,7 @@ class SqlDelightMemoryRepository(
         return withContext(ioDispatcher) {
             queries.selectByIds(ids, ::mapRow).executeAsList()
                 .asSequence()
-                .filter { it.entry.metadata.incarnationId == request.incarnationId && it.modelId == activeModelId }
+                .filter { it.modelId == activeModelId }
                 .filter { it.entry.isVisibleTo(request) }
                 .associateBy { it.entry.id }
         }
@@ -473,10 +475,10 @@ class SqlDelightMemoryRepository(
         l: Double, p: Double, e: Double, s: Double, tau: Double, v: Double, m: Double, f: Double,
     ): BioVector = BioVector(l.toFloat(), p.toFloat(), e.toFloat(), s.toFloat(), tau.toFloat(), v.toFloat(), m.toFloat(), f.toFloat())
 
-    private fun normalize(entry: MemoryEntry): MemoryEntry {
+    private suspend fun normalize(entry: MemoryEntry): MemoryEntry {
         val platform = entry.sessionId.substringBefore(':', entry.sessionId)
         val subjectId = entry.metadata.canonicalSubjectId.ifBlank {
-            CanonicalSubjectResolver().resolve(platform, entry.metadata.userId).value
+            canonicalSubjectResolver.resolve(platform, entry.metadata.userId).value
         }
         val sourceSessionId = entry.metadata.sourceSessionId.ifBlank { entry.sessionId }
         val visibility = entry.metadata.visibility.normalize(sourceSessionId, subjectId)
@@ -490,10 +492,12 @@ class SqlDelightMemoryRepository(
         )
     }
 
-    private fun activeIncarnationId(): String = database.transcriptQueries
-        .selectActiveIncarnation { incarnationId, _ -> incarnationId }
-        .executeAsOneOrNull()
-        ?: LEGACY_INCARNATION_ID
+    private suspend fun activeIncarnationId(): String = withContext(ioDispatcher) {
+        database.transcriptQueries
+            .selectActiveIncarnation { incarnationId, _ -> incarnationId }
+            .executeAsOneOrNull()
+            ?: LEGACY_INCARNATION_ID
+    }
 
     private fun mapRefreshCandidate(
         memoryId: String,
@@ -535,6 +539,7 @@ class SqlDelightMemoryRepository(
             candidateLimit: Int = 128,
             fallbackIndex: RebuildableInMemoryVectorIndex? = null,
             inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
+            canonicalSubjectResolver: CanonicalSubjectResolver = CanonicalSubjectResolver(),
         ): SqlDelightMemoryRepository {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
@@ -550,6 +555,7 @@ class SqlDelightMemoryRepository(
                 candidateLimit = candidateLimit,
                 fallbackIndex = fallbackIndex,
                 inferenceExecutor = inferenceExecutor,
+                canonicalSubjectResolver = canonicalSubjectResolver,
             )
         }
 

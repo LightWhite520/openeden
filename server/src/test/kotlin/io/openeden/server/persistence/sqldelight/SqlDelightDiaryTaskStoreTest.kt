@@ -3,6 +3,7 @@ package io.openeden.server.persistence.sqldelight
 import io.openeden.runtime.diary.DiaryTask
 import io.openeden.runtime.diary.DiaryTaskStatus
 import io.openeden.runtime.diary.DiaryCheckpoint
+import io.openeden.memory.MemoryVisibility
 import io.openeden.server.persistence.sqldelight.SqlDelightDiaryTaskStore
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.launch
@@ -112,6 +113,32 @@ class SqlDelightDiaryTaskStoreTest {
         val second = store.leaseNext("S", 20, 100)!!
         store.fail(first.id, first.leaseToken!!, 21, "stale")
         assertEquals(DiaryTaskStatus.RUNNING, store.readById(second.id)?.status)
+        store.close()
+    }
+
+    @Test
+    fun `diary task retains subject platform user and visibility across retry`() = runTest {
+        val store = SqlDelightDiaryTaskStore.open(dbPath)
+        val task = DiaryTask(
+            id = "task:metadata",
+            sessionId = "QQ:group",
+            sourceMemoryId = "raw-1",
+            reason = "delta",
+            incarnationId = "incarnation-1",
+            sourceSessionId = "QQ:group",
+            platform = "QQ",
+            userId = "user-1",
+            canonicalSubjectId = "identity:owner",
+            visibility = MemoryVisibility.PrivateSubject("identity:owner"),
+        )
+        store.enqueue(task)
+        val leased = store.leaseNext("QQ:group", 10L, 10L)!!
+        store.fail(leased.id, leased.leaseToken!!, 20L, "retry")
+
+        assertEquals(
+            task.copy(attempts = 1, availableAtMs = 2_020L, lastError = "retry"),
+            store.readById(task.id),
+        )
         store.close()
     }
 

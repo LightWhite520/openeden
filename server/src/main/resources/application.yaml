@@ -35,6 +35,8 @@ openeden:
     djlAffectModelPath: "$OPENEDEN_DJL_AFFECT_MODEL_PATH:data/models/thymos-6d"
     djlEngine: "$OPENEDEN_DJL_ENGINE:PyTorch"
     djlModelName: "$OPENEDEN_DJL_MODEL_NAME:model"
+  identity:
+    subjectBindings: []
   vectorDatabase:
     enabled: "$OPENEDEN_VECTOR_DB_ENABLED:true"
     url: "$OPENEDEN_QDRANT_URL:http://localhost:6333"

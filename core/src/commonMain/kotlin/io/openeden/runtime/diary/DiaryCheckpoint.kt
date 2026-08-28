@@ -15,6 +15,7 @@ interface DiaryCheckpointStore {
 data class DiaryRawMemoryCursor(
     val id: String,
     val createdAtMs: Long,
+    val metadata: io.openeden.memory.MemoryMetadata? = null,
 )
 
 interface DiaryRawMemorySource {

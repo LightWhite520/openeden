@@ -4,7 +4,10 @@ data class QdrantVectorSpec(val size: Int, val distance: String = "Cosine")
 
 data class QdrantPoint(val id: String, val vectors: Map<String, FloatArray>, val payload: Map<String, String> = emptyMap())
 
-data class QdrantFilter(val must: List<QdrantFieldCondition> = emptyList())
+data class QdrantFilter(
+    val must: List<QdrantFieldCondition> = emptyList(),
+    val should: List<QdrantFieldCondition> = emptyList(),
+)
 
 data class QdrantFieldCondition(val key: String, val value: String)
 

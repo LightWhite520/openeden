@@ -46,6 +46,7 @@ class InMemoryMemoryPalace(
                             VectorSearchRequest(
                                 sessionId = request.sessionId,
                                 incarnationId = request.incarnationId,
+                                canonicalSubjectId = request.canonicalSubjectId,
                                 semanticEmbedding = querySemantic,
                                 emotionalEmbedding = embeddingModel.embed(emotionalTarget),
                                 limit = overfetchLimit,

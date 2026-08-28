@@ -176,7 +176,10 @@ class QdrantClient(
 )
 @Serializable private data class QdrantNamedVector(val name: String, val vector: List<Float>)
 @Serializable private data class QdrantSearchRequest(val vector: QdrantNamedVector, val limit: Int, val filter: QdrantWireFilter? = null)
-@Serializable private data class QdrantWireFilter(val must: List<QdrantWireCondition>)
+@Serializable private data class QdrantWireFilter(
+    val must: List<QdrantWireCondition>,
+    val should: List<QdrantWireCondition> = emptyList(),
+)
 @Serializable private data class QdrantWireCondition(val key: String, val match: QdrantMatch)
 @Serializable private data class QdrantMatch(val value: String)
 @Serializable private data class QdrantCollectionResponse(val result: QdrantCollectionWire? = null)
@@ -187,6 +190,9 @@ class QdrantClient(
 @Serializable private data class QdrantHitWire(val id: String, val score: Double, val payload: Map<String, String> = emptyMap())
 
 private fun QdrantPoint.toWire() = QdrantWirePoint(id, vectors.mapValues { (_, vector) -> vector.toList() }, payload)
-private fun QdrantFilter.toWire() = QdrantWireFilter(must.map { QdrantWireCondition(it.key, QdrantMatch(it.value)) })
+private fun QdrantFilter.toWire() = QdrantWireFilter(
+    must.map { QdrantWireCondition(it.key, QdrantMatch(it.value)) },
+    should.map { QdrantWireCondition(it.key, QdrantMatch(it.value)) },
+)
 private fun QdrantCollectionWire.toModel() = QdrantCollection(status, config?.params?.vectors.orEmpty().mapValues { (_, spec) -> QdrantVectorSpec(spec.size, spec.distance) })
 private fun QdrantHitWire.toModel() = QdrantSearchHit(id, score, payload)

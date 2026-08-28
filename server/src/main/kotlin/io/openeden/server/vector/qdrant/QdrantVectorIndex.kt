@@ -90,13 +90,14 @@ class QdrantVectorIndex(
         request.emotionalEmbedding?.let { validateVector(it, EMOTIONAL, dimensions?.emotional) }
         val filter = QdrantFilter(
             must = buildList {
-                request.incarnationId?.takeIf { it.isNotBlank() }
+                request.incarnationId.takeIf { it.isNotBlank() }
                     ?.let { add(QdrantFieldCondition("incarnation_id", it)) }
                     ?: add(QdrantFieldCondition("session_id", request.sessionId))
                 request.room?.let { add(QdrantFieldCondition("room", it.name)) }
                 request.kind?.let { add(QdrantFieldCondition("kind", it.name)) }
                 add(QdrantFieldCondition("model_id", modelId))
             },
+            should = request.authorizedVisibilityKeys(),
         )
         return try {
             coroutineScope {
@@ -349,7 +350,7 @@ class QdrantVectorIndex(
         const val MEMORY_ID = "memory_id"
         const val COSINE = "Cosine"
         const val MAX_SEARCH_LIMIT = 128
-        val PAYLOAD_INDEXES = listOf("session_id", "incarnation_id", "room", "kind", "model_id")
+        val PAYLOAD_INDEXES = listOf("session_id", "incarnation_id", "room", "kind", "model_id", "visibility_key")
     }
 }
 
@@ -363,5 +364,23 @@ private fun MemoryEntry.toPoint(modelId: String): QdrantPoint = QdrantPoint(
         "room" to room.name,
         "kind" to kind.name,
         "model_id" to modelId,
+        "visibility_key" to metadata.visibility.accessKey(metadata.incarnationId),
     ),
 )
+
+private fun VectorSearchRequest.authorizedVisibilityKeys(): List<QdrantFieldCondition> = buildList {
+    add(QdrantFieldCondition("visibility_key", "scope:$sessionId"))
+    canonicalSubjectId.takeIf { it.isNotBlank() }?.let { subjectId ->
+        add(QdrantFieldCondition("visibility_key", "subject:$subjectId"))
+    }
+    incarnationId.takeIf { it.isNotBlank() }?.let { id ->
+        add(QdrantFieldCondition("visibility_key", "incarnation:$id"))
+    }
+}
+
+private fun io.openeden.memory.MemoryVisibility.accessKey(incarnationId: String): String = when (this) {
+    is io.openeden.memory.MemoryVisibility.PrivateSubject -> "subject:$subjectId"
+    is io.openeden.memory.MemoryVisibility.ScopeShared -> "scope:$sessionId"
+    io.openeden.memory.MemoryVisibility.IncarnationShared -> "incarnation:$incarnationId"
+    io.openeden.memory.MemoryVisibility.OperatorOnly -> "operator"
+}

@@ -39,10 +39,20 @@ sealed interface MemoryVisibility {
 }
 
 fun MemoryEntry.isVisibleTo(request: RetrievalRequest): Boolean {
+    return isVisibleTo(request.sessionId, request.canonicalSubjectId, request.incarnationId)
+}
+
+fun MemoryEntry.isVisibleTo(request: VectorSearchRequest): Boolean {
+    return isVisibleTo(request.sessionId, request.canonicalSubjectId, request.incarnationId)
+}
+
+private fun MemoryEntry.isVisibleTo(
+    requestSessionId: String,
+    canonicalSubjectId: String,
+    incarnationId: String,
+): Boolean {
     val metadata = metadata
-    if (metadata.incarnationId.isNotBlank() && request.incarnationId.isNotBlank() &&
-        metadata.incarnationId != request.incarnationId
-    ) {
+    if (metadata.incarnationId.isNotBlank() && incarnationId.isNotBlank() && metadata.incarnationId != incarnationId) {
         return false
     }
     val visibility = when (val configured = metadata.visibility) {
@@ -50,5 +60,6 @@ fun MemoryEntry.isVisibleTo(request: RetrievalRequest): Boolean {
             ?: MemoryVisibility.ScopeShared(sessionId)
         else -> configured
     }
-    return visibility.permits(request.canonicalSubjectId, request.sessionId)
+    if (visibility is MemoryVisibility.IncarnationShared && incarnationId.isBlank()) return false
+    return visibility.permits(canonicalSubjectId, requestSessionId)
 }

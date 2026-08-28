@@ -1,0 +1,16 @@
+ALTER TABLE diary_tasks ADD COLUMN platform TEXT NOT NULL DEFAULT '';
+ALTER TABLE diary_tasks ADD COLUMN diary_user_id TEXT NOT NULL DEFAULT '';
+
+UPDATE diary_tasks
+SET platform = CASE
+        WHEN INSTR(session_id, ':') > 0 THEN SUBSTR(session_id, 1, INSTR(session_id, ':') - 1)
+        ELSE session_id
+    END,
+    canonical_subject_id = CASE
+        WHEN TRIM(canonical_subject_id) = '' THEN 'legacy:diary:' || session_id
+        ELSE canonical_subject_id
+    END,
+    visibility_kind = CASE
+        WHEN TRIM(canonical_subject_id) = '' THEN 'OPERATOR_ONLY'
+        ELSE visibility_kind
+    END;

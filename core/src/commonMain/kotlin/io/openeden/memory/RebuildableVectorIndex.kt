@@ -55,9 +55,10 @@ class RebuildableInMemoryVectorIndex(
         inferenceExecutor.run {
             val snapshot = mutex.withLock {
                 entries.values.filter { entry ->
-                    (request.incarnationId?.takeIf { it.isNotBlank() }?.let { incarnationId ->
+                    (request.incarnationId.takeIf { it.isNotBlank() }?.let { incarnationId ->
                         entry.metadata.incarnationId == incarnationId
                     } ?: (entry.sessionId == request.sessionId)) &&
+                        entry.isVisibleTo(request) &&
                         (request.room == null || entry.room == request.room) &&
                         (request.kind == null || entry.kind == request.kind)
                 }.toList()

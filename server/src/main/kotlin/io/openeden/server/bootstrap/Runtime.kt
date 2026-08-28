@@ -2,6 +2,8 @@ package io.openeden.server.bootstrap
 
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaFileLoader
+import io.openeden.identity.CanonicalSubjectId
+import io.openeden.identity.CanonicalSubjectResolver
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.heartbeat.HeartbeatScheduler
 import io.openeden.runtime.heartbeat.HeartbeatOwner
@@ -133,6 +135,7 @@ private suspend fun Application.startRuntime(
     startupClosers: ArrayDeque<suspend () -> Unit>,
 ) {
     val serverConfig = loadServerRuntimeConfig(environment.config)
+    val canonicalSubjectResolver = loadCanonicalSubjectResolver(environment.config)
     val staticGenerationSettings = serverConfig.llmGenerationPolicy.staticSettings()
     val persona = PersonaFileLoader.load(serverConfig.personaPath)
     val persistenceIo = PersistenceStartupIo()
@@ -236,6 +239,7 @@ private suspend fun Application.startRuntime(
             index = resilientIndex,
             fallbackIndex = fallbackIndex,
             inferenceExecutor = inferenceExecutor,
+            canonicalSubjectResolver = canonicalSubjectResolver,
         )
     }
     startupClosers.addFirst { memoryStore.close() }
@@ -287,6 +291,7 @@ private suspend fun Application.startRuntime(
         diaryTriggerCoordinator = diaryCoordinator,
         transcriptStore = transcriptStore,
         lifecycleGate = lifecycleGate,
+        canonicalSubjectResolver = canonicalSubjectResolver,
     )
     attributes.put(PipelineKey, pipeline)
     attributes.put(SessionStateStoreKey, store)
@@ -629,6 +634,20 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         vectorDatabase = loadVectorDatabaseConfig(config),
         oneBot = oneBot,
     )
+}
+
+private fun loadCanonicalSubjectResolver(
+    config: io.ktor.server.config.ApplicationConfig,
+): CanonicalSubjectResolver {
+    val bindings = config.propertyOrNull("openeden.identity.subjectBindings")?.getList().orEmpty().associate { binding ->
+        val parts = binding.split("=", limit = 2)
+        require(parts.size == 2 && parts[1].isNotBlank()) { "Invalid canonical subject binding" }
+        val separator = parts[0].indexOf(':')
+        require(separator > 0 && separator < parts[0].lastIndex) { "Invalid canonical subject binding" }
+        CanonicalSubjectResolver.PlatformUser(parts[0].substring(0, separator), parts[0].substring(separator + 1)) to
+            CanonicalSubjectId(parts[1])
+    }
+    return CanonicalSubjectResolver(bindings)
 }
 
 private fun createOneBotAdapter(

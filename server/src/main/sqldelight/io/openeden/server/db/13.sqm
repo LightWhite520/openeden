@@ -47,10 +47,10 @@ SET incarnation_id = COALESCE(
         'legacy-incarnation'
     ),
     source_session_id = session_id,
-    canonical_subject_id = '',
-    visibility_kind = 'SCOPE_SHARED',
+    canonical_subject_id = 'legacy:diary:' || session_id,
+    visibility_kind = 'OPERATOR_ONLY',
     visibility_subject_id = NULL,
-    visibility_session_id = session_id;
+    visibility_session_id = NULL;
 
 CREATE INDEX diary_tasks_incarnation_status
 ON diary_tasks(incarnation_id, status, available_at_ms, id);

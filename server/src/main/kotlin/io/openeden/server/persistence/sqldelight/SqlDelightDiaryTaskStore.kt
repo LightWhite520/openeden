@@ -116,12 +116,12 @@ class SqlDelightDiaryTaskStore(
         if (replace) queries.insertDiaryTaskIfAbsent(
             persisted.id, persisted.sessionId, persisted.sourceMemoryId, persisted.reason, persisted.status.name,
             persisted.attempts.toLong(), createdAtMsFromId(persisted.id), persisted.availableAtMs, persisted.leaseExpiresAtMs, persisted.leaseToken, persisted.lastError,
-            persisted.incarnationId, persisted.sourceSessionId, persisted.canonicalSubjectId,
+            persisted.incarnationId, persisted.sourceSessionId, persisted.platform, persisted.userId, persisted.canonicalSubjectId,
             persisted.visibility.persistenceKind(), persisted.visibility.persistenceSubjectId(), persisted.visibility.persistenceSessionId(),
         ) else queries.insertDiaryTask(
             persisted.id, persisted.sessionId, persisted.sourceMemoryId, persisted.reason, persisted.status.name,
             persisted.attempts.toLong(), createdAtMsFromId(persisted.id), persisted.availableAtMs, persisted.leaseExpiresAtMs, persisted.leaseToken, persisted.lastError,
-            persisted.incarnationId, persisted.sourceSessionId, persisted.canonicalSubjectId,
+            persisted.incarnationId, persisted.sourceSessionId, persisted.platform, persisted.userId, persisted.canonicalSubjectId,
             persisted.visibility.persistenceKind(), persisted.visibility.persistenceSubjectId(), persisted.visibility.persistenceSessionId(),
         )
     }
@@ -153,6 +153,8 @@ class SqlDelightDiaryTaskStore(
         lastError: String?,
         incarnationId: String,
         sourceSessionId: String,
+        platform: String,
+        diaryUserId: String,
         canonicalSubjectId: String,
         visibilityKind: String,
         visibilitySubjectId: String?,
@@ -170,17 +172,23 @@ class SqlDelightDiaryTaskStore(
         lastError = lastError,
         incarnationId = incarnationId,
         sourceSessionId = sourceSessionId,
+        platform = platform,
+        userId = diaryUserId,
         canonicalSubjectId = canonicalSubjectId,
         visibility = memoryVisibilityFromPersistence(visibilityKind, visibilitySubjectId, visibilitySessionId),
     )
 
     private fun normalize(task: DiaryTask): DiaryTask {
         val sourceSessionId = task.sourceSessionId.ifBlank { task.sessionId }
+        val legacySubjectId = "legacy:diary:$sourceSessionId"
+        val canonicalSubjectId = task.canonicalSubjectId.ifBlank { legacySubjectId }
+        val visibility = if (task.canonicalSubjectId.isBlank()) MemoryVisibility.OperatorOnly else task.visibility
         return task.copy(
             incarnationId = task.incarnationId.ifBlank { activeIncarnationId() },
             sourceSessionId = sourceSessionId,
-            canonicalSubjectId = task.canonicalSubjectId.ifBlank { DIARY_SUBJECT_ID },
-            visibility = task.visibility.normalize(sourceSessionId, task.canonicalSubjectId.ifBlank { DIARY_SUBJECT_ID }),
+            platform = task.platform.ifBlank { sourceSessionId.substringBefore(':', sourceSessionId) },
+            canonicalSubjectId = canonicalSubjectId,
+            visibility = visibility.normalize(sourceSessionId, canonicalSubjectId),
         )
     }
 
@@ -201,7 +209,6 @@ class SqlDelightDiaryTaskStore(
 
     companion object {
         private const val LEGACY_INCARNATION_ID = "legacy-incarnation"
-        private const val DIARY_SUBJECT_ID = "INTERNAL:diary"
         fun open(dbPath: Path): SqlDelightDiaryTaskStore {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)

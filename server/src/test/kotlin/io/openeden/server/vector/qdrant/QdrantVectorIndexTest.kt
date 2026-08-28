@@ -252,14 +252,22 @@ class QdrantVectorIndexTest {
         }
         val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
 
-        val hits = index.search(VectorSearchRequest("QQ:42", listOf(.1f, .2f), room = MemoryRoom.EVENT_ROOM, kind = MemoryKind.RAW, limit = 6))
+        val hits = index.search(VectorSearchRequest(
+            "QQ:42", listOf(.1f, .2f), room = MemoryRoom.EVENT_ROOM, kind = MemoryKind.RAW, limit = 6,
+            incarnationId = "incarnation-1", canonicalSubjectId = "identity:owner",
+        ))
 
         assertEquals(1, hits.size)
         assertEquals("memory-1", hits.single().memoryId)
         assertEquals(null, hits.single().entry)
         assertEquals(.91f, hits.single().semanticSimilarity)
         val filter = requests.last().jsonBody()["filter"]!!.jsonObject["must"]!!.jsonArray
-        assertEquals(listOf("QQ:42", "EVENT_ROOM", "RAW", "local-v1"), filter.map { it.jsonObject["match"]!!.jsonObject["value"]!!.jsonPrimitive.content })
+        assertEquals(listOf("incarnation-1", "EVENT_ROOM", "RAW", "local-v1"), filter.map { it.jsonObject["match"]!!.jsonObject["value"]!!.jsonPrimitive.content })
+        val should = requests.last().jsonBody()["filter"]!!.jsonObject["should"]!!.jsonArray
+        assertEquals(
+            listOf("scope:QQ:42", "subject:identity:owner", "incarnation:incarnation-1"),
+            should.map { it.jsonObject["match"]!!.jsonObject["value"]!!.jsonPrimitive.content },
+        )
         client.close()
     }
 
