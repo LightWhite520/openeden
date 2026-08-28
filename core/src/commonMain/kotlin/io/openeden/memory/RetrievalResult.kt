@@ -11,8 +11,15 @@ data class RetrievalResult(
     val filterAcceptedCount: Int = 0,
     val filterRejectedCount: Int = 0,
     val filterDegraded: Boolean = false,
-    val lineageExcludedCount: Int = 0,
-    val fingerprintExcludedCount: Int = 0,
+    val diagnostics: RetrievalDiagnostics = RetrievalDiagnostics(),
     val backfillDepth: Int = 0,
-    val underfilled: Boolean = false,
-)
+) {
+    val lineageExcludedCount: Int
+        get() = diagnostics.excludedByTurnLineage + diagnostics.excludedByMemoryLineage
+
+    val fingerprintExcludedCount: Int
+        get() = diagnostics.excludedByFingerprint
+
+    val underfilled: Boolean
+        get() = diagnostics.underfilled
+}

@@ -308,10 +308,10 @@ class DevelopmentMessagePipeline(
                 transcriptTags = setOf(TraceTag.TranscriptDegraded)
             }
         }
-        trace(traceContext, "transcript_recent", tags = transcriptTags)
         val injectedRecentTurns = recentTurns.takeLast(
             if (request.text.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS,
         )
+        trace(traceContext, "transcript_recent", tags = transcriptTags)
         val retrievalResult = inferenceExecutor.run {
             memoryRetriever.retrieve(
                 RetrievalRequest(

@@ -122,6 +122,37 @@ class RebuildableVectorIndexTest {
         assertEquals(listOf("operator"), ids(index.search(request.copy(operatorAuthorized = true))))
     }
 
+    @Test
+    fun `search returns exact top k with insertion ordered ties`() = runTest {
+        val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
+        index.rebuild(
+            listOf(
+                entry("low", "low", semanticEmbedding = listOf(0.0f, 1.0f)),
+                entry("tie-first", "tie", semanticEmbedding = listOf(0.8f, 0.6f)),
+                entry("best", "best", semanticEmbedding = listOf(1.0f, 0.0f)),
+                entry("tie-second", "tie", semanticEmbedding = listOf(0.8f, 0.6f)),
+                entry("worst", "worst", semanticEmbedding = listOf(-1.0f, 0.0f)),
+            ),
+        )
+
+        val hits = index.search(query("alpha").copy(limit = 3))
+
+        assertEquals(listOf("best", "tie-first", "tie-second"), ids(hits))
+        assertEquals(listOf(1.0f, 0.8f, 0.8f), hits.map { it.semanticSimilarity })
+    }
+
+    @Test
+    fun `published rebuild view remains stable across later writes`() = runTest {
+        val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
+        index.insert(entry("first", "alpha"))
+        val published = index.entriesViewForRebuild()
+
+        index.insert(entry("second", "beta"))
+
+        assertEquals(listOf("first"), published.map { it.id })
+        assertEquals(listOf("first", "second"), index.entriesViewForRebuild().map { it.id })
+    }
+
     private fun query(text: String): VectorSearchRequest = VectorSearchRequest(
         sessionId = "CLI:u1",
         semanticEmbedding = if (text == "alpha") listOf(1.0f, 0.0f) else listOf(0.0f, 1.0f),
@@ -142,13 +173,14 @@ class RebuildableVectorIndexTest {
         kind: MemoryKind = MemoryKind.RAW,
         incarnationId: String = "incarnation-1",
         visibility: MemoryVisibility = MemoryVisibility.ScopeShared(sessionId),
+        semanticEmbedding: List<Float> = if (content == "alpha") listOf(1.0f, 0.0f) else listOf(0.0f, 1.0f),
     ): MemoryEntry = MemoryEntry(
         id = id,
         sessionId = sessionId,
         content = content,
         room = room,
         kind = kind,
-        semanticEmbedding = if (content == "alpha") listOf(1.0f, 0.0f) else listOf(0.0f, 1.0f),
+        semanticEmbedding = semanticEmbedding,
         emotionalEmbedding = BioVector.Neutral.toList(),
         metadata = MemoryMetadata(
             snapshot8D = BioVector.Neutral,

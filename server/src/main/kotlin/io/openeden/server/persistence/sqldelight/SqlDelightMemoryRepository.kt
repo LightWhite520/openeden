@@ -214,13 +214,13 @@ class SqlDelightMemoryRepository(
                 mode = request.mode,
                 injectionLabel = io.openeden.memory.RetrievalModeSelector.injectionLabel(request.mode),
                 memories = emptyList(),
-                underfilled = true,
+                diagnostics = io.openeden.memory.RetrievalDiagnostics(underfilled = true),
             )
         }
         val normalizedRequest = request.copy(incarnationId = normalizedIncarnationId)
         ensureIndexed(normalizedIncarnationId)
         return inferenceExecutor.run {
-        val overfetchLimit = retrievalCandidateLimit()
+        var overfetchLimit = retrievalCandidateLimit()
             val positiveSkew = normalizedRequest.currentVector.copy(
                 p = (normalizedRequest.currentVector.p + 0.3f).coerceAtMost(1.0f),
                 v = (normalizedRequest.currentVector.v + 0.2f).coerceAtMost(1.0f),
@@ -232,6 +232,7 @@ class SqlDelightMemoryRepository(
             RetrievalMode.CONTRAST -> listOf(contrastTarget)
         }
         val semanticEmbedding = embeddingModel.embed(normalizedRequest.userInput)
+        while (true) {
         val remotePools = buildList {
             for (emotionalTarget in searchTargets) {
                 val targetEmbedding = embeddingModel.embed(emotionalTarget)
@@ -263,14 +264,14 @@ class SqlDelightMemoryRepository(
                             .distinctBy { it.id }
                             .toList(),
                         persistedRangeExcludedIds = rangeExcludedIds,
+                        sourceExhausted = hits.size < overfetchLimit,
                     ),
                 )
             }
         }
-        val persistedRangeExcludedCount = remotePools
+        val persistedRangeExcludedIds = remotePools
             .flatMap { it.persistedRangeExcludedIds }
             .toSet()
-            .size
         val candidates = remotePools.flatMap { it.entries }.distinctBy { it.id }
         val targetPools = remotePools.map { it.targetEmbedding to it.entries }
         val palace = InMemoryMemoryPalace(
@@ -278,13 +279,16 @@ class SqlDelightMemoryRepository(
             maxResults = DEFAULT_MAX_RESULTS,
             embeddingModel = embeddingModel,
             index = TargetPoolVectorIndex(targetPools),
+            preExcludedTurnLineageIds = persistedRangeExcludedIds,
         )
         candidates.forEach { palace.write(it) }
-        palace.retrieve(normalizedRequest).let { result ->
-            if (persistedRangeExcludedCount == 0) result else result.copy(
-                lineageExcludedCount = result.lineageExcludedCount + persistedRangeExcludedCount,
-            )
+        val result = palace.retrieve(normalizedRequest)
+        if (!result.underfilled || remotePools.all { it.sourceExhausted }) return@run result
+        val nextLimit = doubledCandidateLimit(overfetchLimit)
+        if (nextLimit <= overfetchLimit) return@run result
+        overfetchLimit = nextLimit
         }
+        error("progressive repository retrieval loop terminated unexpectedly")
         }
     }
 
@@ -342,10 +346,14 @@ class SqlDelightMemoryRepository(
         else -> perSourceLimit * 2
     }
 
+    private fun doubledCandidateLimit(limit: Int): Int =
+        if (limit > Int.MAX_VALUE / 2) Int.MAX_VALUE else limit * 2
+
     private data class TargetMemoryPool(
         val targetEmbedding: List<Float>,
         val entries: List<MemoryEntry>,
         val persistedRangeExcludedIds: Set<String>,
+        val sourceExhausted: Boolean,
     )
 
     private class TargetPoolVectorIndex(

@@ -351,7 +351,7 @@ class MessagePipelineTranscriptTest {
     }
 
     @Test
-    fun `retrieval excludes transcript turns that will be injected into the prompt`() = runTest {
+    fun `retrieval exclusions include only transcript turns injected in this prompt`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
         repeat(3) { index ->
             transcripts.append(
@@ -369,11 +369,34 @@ class MessagePipelineTranscriptTest {
             )
         }
         val delegate = InMemoryMemoryPalace(DirectInferenceExecutor)
+        delegate.write(
+            io.openeden.memory.MemoryEntry(
+                id = "older-rag-memory",
+                sessionId = "CLI:local",
+                content = "older memory remains retrievable",
+                room = io.openeden.memory.MemoryRoom.EVENT_ROOM,
+                kind = io.openeden.memory.MemoryKind.RAW,
+                semanticEmbedding = InMemoryMemoryPalace.embedText("message"),
+                emotionalEmbedding = InMemoryMemoryPalace.embedVector(BioVector.Neutral),
+                metadata = MemoryMetadata(
+                    snapshot8D = BioVector.Neutral,
+                    omegaState = 0.0f,
+                    deltaVec = io.openeden.bio.VectorDelta.Zero,
+                    snapshotOrigin = BioVector.Neutral,
+                    userId = "user-1",
+                    lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf("excluded-turn-0")),
+                    incarnationId = "incarnation-a",
+                    sourceSessionId = "CLI:local",
+                    visibility = MemoryVisibility.ScopeShared("CLI:local"),
+                ),
+            ),
+        )
         var capturedRequest: RetrievalRequest? = null
+        var capturedResult: RetrievalResult? = null
         val memoryStore = object : MemoryStore by delegate {
             override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
                 capturedRequest = request
-                return delegate.retrieve(request)
+                return delegate.retrieve(request).also { capturedResult = it }
             }
         }
 
@@ -392,6 +415,7 @@ class MessagePipelineTranscriptTest {
             setOf("excluded-turn-1", "excluded-turn-2"),
             capturedRequest?.exclusionContext?.sourceTurnIds,
         )
+        assertTrue(capturedResult?.memories?.any { it.id == "older-rag-memory" } == true)
         assertEquals(emptySet(), capturedRequest?.exclusionContext?.sourceMemoryIds)
         assertEquals(emptySet(), capturedRequest?.exclusionContext?.contentFingerprints)
     }

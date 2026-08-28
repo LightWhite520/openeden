@@ -531,7 +531,7 @@ class SqlDelightMemoryRepositoryTest {
                     "query",
                     BioVector.Neutral,
                     BioVector.Neutral,
-                    RetrievalMode.CONGRUENT,
+                    RetrievalMode.MIXED,
                     incarnationId = "legacy-incarnation",
                     exclusionContext = io.openeden.memory.MemoryExclusionContext(
                         sourceTurnIds = setOf("turn-300"),
@@ -540,7 +540,9 @@ class SqlDelightMemoryRepositoryTest {
             )
 
             assertTrue(result.memories.isEmpty())
-            assertTrue(result.lineageExcludedCount >= 1)
+            assertEquals(1, result.diagnostics.excludedByTurnLineage)
+            assertEquals(0, result.diagnostics.excludedByMemoryLineage)
+            assertEquals(0, result.diagnostics.excludedByFingerprint)
             assertTrue(result.underfilled)
         }
     }
@@ -754,6 +756,45 @@ class SqlDelightMemoryRepositoryTest {
             assertEquals(10, result.memories.size)
             assertEquals(10, result.memories.map { it.id }.toSet().size)
             assertFalse(result.memories.any { it.id == wrongModel.id })
+            assertFalse(result.underfilled)
+        }
+    }
+
+    @Test
+    fun `sql delight retrieval deepens beyond 128 excluded remote candidates`() = runTest {
+        val excluded = (0 until 129).map { index ->
+            memoryEntry("QQ:42:${index + 1000}:raw", "QQ:42", "excluded-$index").copy(
+                metadata = memoryEntry("unused", "QQ:42", "unused").metadata.copy(
+                    lineage = MemoryLineage(sourceTurnIds = listOf("excluded-turn-$index")),
+                ),
+            )
+        }
+        val valid = (0 until 10).map { index ->
+            memoryEntry("QQ:42:${index + 5000}:raw", "QQ:42", "valid-$index")
+        }
+        val remoteIndex = FakeVectorIndex((excluded + valid).map { entry ->
+            VectorSearchHit(entry.id, null, 1.0f, 1.0f)
+        })
+
+        SqlDelightMemoryRepository.open(dbPath, index = remoteIndex).use { repository ->
+            (excluded + valid).forEach { repository.write(it, modelId = "local-v1") }
+
+            val result = repository.retrieve(
+                RetrievalRequest(
+                    "QQ:42",
+                    "query",
+                    BioVector.Neutral,
+                    BioVector.Neutral,
+                    RetrievalMode.CONGRUENT,
+                    incarnationId = "legacy-incarnation",
+                    exclusionContext = MemoryExclusionContext(
+                        sourceTurnIds = (0 until 129).mapTo(hashSetOf()) { "excluded-turn-$it" },
+                    ),
+                ),
+            )
+
+            assertTrue(remoteIndex.limits.any { it > 128 })
+            assertEquals(valid.mapTo(hashSetOf()) { it.id }, result.memories.mapTo(hashSetOf()) { it.id })
             assertFalse(result.underfilled)
         }
     }

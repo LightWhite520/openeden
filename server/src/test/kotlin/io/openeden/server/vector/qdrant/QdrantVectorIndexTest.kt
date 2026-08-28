@@ -320,6 +320,40 @@ class QdrantVectorIndexTest {
     }
 
     @Test
+    fun `search paginates a named vector lane beyond the 128 point page size`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") {
+                response("""{"result":{"config":{"params":{"vectors":{"semantic":{"size":2,"distance":"Cosine"},"emotional":{"size":3,"distance":"Cosine"}}}}}}""")
+            } else if (request.url.encodedPath.endsWith("/points/search")) {
+                val body = request.jsonBody()
+                val offset = body["offset"]?.jsonPrimitive?.content?.toInt() ?: 0
+                val limit = body["limit"]!!.jsonPrimitive.content.toInt()
+                val count = minOf(limit, 129 - offset).coerceAtLeast(0)
+                val hits = (offset until offset + count).joinToString(",") { index ->
+                    """{"id":"point-$index","score":0.9,"payload":{"memory_id":"memory-$index","incarnation_id":"incarnation-1","visibility_key":"scope:QQ:42"}}"""
+                }
+                response("""{"result":[$hits]}""")
+            } else response("{}")
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+
+        val hits = index.search(
+            VectorSearchRequest(
+                sessionId = "QQ:42",
+                semanticEmbedding = listOf(.1f, .2f),
+                limit = 129,
+                incarnationId = "incarnation-1",
+            ),
+        )
+
+        val searchBodies = requests.filter { it.url.encodedPath.endsWith("/points/search") }.map { it.jsonBody() }
+        assertEquals(listOf(0, 128), searchBodies.map { it["offset"]?.jsonPrimitive?.content?.toInt() ?: 0 })
+        assertEquals(129, hits.size)
+        client.close()
+    }
+
+    @Test
     fun `search rejects unauthorized results returned despite the qdrant filter`() = runTest {
         val requests = mutableListOf<HttpRequestData>()
         val client = clientFor(requests) { request ->

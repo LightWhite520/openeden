@@ -119,10 +119,17 @@ class QdrantClient(
     }
 
     /** Qdrant's named-vector search shape is {vector:{name,vector}, limit, filter}. */
-    suspend fun searchSemanticPoints(collection: String, vector: FloatArray, limit: Int, filter: QdrantFilter? = null, using: String = "semantic"): List<QdrantSearchHit> = request {
+    suspend fun searchSemanticPoints(
+        collection: String,
+        vector: FloatArray,
+        limit: Int,
+        filter: QdrantFilter? = null,
+        using: String = "semantic",
+        offset: Int = 0,
+    ): List<QdrantSearchHit> = request {
         val response = http.post("${collectionPath(collection)}/points/search") {
             contentType(ContentType.Application.Json)
-            setBody(QdrantSearchRequest(QdrantNamedVector(using, vector.toList()), limit, filter?.toWire()))
+            setBody(QdrantSearchRequest(QdrantNamedVector(using, vector.toList()), limit, filter?.toWire(), offset))
         }.requireSuccess()
         response.decode<QdrantSearchResponse>().result.map { it.toModel() }
     }
@@ -175,7 +182,12 @@ class QdrantClient(
     val filter: QdrantWireFilter? = null,
 )
 @Serializable private data class QdrantNamedVector(val name: String, val vector: List<Float>)
-@Serializable private data class QdrantSearchRequest(val vector: QdrantNamedVector, val limit: Int, val filter: QdrantWireFilter? = null)
+@Serializable private data class QdrantSearchRequest(
+    val vector: QdrantNamedVector,
+    val limit: Int,
+    val filter: QdrantWireFilter? = null,
+    val offset: Int = 0,
+)
 @Serializable private data class QdrantWireFilter(
     val must: List<QdrantWireCondition>,
     val should: List<QdrantWireCondition> = emptyList(),

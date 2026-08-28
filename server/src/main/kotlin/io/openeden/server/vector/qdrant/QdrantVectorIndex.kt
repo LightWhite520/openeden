@@ -86,7 +86,7 @@ class QdrantVectorIndex(
         val normalizedIncarnationId = request.incarnationId.trim()
         if (normalizedIncarnationId.isBlank()) return emptyList()
         val normalizedRequest = request.copy(incarnationId = normalizedIncarnationId)
-        val limit = request.limit.coerceIn(0, maxSearchLimit)
+        val limit = request.limit.coerceAtLeast(0)
         if (limit == 0) return emptyList()
         validateVector(normalizedRequest.semanticEmbedding, "semantic", dimensions?.semantic)
         val knownCollection = ensureSearchCollection(normalizedRequest.semanticEmbedding.size) ?: return emptyList()
@@ -103,7 +103,7 @@ class QdrantVectorIndex(
         return try {
             coroutineScope {
                 val semanticHits = async {
-                    client.searchSemanticPoints(
+                    searchLane(
                         knownCollection,
                         normalizedRequest.semanticEmbedding.toFloatArray(),
                         limit,
@@ -113,7 +113,7 @@ class QdrantVectorIndex(
                 }
                 val emotionalHits = normalizedRequest.emotionalEmbedding?.let { emotionalEmbedding ->
                     async {
-                        client.searchSemanticPoints(
+                        searchLane(
                             knownCollection,
                             emotionalEmbedding.toFloatArray(),
                             limit,
@@ -159,6 +159,32 @@ class QdrantVectorIndex(
             collectionReady = false
             dimensions = null
         }
+    }
+
+    private suspend fun searchLane(
+        collection: String,
+        vector: FloatArray,
+        limit: Int,
+        filter: QdrantFilter,
+        using: String,
+    ): List<QdrantSearchHit> {
+        val hits = ArrayList<QdrantSearchHit>(limit)
+        var offset = 0
+        while (hits.size < limit) {
+            val pageLimit = minOf(maxSearchLimit, limit - hits.size)
+            val page = client.searchSemanticPoints(
+                collection = collection,
+                vector = vector,
+                limit = pageLimit,
+                filter = filter,
+                using = using,
+                offset = offset,
+            )
+            hits += page
+            if (page.size < pageLimit) break
+            offset += page.size
+        }
+        return hits
     }
 
     private suspend fun ensureCollectionLocked(semanticSize: Int, emotionalSize: Int) {

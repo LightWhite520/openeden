@@ -23,6 +23,23 @@ class MemoryLineage private constructor(
     val isEmpty: Boolean
         get() = sourceTurnIds.isEmpty() && sourceMemoryIds.isEmpty()
 
+    internal fun overlapsSourceTurns(turnIds: Set<String>): Boolean =
+        sourceTurnIds.any { it in turnIds }
+
+    internal fun overlapsSourceMemories(memoryId: String, memoryIds: Set<String>): Boolean =
+        memoryId in memoryIds || sourceMemoryIds.any { it in memoryIds }
+
+    internal fun sharesSourceTurnWith(other: MemoryLineage): Boolean =
+        sourceTurnIds.any { it in other.sourceTurnIds }
+
+    internal fun sharesSourceMemoryWith(
+        memoryId: String,
+        otherMemoryId: String,
+        other: MemoryLineage,
+    ): Boolean =
+        sourceMemoryIds.any { it == otherMemoryId || it in other.sourceMemoryIds } ||
+            other.sourceMemoryIds.any { it == memoryId || it in sourceMemoryIds }
+
     override fun equals(other: Any?): Boolean =
         other is MemoryLineage &&
             sourceTurnIds == other.sourceTurnIds &&

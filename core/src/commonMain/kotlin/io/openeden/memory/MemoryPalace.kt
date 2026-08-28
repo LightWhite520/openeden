@@ -15,6 +15,7 @@ class InMemoryMemoryPalace(
     private val embeddingModel: MemoryEmbeddingModel = DeterministicMemoryEmbeddingModel,
     private val index: VectorIndex = RebuildableInMemoryVectorIndex(inferenceExecutor),
     private val utilityFilterConfig: MemoryUtilityFilterConfig = MemoryUtilityFilterConfig(),
+    private val preExcludedTurnLineageIds: Set<String> = emptySet(),
 ) : MemoryStore {
     private val entries = mutableListOf<MemoryEntry>()
 
@@ -31,7 +32,6 @@ class InMemoryMemoryPalace(
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult =
         inferenceExecutor.run {
-            val overfetchLimit = retrievalLimit()
             val querySemantic = embeddingModel.embed(request.userInput)
             val queryEmotion = embeddingModel.embed(request.currentVector)
             val positiveSkew = request.currentVector.copy(
@@ -44,6 +44,8 @@ class InMemoryMemoryPalace(
                 RetrievalMode.MIXED -> listOf(request.currentVector, positiveSkew)
                 RetrievalMode.CONTRAST -> listOf(contrastTarget)
             }
+            var overfetchLimit = initialRetrievalLimit()
+            while (true) {
             val targetCandidatePools = buildList<List<MemoryEntry>> {
                 for (emotionalTarget in searchTargets) {
                     val targetCandidates = buildList {
@@ -64,19 +66,7 @@ class InMemoryMemoryPalace(
             }
             val congruentCandidates = targetCandidatePools.firstOrNull().orEmpty()
             val positiveCandidates = targetCandidatePools.getOrNull(1).orEmpty()
-            val baselineEntropy = entries.asSequence()
-                .filter { it.isVisibleTo(request) && "daily" in it.tags && "stable" in it.tags }
-                .toList()
-                .takeLast(utilityFilterConfig.baselineWindow)
-                .map { MemoryUtilityFilter.meanEmbeddingEntropy(it) }
-                .toList()
-                .let { values ->
-                    when {
-                        values.isEmpty() -> null
-                        values.any { !it.isFinite() } -> Float.NaN
-                        else -> values.average().toFloat()
-                    }
-                }
+            val baselineEntropy = stableBaselineEntropy(request)
             val filtered = MemoryUtilityFilter.filter(
                 candidates = congruentCandidates,
                 querySemantic = querySemantic,
@@ -92,11 +82,13 @@ class InMemoryMemoryPalace(
                 .toList()
             var congruentCount = 0
             var positiveSkewCount = 0
+            val exclusionTracker = ExclusionTracker(preExcludedTurnLineageIds)
             val selectedResult = when (request.mode) {
                 RetrievalMode.CONGRUENT -> selectUnique(
                     ranked = rank(filtered.candidates, request, request.currentVector, overfetchLimit),
                     limit = maxResults,
                     exclusionContext = request.exclusionContext,
+                    exclusionTracker = exclusionTracker,
                 ).also {
                     congruentCount = it.selected.size
                 }
@@ -126,6 +118,7 @@ class InMemoryMemoryPalace(
                         ranked = congruentRanked,
                         limit = congruentTarget,
                         exclusionContext = request.exclusionContext,
+                        exclusionTracker = exclusionTracker,
                     )
                     congruentCount = congruentResult.selected.size
                     val positiveResult = selectUnique(
@@ -133,6 +126,7 @@ class InMemoryMemoryPalace(
                         limit = positiveTarget,
                         exclusionContext = request.exclusionContext,
                         alreadySelected = congruentResult.selected,
+                        exclusionTracker = exclusionTracker,
                     )
                     positiveSkewCount = positiveResult.selected.size
                     var selectedResult = congruentResult + positiveResult
@@ -144,6 +138,7 @@ class InMemoryMemoryPalace(
                             backfillBaseline = positiveTarget,
                             exclusionContext = request.exclusionContext,
                             alreadySelected = selectedResult.selected,
+                            exclusionTracker = exclusionTracker,
                         )
                         selectedResult += positiveFill
                         positiveSkewCount += positiveFill.selected.size
@@ -156,6 +151,7 @@ class InMemoryMemoryPalace(
                             backfillBaseline = congruentTarget,
                             exclusionContext = request.exclusionContext,
                             alreadySelected = selectedResult.selected,
+                            exclusionTracker = exclusionTracker,
                         )
                         selectedResult += congruentFill
                         congruentCount += congruentFill.selected.size
@@ -174,6 +170,7 @@ class InMemoryMemoryPalace(
                         ranked = rank(contrastFiltered.candidates, request, contrastTarget, overfetchLimit),
                         limit = maxResults,
                         exclusionContext = request.exclusionContext,
+                        exclusionTracker = exclusionTracker,
                     )
                 }
             }
@@ -183,12 +180,12 @@ class InMemoryMemoryPalace(
                 limit = maxResults,
                 exclusionContext = request.exclusionContext,
                 alreadySelected = selected,
+                exclusionTracker = exclusionTracker,
             )
             val recentMemories = recentSelection.selected.asReversed()
-            val lineageExcludedCount = recentSelection.lineageExcludedCount + selectedResult.lineageExcludedCount
-            val fingerprintExcludedCount = recentSelection.fingerprintExcludedCount + selectedResult.fingerprintExcludedCount
+            val combinedSelection = selectedResult + recentSelection
             val backfillDepth = maxOf(recentSelection.backfillDepth, selectedResult.backfillDepth)
-            RetrievalResult(
+            val result = RetrievalResult(
                 mode = request.mode,
                 injectionLabel = RetrievalModeSelector.injectionLabel(request.mode),
                 memories = selected,
@@ -204,17 +201,45 @@ class InMemoryMemoryPalace(
                 filterAcceptedCount = filtered.acceptedCount,
                 filterRejectedCount = filtered.rejectedCount,
                 filterDegraded = filtered.degraded,
-                lineageExcludedCount = lineageExcludedCount,
-                fingerprintExcludedCount = fingerprintExcludedCount,
+                diagnostics = combinedSelection.diagnostics(
+                    underfilled = selected.size < maxResults,
+                    exclusionTracker = exclusionTracker,
+                ),
                 backfillDepth = backfillDepth,
-                underfilled = selected.size < maxResults,
             )
+            if (!result.underfilled || overfetchLimit >= entries.size) return@run result
+            val nextLimit = minOf(entries.size, doubledDepth(overfetchLimit))
+            if (nextLimit <= overfetchLimit) return@run result
+            overfetchLimit = nextLimit
+            }
+            error("progressive retrieval loop terminated unexpectedly")
         }
 
-    private fun retrievalLimit(): Int {
+    private fun initialRetrievalLimit(): Int {
         if (maxResults <= 0) return 0
-        val triple = if (maxResults > Int.MAX_VALUE / 3) Int.MAX_VALUE else maxResults * 3
-        return maxOf(maxResults, triple).coerceAtMost(entries.size)
+        return minOf(entries.size, saturatingMultiply(maxResults, 3))
+    }
+
+    private fun doubledDepth(depth: Int): Int = saturatingMultiply(depth, 2)
+
+    private fun saturatingMultiply(value: Int, multiplier: Int): Int =
+        if (value > Int.MAX_VALUE / multiplier) Int.MAX_VALUE else value * multiplier
+
+    private fun stableBaselineEntropy(request: RetrievalRequest): Float? {
+        val entropies = FloatArray(utilityFilterConfig.baselineWindow)
+        var count = 0
+        for (entry in entries.asReversed()) {
+            if (!entry.isVisibleTo(request) || "daily" !in entry.tags || "stable" !in entry.tags) continue
+            val entropy = MemoryUtilityFilter.meanEmbeddingEntropy(entry)
+            if (!entropy.isFinite()) return Float.NaN
+            entropies[count] = entropy
+            count += 1
+            if (count == utilityFilterConfig.baselineWindow) break
+        }
+        if (count == 0) return null
+        var sum = 0.0
+        for (index in count - 1 downTo 0) sum += entropies[index]
+        return (sum / count).toFloat()
     }
 
     private fun snippet(entry: MemoryEntry): MemorySnippet = MemorySnippet(
@@ -230,20 +255,34 @@ class InMemoryMemoryPalace(
         backfillBaseline: Int = limit,
         exclusionContext: MemoryExclusionContext,
         alreadySelected: List<MemorySnippet> = emptyList(),
+        exclusionTracker: ExclusionTracker,
     ): SelectionResult {
         if (limit <= 0) return SelectionResult()
         val selected = alreadySelected.toMutableList()
         val result = mutableListOf<MemorySnippet>()
-        var lineageExcludedCount = 0
-        var fingerprintExcludedCount = 0
         var backfillDepth = 0
+        val backfilled = mutableSetOf<String>()
         val seenIds = alreadySelected.mapTo(hashSetOf()) { it.id }
         for ((rankIndex, candidate) in ranked.withIndex()) {
             if (candidate.id in seenIds) continue
-            val lineageOverlap = overlapsLineage(candidate, exclusionContext) ||
-                selected.any { selectedCandidate -> overlapsLineage(candidate, selectedCandidate) }
-            if (lineageOverlap) {
-                lineageExcludedCount += 1
+            val turnLineageOverlap = exclusionContext.excludesTurnLineage(candidate.metadata.lineage) ||
+                selected.any { selectedCandidate ->
+                    candidate.metadata.lineage.sharesSourceTurnWith(selectedCandidate.metadata.lineage)
+            }
+            if (turnLineageOverlap) {
+                exclusionTracker.exclude(candidate.id, ExclusionReason.TURN_LINEAGE)
+                continue
+            }
+            val memoryLineageOverlap = exclusionContext.excludesMemoryLineage(candidate.id, candidate.metadata.lineage) ||
+                selected.any { selectedCandidate ->
+                    candidate.metadata.lineage.sharesSourceMemoryWith(
+                        memoryId = candidate.id,
+                        otherMemoryId = selectedCandidate.id,
+                        other = selectedCandidate.metadata.lineage,
+                    )
+            }
+            if (memoryLineageOverlap) {
+                exclusionTracker.exclude(candidate.id, ExclusionReason.MEMORY_LINEAGE)
                 continue
             }
             val fingerprintOverlap = candidate.metadata.contentFingerprint?.let { fingerprint ->
@@ -251,50 +290,64 @@ class InMemoryMemoryPalace(
                     selected.any { it.metadata.contentFingerprint == fingerprint }
             } == true
             if (fingerprintOverlap) {
-                fingerprintExcludedCount += 1
+                exclusionTracker.exclude(candidate.id, ExclusionReason.FINGERPRINT)
                 continue
             }
             result += candidate
             selected += candidate
             seenIds += candidate.id
             if (rankIndex >= backfillBaseline) {
+                backfilled += candidate.id
                 backfillDepth = maxOf(backfillDepth, rankIndex + 1 - backfillBaseline)
             }
             if (result.size == limit) break
         }
-        return SelectionResult(result, lineageExcludedCount, fingerprintExcludedCount, backfillDepth)
-    }
-
-    private fun overlapsLineage(
-        candidate: MemorySnippet,
-        exclusionContext: MemoryExclusionContext,
-    ): Boolean {
-        val lineage = candidate.metadata.lineage
-        return lineage.sourceTurnIds.any { it in exclusionContext.sourceTurnIds } ||
-            lineage.sourceMemoryIds.any { it in exclusionContext.sourceMemoryIds } ||
-            candidate.id in exclusionContext.sourceMemoryIds
-    }
-
-    private fun overlapsLineage(candidate: MemorySnippet, selected: MemorySnippet): Boolean {
-        val candidateLineage = candidate.metadata.lineage
-        val selectedLineage = selected.metadata.lineage
-        return candidateLineage.sourceTurnIds.any { it in selectedLineage.sourceTurnIds } ||
-            candidateLineage.sourceMemoryIds.any { it in selectedLineage.sourceMemoryIds || it == selected.id } ||
-            selectedLineage.sourceMemoryIds.any { it == candidate.id || it in candidateLineage.sourceMemoryIds }
+        return SelectionResult(
+            selected = result,
+            backfilled = backfilled,
+            backfillDepth = backfillDepth,
+        )
     }
 
     private data class SelectionResult(
         val selected: List<MemorySnippet> = emptyList(),
-        val lineageExcludedCount: Int = 0,
-        val fingerprintExcludedCount: Int = 0,
+        val backfilled: Set<String> = emptySet(),
         val backfillDepth: Int = 0,
     ) {
         operator fun plus(other: SelectionResult): SelectionResult = SelectionResult(
             selected = selected + other.selected,
-            lineageExcludedCount = lineageExcludedCount + other.lineageExcludedCount,
-            fingerprintExcludedCount = fingerprintExcludedCount + other.fingerprintExcludedCount,
+            backfilled = backfilled + other.backfilled,
             backfillDepth = maxOf(backfillDepth, other.backfillDepth),
         )
+
+        fun diagnostics(
+            underfilled: Boolean,
+            exclusionTracker: ExclusionTracker,
+        ): RetrievalDiagnostics = RetrievalDiagnostics(
+            excludedByTurnLineage = exclusionTracker.count(ExclusionReason.TURN_LINEAGE),
+            excludedByMemoryLineage = exclusionTracker.count(ExclusionReason.MEMORY_LINEAGE),
+            excludedByFingerprint = exclusionTracker.count(ExclusionReason.FINGERPRINT),
+            backfilled = backfilled.size,
+            underfilled = underfilled,
+        )
+    }
+
+    private class ExclusionTracker(preExcludedTurnLineageIds: Set<String>) {
+        private val reasons = preExcludedTurnLineageIds.associateWithTo(linkedMapOf()) {
+            ExclusionReason.TURN_LINEAGE
+        }
+
+        fun exclude(candidateId: String, reason: ExclusionReason) {
+            reasons.putIfAbsent(candidateId, reason)
+        }
+
+        fun count(reason: ExclusionReason): Int = reasons.values.count { it == reason }
+    }
+
+    private enum class ExclusionReason {
+        TURN_LINEAGE,
+        MEMORY_LINEAGE,
+        FINGERPRINT,
     }
 
     override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> =
