@@ -13,4 +13,8 @@ data class MemoryMetadata(
     val userId: String,
     val lineage: MemoryLineage = MemoryLineage.Empty,
     val contentFingerprint: String? = null,
+    val incarnationId: String = "",
+    val sourceSessionId: String = "",
+    val canonicalSubjectId: String = "",
+    val visibility: MemoryVisibility = MemoryVisibility.ScopeShared(""),
 )

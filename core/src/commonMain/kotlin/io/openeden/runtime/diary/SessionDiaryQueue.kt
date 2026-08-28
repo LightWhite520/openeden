@@ -16,10 +16,22 @@ class SessionDiaryQueue(
 
     fun events(): Flow<DiaryEvent> = channel.receiveAsFlow()
 
-    fun tryEnqueue(event: DiaryEvent): Set<String> =
-        if (channel.trySend(event).isSuccess) {
+    fun tryEnqueue(event: DiaryEvent): Set<String> {
+        val sourceSessionId = event.visibility.let { visibility ->
+            (visibility as? io.openeden.memory.MemoryVisibility.ScopeShared)?.sessionId
+                ?.takeIf { it.isNotBlank() }
+                ?: event.sessionId
+        }
+        val normalized = event.copy(
+            visibility = when (val visibility = event.visibility) {
+                is io.openeden.memory.MemoryVisibility.ScopeShared -> visibility.copy(sessionId = sourceSessionId)
+                else -> visibility
+            },
+        )
+        return if (channel.trySend(normalized).isSuccess) {
             emptySet()
         } else {
             setOf(TraceTag.DiaryQueueOverflow)
         }
+    }
 }

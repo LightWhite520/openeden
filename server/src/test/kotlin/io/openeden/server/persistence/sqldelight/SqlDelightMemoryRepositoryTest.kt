@@ -9,6 +9,7 @@ import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryLineage
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
+import io.openeden.memory.MemoryVisibility
 import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RebuildableInMemoryVectorIndex
@@ -67,6 +68,10 @@ class SqlDelightMemoryRepositoryTest {
                     sourceMemoryIds = listOf("raw-2", "raw-1"),
                 ),
                 contentFingerprint = "v1:sha-256:test",
+                incarnationId = "legacy-incarnation",
+                sourceSessionId = "QQ:42",
+                canonicalSubjectId = "QQ:u1",
+                visibility = MemoryVisibility.ScopeShared("QQ:42"),
             ),
             createdAtMs = 1_787_384_632_000L,
         )
@@ -79,7 +84,7 @@ class SqlDelightMemoryRepositoryTest {
             val restored = assertNotNull(reopened.readById("memory-1"))
             assertEquals(entry, restored.entry)
             assertEquals("local-v1", restored.modelId)
-            assertEquals(listOf(entry.metadata.snapshot8D), reopened.stableVectors("QQ:42", 32))
+            assertEquals(listOf(entry.metadata.snapshot8D), reopened.stableVectors("legacy-incarnation", 32))
         }
         MemoryVectorProjectionStore.open(dbPath).use { projection ->
             assertEquals(MemoryVectorProjectionStore.ProjectionStatus.PENDING, projection.read("memory-1")?.status)
@@ -323,6 +328,53 @@ class SqlDelightMemoryRepositoryTest {
             assertEquals(listOf(second.id, first.id), result.memories.map { it.id })
             assertEquals(1, remoteIndex.searchCount)
             assertEquals(0, remoteIndex.rebuildCount)
+        }
+    }
+
+    @Test
+    fun `private subject candidates are excluded before retrieval ranking`() = runTest {
+        val privateEntry = memoryEntry("QQ:private:1000:raw", "QQ:private", "private")
+            .copy(
+                metadata = MemoryMetadata(
+                    snapshot8D = BioVector.Neutral,
+                    omegaState = 0.0f,
+                    deltaVec = VectorDelta.Zero,
+                    snapshotOrigin = BioVector.Neutral,
+                    userId = "host",
+                    incarnationId = "incarnation-1",
+                    sourceSessionId = "QQ:private",
+                    canonicalSubjectId = "QQ:host",
+                    visibility = MemoryVisibility.PrivateSubject("QQ:host"),
+                ),
+            )
+        val sharedEntry = memoryEntry("QQ:group:2000:raw", "QQ:group", "shared")
+            .copy(
+                metadata = privateEntry.metadata.copy(
+                    userId = "guest",
+                    sourceSessionId = "QQ:group",
+                    canonicalSubjectId = "QQ:guest",
+                    visibility = MemoryVisibility.IncarnationShared,
+                ),
+            )
+
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            repository.write(privateEntry, modelId = "local-v1")
+            repository.write(sharedEntry, modelId = "local-v1")
+
+            val result = repository.retrieve(
+                RetrievalRequest(
+                    sessionId = "QQ:group",
+                    userId = "guest",
+                    canonicalSubjectId = "QQ:guest",
+                    incarnationId = "incarnation-1",
+                    userInput = "query",
+                    currentVector = BioVector.Neutral,
+                    origin = BioVector.Neutral,
+                    mode = RetrievalMode.CONGRUENT,
+                ),
+            )
+
+            assertEquals(listOf(sharedEntry.id), result.memories.map { it.id })
         }
     }
 

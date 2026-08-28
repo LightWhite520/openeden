@@ -11,4 +11,8 @@ data class DiaryTask(
     val leaseExpiresAtMs: Long? = null,
     val leaseToken: String? = null,
     val lastError: String? = null,
+    val incarnationId: String = "",
+    val sourceSessionId: String = "",
+    val canonicalSubjectId: String = "",
+    val visibility: io.openeden.memory.MemoryVisibility = io.openeden.memory.MemoryVisibility.ScopeShared(""),
 )

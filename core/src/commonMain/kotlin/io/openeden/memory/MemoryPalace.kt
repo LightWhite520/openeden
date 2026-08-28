@@ -45,19 +45,20 @@ class InMemoryMemoryPalace(
                         index.search(
                             VectorSearchRequest(
                                 sessionId = request.sessionId,
+                                incarnationId = request.incarnationId,
                                 semanticEmbedding = querySemantic,
                                 emotionalEmbedding = embeddingModel.embed(emotionalTarget),
                                 limit = overfetchLimit,
                             ),
                         ).forEach { hit -> hit.entry?.let(::add) }
                     }
-                    add(targetCandidates.distinctBy { it.id })
+                    add(targetCandidates.filter { it.isVisibleTo(request) }.distinctBy { it.id })
                 }
             }
             val congruentCandidates = targetCandidatePools.firstOrNull().orEmpty()
             val positiveCandidates = targetCandidatePools.getOrNull(1).orEmpty()
             val baselineEntropy = entries.asSequence()
-                .filter { it.sessionId == request.sessionId && "daily" in it.tags && "stable" in it.tags }
+                .filter { it.isVisibleTo(request) && "daily" in it.tags && "stable" in it.tags }
                 .toList()
                 .takeLast(utilityFilterConfig.baselineWindow)
                 .map { MemoryUtilityFilter.meanEmbeddingEntropy(it) }
@@ -78,7 +79,7 @@ class InMemoryMemoryPalace(
             )
             val recentRanked = entries.asReversed()
                 .asSequence()
-                .filter { it.sessionId == request.sessionId }
+                .filter { it.isVisibleTo(request) }
                 .take(overfetchLimit)
                 .map(::snippet)
                 .toList()
@@ -293,7 +294,8 @@ class InMemoryMemoryPalace(
         inferenceExecutor.run {
             entries.asReversed()
                 .asSequence()
-                .filter { it.sessionId == sessionId && "daily" in it.tags && "stable" in it.tags }
+                .filter { it.metadata.incarnationId.isBlank() || it.metadata.incarnationId == sessionId }
+                .filter { "daily" in it.tags && "stable" in it.tags }
                 .take(limit)
                 .map { it.metadata.snapshot8D }
             .toList()

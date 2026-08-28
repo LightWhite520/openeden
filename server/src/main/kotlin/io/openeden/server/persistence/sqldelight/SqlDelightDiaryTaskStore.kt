@@ -8,6 +8,7 @@ import io.openeden.runtime.diary.DiaryTaskStatus
 import io.openeden.runtime.diary.DiaryTaskStore
 import io.openeden.runtime.diary.DiaryCheckpoint
 import io.openeden.runtime.diary.DiaryCheckpointStore
+import io.openeden.memory.MemoryVisibility
 import io.openeden.trace.TraceTag
 import kotlin.math.min
 import java.nio.file.Files
@@ -111,12 +112,17 @@ class SqlDelightDiaryTaskStore(
     fun close() = driver?.close()
 
     private fun insert(task: DiaryTask, replace: Boolean) {
+        val persisted = normalize(task)
         if (replace) queries.insertDiaryTaskIfAbsent(
-            task.id, task.sessionId, task.sourceMemoryId, task.reason, task.status.name,
-            task.attempts.toLong(), createdAtMsFromId(task.id), task.availableAtMs, task.leaseExpiresAtMs, task.leaseToken, task.lastError,
+            persisted.id, persisted.sessionId, persisted.sourceMemoryId, persisted.reason, persisted.status.name,
+            persisted.attempts.toLong(), createdAtMsFromId(persisted.id), persisted.availableAtMs, persisted.leaseExpiresAtMs, persisted.leaseToken, persisted.lastError,
+            persisted.incarnationId, persisted.sourceSessionId, persisted.canonicalSubjectId,
+            persisted.visibility.persistenceKind(), persisted.visibility.persistenceSubjectId(), persisted.visibility.persistenceSessionId(),
         ) else queries.insertDiaryTask(
-            task.id, task.sessionId, task.sourceMemoryId, task.reason, task.status.name,
-            task.attempts.toLong(), createdAtMsFromId(task.id), task.availableAtMs, task.leaseExpiresAtMs, task.leaseToken, task.lastError,
+            persisted.id, persisted.sessionId, persisted.sourceMemoryId, persisted.reason, persisted.status.name,
+            persisted.attempts.toLong(), createdAtMsFromId(persisted.id), persisted.availableAtMs, persisted.leaseExpiresAtMs, persisted.leaseToken, persisted.lastError,
+            persisted.incarnationId, persisted.sourceSessionId, persisted.canonicalSubjectId,
+            persisted.visibility.persistenceKind(), persisted.visibility.persistenceSubjectId(), persisted.visibility.persistenceSessionId(),
         )
     }
 
@@ -145,6 +151,12 @@ class SqlDelightDiaryTaskStore(
         leaseExpiresAtMs: Long?,
         leaseToken: String?,
         lastError: String?,
+        incarnationId: String,
+        sourceSessionId: String,
+        canonicalSubjectId: String,
+        visibilityKind: String,
+        visibilitySubjectId: String?,
+        visibilitySessionId: String?,
     ): DiaryTask = DiaryTask(
         id = id,
         sessionId = sessionId,
@@ -156,7 +168,26 @@ class SqlDelightDiaryTaskStore(
         leaseExpiresAtMs = leaseExpiresAtMs,
         leaseToken = leaseToken,
         lastError = lastError,
+        incarnationId = incarnationId,
+        sourceSessionId = sourceSessionId,
+        canonicalSubjectId = canonicalSubjectId,
+        visibility = memoryVisibilityFromPersistence(visibilityKind, visibilitySubjectId, visibilitySessionId),
     )
+
+    private fun normalize(task: DiaryTask): DiaryTask {
+        val sourceSessionId = task.sourceSessionId.ifBlank { task.sessionId }
+        return task.copy(
+            incarnationId = task.incarnationId.ifBlank { activeIncarnationId() },
+            sourceSessionId = sourceSessionId,
+            canonicalSubjectId = task.canonicalSubjectId.ifBlank { DIARY_SUBJECT_ID },
+            visibility = task.visibility.normalize(sourceSessionId, task.canonicalSubjectId.ifBlank { DIARY_SUBJECT_ID }),
+        )
+    }
+
+    private fun activeIncarnationId(): String = database.transcriptQueries
+        .selectActiveIncarnation { incarnationId, _ -> incarnationId }
+        .executeAsOneOrNull()
+        ?: LEGACY_INCARNATION_ID
 
     private suspend fun <T> retry(block: () -> T): T {
         repeat(6) { attempt ->
@@ -169,10 +200,51 @@ class SqlDelightDiaryTaskStore(
     }
 
     companion object {
+        private const val LEGACY_INCARNATION_ID = "legacy-incarnation"
+        private const val DIARY_SUBJECT_ID = "INTERNAL:diary"
         fun open(dbPath: Path): SqlDelightDiaryTaskStore {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
             return SqlDelightDiaryTaskStore(Database(driver), driver)
         }
     }
+}
+
+private fun MemoryVisibility.normalize(
+    sourceSessionId: String,
+    canonicalSubjectId: String,
+): MemoryVisibility = when (this) {
+    is MemoryVisibility.PrivateSubject -> MemoryVisibility.PrivateSubject(subjectId.ifBlank { canonicalSubjectId })
+    is MemoryVisibility.ScopeShared -> MemoryVisibility.ScopeShared(sessionId.ifBlank { sourceSessionId })
+    MemoryVisibility.IncarnationShared -> MemoryVisibility.IncarnationShared
+    MemoryVisibility.OperatorOnly -> MemoryVisibility.OperatorOnly
+}
+
+private fun MemoryVisibility.persistenceKind(): String = when (this) {
+    is MemoryVisibility.PrivateSubject -> "PRIVATE_SUBJECT"
+    is MemoryVisibility.ScopeShared -> "SCOPE_SHARED"
+    MemoryVisibility.IncarnationShared -> "INCARNATION_SHARED"
+    MemoryVisibility.OperatorOnly -> "OPERATOR_ONLY"
+}
+
+private fun MemoryVisibility.persistenceSubjectId(): String? = when (this) {
+    is MemoryVisibility.PrivateSubject -> subjectId
+    else -> null
+}
+
+private fun MemoryVisibility.persistenceSessionId(): String? = when (this) {
+    is MemoryVisibility.ScopeShared -> sessionId
+    else -> null
+}
+
+private fun memoryVisibilityFromPersistence(
+    kind: String,
+    subjectId: String?,
+    sessionId: String?,
+): MemoryVisibility = when (kind) {
+    "PRIVATE_SUBJECT" -> MemoryVisibility.PrivateSubject(subjectId.orEmpty())
+    "SCOPE_SHARED" -> MemoryVisibility.ScopeShared(sessionId.orEmpty())
+    "INCARNATION_SHARED" -> MemoryVisibility.IncarnationShared
+    "OPERATOR_ONLY" -> MemoryVisibility.OperatorOnly
+    else -> error("Unsupported persisted memory visibility: $kind")
 }

@@ -187,7 +187,7 @@ class DevelopmentMessagePipeline(
             personaStartSubState = personaConfig.startSubState,
         )
         trace(traceContext, "state_load")
-        val centroid = inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
+        val centroid = inferenceExecutor.run { centroidProvider.centroidFor(incarnationId) }
         trace(
             traceContext,
             "centroid",
@@ -305,6 +305,7 @@ class DevelopmentMessagePipeline(
                     currentVector = preTick.preTicked,
                     origin = current.origin,
                     mode = inference.retrievalMode,
+                    incarnationId = incarnationId,
                     exclusionContext = MemoryExclusionContext(
                         sourceTurnIds = injectedRecentTurns.mapTo(hashSetOf()) { it.turnId },
                     ),
@@ -548,7 +549,17 @@ class DevelopmentMessagePipeline(
                 val triggered = diaryDelta.toList().any { kotlin.math.abs(it) > 0.0f }
                 val tags = if (triggered) {
                     diaryTriggerCoordinator?.onVectorDelta(sessionId, diaryMemoryId, diaryDelta, clock.nowMs())
-                        ?: diaryQueue.tryEnqueue(DiaryEvent(sessionId, "development", "vector_delta"))
+                        ?: diaryQueue.tryEnqueue(
+                            DiaryEvent(
+                                sessionId = sessionId,
+                                traceId = "development",
+                                reason = "vector_delta",
+                                incarnationId = incarnationId,
+                                canonicalSubjectId = io.openeden.identity.CanonicalSubjectResolver()
+                                    .resolve(request.platform, request.userId).value,
+                                visibility = io.openeden.memory.MemoryVisibility.ScopeShared(sessionId),
+                            ),
+                        )
                 } else {
                     emptySet()
                 }
@@ -563,7 +574,7 @@ class DevelopmentMessagePipeline(
         val shouldUpdatePostCentroid =
             !alreadyCommitted && validation.isValid && validation.delta != null && validation.output != null
         val updatedOrigin = if (!shouldUpdatePostCentroid) null else memoryStore?.let {
-            inferenceExecutor.run { centroidProvider.centroidFor(sessionId) }
+            inferenceExecutor.run { centroidProvider.centroidFor(incarnationId) }
         }
         val centroidTags: Set<String> = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
             vectorWriteService.updateIncarnation(incarnationId) { it.copy(origin = updatedOrigin) }

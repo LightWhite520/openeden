@@ -90,7 +90,9 @@ class QdrantVectorIndex(
         request.emotionalEmbedding?.let { validateVector(it, EMOTIONAL, dimensions?.emotional) }
         val filter = QdrantFilter(
             must = buildList {
-                add(QdrantFieldCondition("session_id", request.sessionId))
+                request.incarnationId?.takeIf { it.isNotBlank() }
+                    ?.let { add(QdrantFieldCondition("incarnation_id", it)) }
+                    ?: add(QdrantFieldCondition("session_id", request.sessionId))
                 request.room?.let { add(QdrantFieldCondition("room", it.name)) }
                 request.kind?.let { add(QdrantFieldCondition("kind", it.name)) }
                 add(QdrantFieldCondition("model_id", modelId))
@@ -347,7 +349,7 @@ class QdrantVectorIndex(
         const val MEMORY_ID = "memory_id"
         const val COSINE = "Cosine"
         const val MAX_SEARCH_LIMIT = 128
-        val PAYLOAD_INDEXES = listOf("session_id", "room", "kind", "model_id")
+        val PAYLOAD_INDEXES = listOf("session_id", "incarnation_id", "room", "kind", "model_id")
     }
 }
 
@@ -357,6 +359,7 @@ private fun MemoryEntry.toPoint(modelId: String): QdrantPoint = QdrantPoint(
     payload = mapOf(
         "memory_id" to id,
         "session_id" to sessionId,
+        "incarnation_id" to metadata.incarnationId,
         "room" to room.name,
         "kind" to kind.name,
         "model_id" to modelId,

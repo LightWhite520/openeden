@@ -1,6 +1,7 @@
 package io.openeden.runtime.diary
 
 interface DiaryTaskStore {
+    /** Identity and visibility are carried by [DiaryTask] and survive durable retries. */
     suspend fun enqueue(task: DiaryTask): Set<String>
 
     /** Enqueues by deterministic task ID; existing IDs must be treated as a no-op. */

@@ -48,7 +48,7 @@ class QdrantIntegrationTest {
             assertEquals(2, schema.vectors.getValue("semantic").size)
             assertEquals(8, schema.vectors.getValue("emotional").size)
             assertEquals(
-                setOf("session_id", "room", "kind", "model_id"),
+                setOf("session_id", "incarnation_id", "room", "kind", "model_id"),
                 client.inspectPayloadIndexes(collection),
             )
 

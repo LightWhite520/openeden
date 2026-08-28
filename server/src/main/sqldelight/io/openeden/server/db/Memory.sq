@@ -36,8 +36,17 @@ CREATE TABLE memory_entries (
     source_turn_ids_json TEXT NOT NULL DEFAULT '[]',
     source_memory_ids_json TEXT NOT NULL DEFAULT '[]',
     content_fingerprint TEXT,
-    lineage_version INTEGER NOT NULL DEFAULT 1
+    lineage_version INTEGER NOT NULL DEFAULT 1,
+    incarnation_id TEXT NOT NULL,
+    source_session_id TEXT NOT NULL,
+    canonical_subject_id TEXT NOT NULL,
+    visibility_kind TEXT NOT NULL,
+    visibility_subject_id TEXT,
+    visibility_session_id TEXT
 );
+
+CREATE INDEX memory_entries_incarnation_created
+ON memory_entries(incarnation_id, created_at_ms DESC, id DESC);
 
 CREATE TABLE memory_embeddings (
     memory_id TEXT NOT NULL PRIMARY KEY REFERENCES memory_entries(id) ON DELETE CASCADE,
@@ -82,10 +91,18 @@ LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
 WHERE memory_entries.session_id = ?
 ORDER BY memory_entries.created_at_ms DESC;
 
+selectByIncarnation:
+SELECT memory_entries.*, memory_embeddings.model_id, memory_embeddings.semantic_json,
+       memory_embeddings.emotional_json, memory_embeddings.status
+FROM memory_entries
+LEFT JOIN memory_embeddings ON memory_embeddings.memory_id = memory_entries.id
+WHERE memory_entries.incarnation_id = ?
+ORDER BY memory_entries.created_at_ms DESC;
+
 selectStable:
 SELECT snapshot_l, snapshot_p, snapshot_e, snapshot_s, snapshot_tau, snapshot_v, snapshot_m, snapshot_f
 FROM memory_entries
-WHERE session_id = ? AND tags_json LIKE '%"daily"%' AND tags_json LIKE '%"stable"%'
+WHERE incarnation_id = ? AND tags_json LIKE '%"daily"%' AND tags_json LIKE '%"stable"%'
 ORDER BY created_at_ms DESC
 LIMIT ?;
 
@@ -152,13 +169,16 @@ INSERT OR REPLACE INTO memory_entries(
     snapshot_l, snapshot_p, snapshot_e, snapshot_s, snapshot_tau, snapshot_v, snapshot_m, snapshot_f,
     omega_state, delta_l, delta_p, delta_e, delta_s, delta_tau, delta_v, delta_m, delta_f,
     origin_l, origin_p, origin_e, origin_s, origin_tau, origin_v, origin_m, origin_f,
-    source_turn_ids_json, source_memory_ids_json, content_fingerprint, lineage_version
+    source_turn_ids_json, source_memory_ids_json, content_fingerprint, lineage_version,
+    incarnation_id, source_session_id, canonical_subject_id, visibility_kind,
+    visibility_subject_id, visibility_session_id
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?
+    ?, ?, ?, ?,
+    ?, ?, ?, ?, ?, ?
 );
 
 upsertEmbedding:
@@ -244,23 +264,41 @@ CREATE TABLE diary_tasks (
     available_at_ms INTEGER NOT NULL,
     lease_expires_at_ms INTEGER,
     lease_token TEXT,
-    last_error TEXT
+    last_error TEXT,
+    incarnation_id TEXT NOT NULL,
+    source_session_id TEXT NOT NULL,
+    canonical_subject_id TEXT NOT NULL,
+    visibility_kind TEXT NOT NULL,
+    visibility_subject_id TEXT,
+    visibility_session_id TEXT
 );
 
+CREATE INDEX diary_tasks_incarnation_status
+ON diary_tasks(incarnation_id, status, available_at_ms, id);
+
 insertDiaryTask:
-INSERT INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, lease_token, last_error)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO diary_tasks(
+    id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms,
+    lease_expires_at_ms, lease_token, last_error, incarnation_id, source_session_id,
+    canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 insertDiaryTaskIfAbsent:
-INSERT OR IGNORE INTO diary_tasks(id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms, lease_expires_at_ms, lease_token, last_error)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR IGNORE INTO diary_tasks(
+    id, session_id, source_memory_id, reason, status, attempts, created_at_ms, available_at_ms,
+    lease_expires_at_ms, lease_token, last_error, incarnation_id, source_session_id,
+    canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 countActiveDiaryTasks:
 SELECT COUNT(*) FROM diary_tasks
 WHERE session_id = ? AND status IN ('PENDING', 'RUNNING');
 
 selectPendingDiaryTask:
-SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, lease_token, last_error
+SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, lease_token, last_error,
+       incarnation_id, source_session_id, canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
 FROM diary_tasks
 WHERE session_id = ? AND status = 'PENDING' AND available_at_ms <= ?
 ORDER BY created_at_ms ASC LIMIT 1;
@@ -285,7 +323,8 @@ UPDATE diary_tasks SET status = 'PENDING', lease_expires_at_ms = NULL, lease_tok
 WHERE status = 'RUNNING' AND lease_expires_at_ms IS NOT NULL AND lease_expires_at_ms <= ?;
 
 selectDiaryTask:
-SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, lease_token, last_error
+SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_ms, lease_expires_at_ms, lease_token, last_error,
+       incarnation_id, source_session_id, canonical_subject_id, visibility_kind, visibility_subject_id, visibility_session_id
 FROM diary_tasks WHERE id = ?;
 
 CREATE TABLE diary_checkpoints (

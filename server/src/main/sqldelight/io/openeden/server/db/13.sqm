@@ -1,0 +1,56 @@
+ALTER TABLE memory_entries ADD COLUMN incarnation_id TEXT NOT NULL DEFAULT 'legacy-incarnation';
+ALTER TABLE memory_entries ADD COLUMN source_session_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE memory_entries ADD COLUMN canonical_subject_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE memory_entries ADD COLUMN visibility_kind TEXT NOT NULL DEFAULT 'SCOPE_SHARED';
+ALTER TABLE memory_entries ADD COLUMN visibility_subject_id TEXT;
+ALTER TABLE memory_entries ADD COLUMN visibility_session_id TEXT;
+
+UPDATE memory_entries
+SET incarnation_id = COALESCE(
+        (SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1),
+        'legacy-incarnation'
+    ),
+    source_session_id = session_id,
+    canonical_subject_id = platform || ':' || CASE WHEN TRIM(user_id) = '' THEN 'anonymous' ELSE user_id END,
+    visibility_kind = 'SCOPE_SHARED',
+    visibility_subject_id = NULL,
+    visibility_session_id = session_id;
+
+CREATE INDEX memory_entries_incarnation_created
+ON memory_entries(incarnation_id, created_at_ms DESC, id DESC);
+
+-- Minimal migration fixtures from before durable diary support may omit this v1 table.
+CREATE TABLE IF NOT EXISTS diary_tasks (
+    id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    source_memory_id TEXT,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    available_at_ms INTEGER NOT NULL,
+    lease_expires_at_ms INTEGER,
+    lease_token TEXT,
+    last_error TEXT
+);
+
+ALTER TABLE diary_tasks ADD COLUMN incarnation_id TEXT NOT NULL DEFAULT 'legacy-incarnation';
+ALTER TABLE diary_tasks ADD COLUMN source_session_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE diary_tasks ADD COLUMN canonical_subject_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE diary_tasks ADD COLUMN visibility_kind TEXT NOT NULL DEFAULT 'SCOPE_SHARED';
+ALTER TABLE diary_tasks ADD COLUMN visibility_subject_id TEXT;
+ALTER TABLE diary_tasks ADD COLUMN visibility_session_id TEXT;
+
+UPDATE diary_tasks
+SET incarnation_id = COALESCE(
+        (SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1),
+        'legacy-incarnation'
+    ),
+    source_session_id = session_id,
+    canonical_subject_id = '',
+    visibility_kind = 'SCOPE_SHARED',
+    visibility_subject_id = NULL,
+    visibility_session_id = session_id;
+
+CREATE INDEX diary_tasks_incarnation_status
+ON diary_tasks(incarnation_id, status, available_at_ms, id);

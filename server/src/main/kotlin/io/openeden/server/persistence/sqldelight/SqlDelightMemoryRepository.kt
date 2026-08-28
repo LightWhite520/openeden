@@ -6,6 +6,7 @@ import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
 import io.openeden.bio.VectorMapping
+import io.openeden.identity.CanonicalSubjectResolver
 import io.openeden.memory.DeterministicMemoryEmbeddingModel
 import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.memory.MemoryEntry
@@ -16,6 +17,7 @@ import io.openeden.memory.MemoryRetriever
 import io.openeden.memory.MemorySnippet
 import io.openeden.memory.MemoryRoom
 import io.openeden.memory.MemoryStore
+import io.openeden.memory.MemoryVisibility
 import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
@@ -23,6 +25,7 @@ import io.openeden.memory.RebuildableInMemoryVectorIndex
 import io.openeden.memory.VectorIndex
 import io.openeden.memory.VectorSearchHit
 import io.openeden.memory.VectorSearchRequest
+import io.openeden.memory.isVisibleTo
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.inference.InferenceExecutor
 import io.openeden.runtime.diary.DiaryRawMemoryCursor
@@ -63,24 +66,25 @@ class SqlDelightMemoryRepository(
     private val queries get() = database.memoryQueries
     private val localFallbackIndex = fallbackIndex ?: RebuildableInMemoryVectorIndex(inferenceExecutor)
     private val retrievalIndex = index ?: localFallbackIndex
-    private val loadedSessions = mutableSetOf<String>()
+    private val loadedIncarnations = mutableSetOf<String>()
     private val loadMutex = Mutex()
 
     suspend fun write(entry: MemoryEntry, modelId: String): Set<String> {
         return withContext(ioDispatcher) {
             require(modelId.isNotBlank()) { "modelId must not be blank" }
-            val persistedLineage = PersistedMemoryLineage.encode(entry.metadata.lineage, json)
+            val normalizedEntry = normalize(entry)
+            val persistedLineage = PersistedMemoryLineage.encode(normalizedEntry.metadata.lineage, json)
             database.transaction {
-                writeEntry(entry, persistedLineage)
-                queries.upsertEmbedding(entry.id, modelId, json.encodeToString(entry.semanticEmbedding), json.encodeToString(entry.emotionalEmbedding), "READY")
-                val nowMs = entry.createdAtMs.takeIf { it > 0L } ?: createdAtMsFromId(entry.id)
-                queries.upsertVectorSync(entry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
+                writeEntry(normalizedEntry, persistedLineage)
+                queries.upsertEmbedding(normalizedEntry.id, modelId, json.encodeToString(normalizedEntry.semanticEmbedding), json.encodeToString(normalizedEntry.emotionalEmbedding), "READY")
+                val nowMs = normalizedEntry.createdAtMs.takeIf { it > 0L } ?: createdAtMsFromId(normalizedEntry.id)
+                queries.upsertVectorSync(normalizedEntry.id, modelId, "PENDING", 0, nowMs, null, nowMs)
                 transactionFailureHook?.invoke()
             }
             if (modelId == activeModelId) {
-                try { localFallbackIndex.insert(entry) } catch (_: Throwable) { localFallbackIndex.markDirty() }
+                try { localFallbackIndex.insert(normalizedEntry) } catch (_: Throwable) { localFallbackIndex.markDirty() }
             } else {
-                try { localFallbackIndex.remove(entry.id) } catch (_: Throwable) { localFallbackIndex.markDirty() }
+                try { localFallbackIndex.remove(normalizedEntry.id) } catch (_: Throwable) { localFallbackIndex.markDirty() }
             }
             try {
                 projectionWake()
@@ -147,7 +151,7 @@ class SqlDelightMemoryRepository(
                 }
             }
             refreshedCount += refreshed.size
-            loadMutex.withLock { loadedSessions.clear() }
+            loadMutex.withLock { loadedIncarnations.clear() }
             localFallbackIndex.markDirty()
             if (refreshed.size >= batchSize) yield()
         }
@@ -203,7 +207,10 @@ class SqlDelightMemoryRepository(
     }
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult = inferenceExecutor.run {
-        ensureIndexed(request.sessionId)
+        val resolvedRequest = request.copy(
+            incarnationId = request.incarnationId.ifBlank { activeIncarnationId() },
+        )
+        ensureIndexed(resolvedRequest.incarnationId)
         val overfetchLimit = retrievalCandidateLimit()
         val positiveSkew = request.currentVector.copy(
             p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
@@ -222,6 +229,7 @@ class SqlDelightMemoryRepository(
                 val hits = retrievalIndex.search(
                     VectorSearchRequest(
                         sessionId = request.sessionId,
+                        incarnationId = resolvedRequest.incarnationId,
                         semanticEmbedding = semanticEmbedding,
                         emotionalEmbedding = targetEmbedding,
                         limit = overfetchLimit,
@@ -230,10 +238,10 @@ class SqlDelightMemoryRepository(
                 // Preserve that per-source capacity before hydrating; truncating at 3*K loses
                 // emotional-only candidates that occur after the semantic side.
                 ).take(remoteUnionLimit(overfetchLimit))
-                val hydrated = hydrateRemoteCandidates(request.sessionId, hits)
+                val hydrated = hydrateRemoteCandidates(resolvedRequest, hits)
                 val rangeExcludedIds = hits.asSequence()
                     .map { it.memoryId }
-                    .filter { memoryId -> hydrated[memoryId]?.hasPersistedRangeOverlap(request) == true }
+                    .filter { memoryId -> hydrated[memoryId]?.hasPersistedRangeOverlap(resolvedRequest) == true }
                     .toSet()
                 add(
                     TargetMemoryPool(
@@ -261,7 +269,7 @@ class SqlDelightMemoryRepository(
             index = TargetPoolVectorIndex(targetPools),
         )
         candidates.forEach { palace.write(it) }
-        palace.retrieve(request).let { result ->
+        palace.retrieve(resolvedRequest).let { result ->
             if (persistedRangeExcludedCount == 0) result else result.copy(
                 lineageExcludedCount = result.lineageExcludedCount + persistedRangeExcludedCount,
             )
@@ -269,7 +277,7 @@ class SqlDelightMemoryRepository(
     }
 
     private suspend fun hydrateRemoteCandidates(
-        sessionId: String,
+        request: RetrievalRequest,
         hits: List<VectorSearchHit>,
     ): Map<String, StoredMemory> {
         val ids = hits.asSequence()
@@ -280,7 +288,8 @@ class SqlDelightMemoryRepository(
         return withContext(ioDispatcher) {
             queries.selectByIds(ids, ::mapRow).executeAsList()
                 .asSequence()
-                .filter { it.entry.sessionId == sessionId && it.modelId == activeModelId }
+                .filter { it.entry.metadata.incarnationId == request.incarnationId && it.modelId == activeModelId }
+                .filter { it.entry.isVisibleTo(request) }
                 .associateBy { it.entry.id }
         }
     }
@@ -291,11 +300,11 @@ class SqlDelightMemoryRepository(
         (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
     }
 
-    private suspend fun ensureIndexed(sessionId: String) {
+    private suspend fun ensureIndexed(incarnationId: String) {
         loadMutex.withLock {
-            if (sessionId in loadedSessions) return
+            if (incarnationId in loadedIncarnations) return
             val entries = withContext(ioDispatcher) {
-                queries.selectBySession(sessionId, ::mapRow).executeAsList()
+                queries.selectByIncarnation(incarnationId, ::mapRow).executeAsList()
                     .filter { it.modelId == activeModelId }
                     .map { it.entry }
             }
@@ -306,7 +315,7 @@ class SqlDelightMemoryRepository(
                 localFallbackIndex.markDirty()
                 indexed = false
             }
-            if (indexed) loadedSessions += sessionId
+            if (indexed) loadedIncarnations += incarnationId
         }
     }
 
@@ -385,6 +394,12 @@ class SqlDelightMemoryRepository(
             source_memory_ids_json = persistedLineage.sourceMemoryIdsJson,
             content_fingerprint = entry.metadata.contentFingerprint,
             lineage_version = persistedLineage.lineageVersion.toLong(),
+            incarnation_id = entry.metadata.incarnationId,
+            source_session_id = entry.metadata.sourceSessionId,
+            canonical_subject_id = entry.metadata.canonicalSubjectId,
+            visibility_kind = entry.metadata.visibility.persistenceKind(),
+            visibility_subject_id = entry.metadata.visibility.persistenceSubjectId(),
+            visibility_session_id = entry.metadata.visibility.persistenceSessionId(),
         )
     }
 
@@ -399,6 +414,8 @@ class SqlDelightMemoryRepository(
         originL: Double, originP: Double, originE: Double, originS: Double,
         originTau: Double, originV: Double, originM: Double, originF: Double,
         sourceTurnIdsJson: String, sourceMemoryIdsJson: String, contentFingerprint: String?, lineageVersion: Long,
+        incarnationId: String, sourceSessionId: String, canonicalSubjectId: String,
+        visibilityKind: String, visibilitySubjectId: String?, visibilitySessionId: String?,
         modelId: String?, semanticJson: String?, emotionalJson: String?, status: String?,
     ): StoredMemory {
         val snapshot = BioVector(snapshotL.toFloat(), snapshotP.toFloat(), snapshotE.toFloat(), snapshotS.toFloat(), snapshotTau.toFloat(), snapshotV.toFloat(), snapshotM.toFloat(), snapshotF.toFloat())
@@ -420,6 +437,14 @@ class SqlDelightMemoryRepository(
                     json = json,
                 ),
                 contentFingerprint = contentFingerprint,
+                incarnationId = incarnationId,
+                sourceSessionId = sourceSessionId,
+                canonicalSubjectId = canonicalSubjectId,
+                visibility = memoryVisibilityFromPersistence(
+                    kind = visibilityKind,
+                    subjectId = visibilitySubjectId,
+                    sessionId = visibilitySessionId,
+                ),
             ),
             createdAtMs = createdAtMs,
         )
@@ -447,6 +472,28 @@ class SqlDelightMemoryRepository(
     private fun mapVector(
         l: Double, p: Double, e: Double, s: Double, tau: Double, v: Double, m: Double, f: Double,
     ): BioVector = BioVector(l.toFloat(), p.toFloat(), e.toFloat(), s.toFloat(), tau.toFloat(), v.toFloat(), m.toFloat(), f.toFloat())
+
+    private fun normalize(entry: MemoryEntry): MemoryEntry {
+        val platform = entry.sessionId.substringBefore(':', entry.sessionId)
+        val subjectId = entry.metadata.canonicalSubjectId.ifBlank {
+            CanonicalSubjectResolver().resolve(platform, entry.metadata.userId).value
+        }
+        val sourceSessionId = entry.metadata.sourceSessionId.ifBlank { entry.sessionId }
+        val visibility = entry.metadata.visibility.normalize(sourceSessionId, subjectId)
+        return entry.copy(
+            metadata = entry.metadata.copy(
+                incarnationId = entry.metadata.incarnationId.ifBlank { activeIncarnationId() },
+                sourceSessionId = sourceSessionId,
+                canonicalSubjectId = subjectId,
+                visibility = visibility,
+            ),
+        )
+    }
+
+    private fun activeIncarnationId(): String = database.transcriptQueries
+        .selectActiveIncarnation { incarnationId, _ -> incarnationId }
+        .executeAsOneOrNull()
+        ?: LEGACY_INCARNATION_ID
 
     private fun mapRefreshCandidate(
         memoryId: String,
@@ -476,6 +523,7 @@ class SqlDelightMemoryRepository(
 
     companion object {
         private const val DEFAULT_MAX_RESULTS = 10
+        private const val LEGACY_INCARNATION_ID = "legacy-incarnation"
 
         fun open(
             dbPath: Path,
@@ -509,4 +557,43 @@ class SqlDelightMemoryRepository(
             closeConnection(getConnection())
         }
     }
+}
+
+private fun MemoryVisibility.normalize(
+    sourceSessionId: String,
+    canonicalSubjectId: String,
+): MemoryVisibility = when (this) {
+    is MemoryVisibility.PrivateSubject -> MemoryVisibility.PrivateSubject(subjectId.ifBlank { canonicalSubjectId })
+    is MemoryVisibility.ScopeShared -> MemoryVisibility.ScopeShared(sessionId.ifBlank { sourceSessionId })
+    MemoryVisibility.IncarnationShared -> MemoryVisibility.IncarnationShared
+    MemoryVisibility.OperatorOnly -> MemoryVisibility.OperatorOnly
+}
+
+private fun MemoryVisibility.persistenceKind(): String = when (this) {
+    is MemoryVisibility.PrivateSubject -> "PRIVATE_SUBJECT"
+    is MemoryVisibility.ScopeShared -> "SCOPE_SHARED"
+    MemoryVisibility.IncarnationShared -> "INCARNATION_SHARED"
+    MemoryVisibility.OperatorOnly -> "OPERATOR_ONLY"
+}
+
+private fun MemoryVisibility.persistenceSubjectId(): String? = when (this) {
+    is MemoryVisibility.PrivateSubject -> subjectId
+    else -> null
+}
+
+private fun MemoryVisibility.persistenceSessionId(): String? = when (this) {
+    is MemoryVisibility.ScopeShared -> sessionId
+    else -> null
+}
+
+private fun memoryVisibilityFromPersistence(
+    kind: String,
+    subjectId: String?,
+    sessionId: String?,
+): MemoryVisibility = when (kind) {
+    "PRIVATE_SUBJECT" -> MemoryVisibility.PrivateSubject(subjectId.orEmpty())
+    "SCOPE_SHARED" -> MemoryVisibility.ScopeShared(sessionId.orEmpty())
+    "INCARNATION_SHARED" -> MemoryVisibility.IncarnationShared
+    "OPERATOR_ONLY" -> MemoryVisibility.OperatorOnly
+    else -> error("Unsupported persisted memory visibility: $kind")
 }
