@@ -35,6 +35,40 @@ class RelationshipEventEvaluatorTest {
         assertEquals(listOf(event), RelationshipEvaluation(listOf(event), confidence = 0.75f).committableEvents)
     }
 
+    @Test
+    fun `repair and repeated consistency use exact positive corpus`() = runTest {
+        val evaluator = DeterministicRelationshipEventEvaluator()
+
+        assertEquals(
+            RelationshipEventType.REPAIR,
+            evaluator.evaluate(turn("对不起，我刚才弄错了")).events.single().type,
+        )
+        assertEquals(
+            RelationshipEventType.REPAIR,
+            evaluator.evaluate(turn("抱歉，我误会了")).events.single().type,
+        )
+        assertEquals(
+            RelationshipEventType.REPEATED_CONSISTENCY,
+            evaluator.evaluate(turn("你一直都记得我们的约定")).events.single().type,
+        )
+        assertEquals(
+            RelationshipEventType.REPEATED_CONSISTENCY,
+            evaluator.evaluate(turn("你每次都做到答应的事")).events.single().type,
+        )
+    }
+
+    @Test
+    fun `repair and repeated consistency proposals and negations are excluded`() = runTest {
+        val evaluator = DeterministicRelationshipEventEvaluator()
+
+        listOf("要不要说对不起", "你记得吗").forEach { text ->
+            assertTrue(evaluator.evaluate(turn(text)).events.isEmpty(), text)
+        }
+        listOf("我不是在道歉", "我不是每次都这样").forEach { text ->
+            assertTrue(evaluator.evaluate(turn(text)).events.isEmpty(), text)
+        }
+    }
+
     private fun turn(userText: String): RelationshipTurn = RelationshipTurn(
         sourceTurnId = "turn-1",
         incarnationId = "incarnation-1",

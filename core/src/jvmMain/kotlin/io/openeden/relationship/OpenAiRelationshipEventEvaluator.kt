@@ -2,11 +2,12 @@ package io.openeden.relationship
 
 import io.ktor.client.HttpClient
 import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.contentType
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -30,7 +31,7 @@ class OpenAiRelationshipEventEvaluator(
     override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
         val response = httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             bearerAuth(apiKey)
-            contentType(ContentType.Application.Json)
+            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
             setBody(requestBody(turn))
         }
         check(response.status.value in 200..299) {

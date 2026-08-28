@@ -52,6 +52,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 
 class MessagePipelineTest {
     @Test
@@ -156,6 +160,95 @@ class MessagePipelineTest {
         assertEquals(
             listOf(RelationshipEventType.BOUNDARY_REQUEST),
             relationshipStore.events("incarnation-a", "QQ:u1").map(RelationshipEvent::type),
+        )
+    }
+
+    @Test
+    fun `repair and repeated consistency preserve distinct relationship state effects`() = runTest {
+        val transcripts = InMemoryTranscriptStore("development")
+        val relationshipStore = InMemoryRelationshipStateStore()
+        relationshipStore.write(
+            io.openeden.relationship.RelationshipState.neutral("development", "QQ:u1").copy(
+                unresolvedTension = 0.2f,
+            ),
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            transcriptStore = transcripts,
+            relationshipStore = relationshipStore,
+        )
+
+        pipeline.handle(testRequest().copy(turnId = "repair-turn", text = "对不起，我刚才弄错了"))
+        val repaired = relationshipStore.readOrCreate("development", "QQ:u1")
+        assertEquals(0.52f, repaired.trust)
+        assertEquals(0.52f, repaired.safety)
+        assertEquals(0.12f, repaired.unresolvedTension)
+
+        pipeline.handle(testRequest().copy(turnId = "repeat-turn", text = "你一直都记得我们的约定"))
+        val repeated = relationshipStore.readOrCreate("development", "QQ:u1")
+        assertEquals(0.53f, repeated.trust)
+        assertEquals(0.53f, repeated.safety)
+        assertEquals(0.01f, repeated.familiarity)
+        assertEquals(0.12f, repeated.unresolvedTension)
+    }
+
+    @Test
+    fun `relationship evaluation remains cancellable after atomic turn commit and retries idempotently`() = runTest {
+        val transcripts = InMemoryTranscriptStore("development")
+        val relationshipStore = InMemoryRelationshipStateStore()
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        var calls = 0
+        val evaluator = object : RelationshipEventEvaluator {
+            override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
+                calls += 1
+                if (calls == 1) {
+                    started.complete(Unit)
+                    try {
+                        awaitCancellation()
+                    } catch (cancellation: CancellationException) {
+                        cancelled.complete(Unit)
+                        throw cancellation
+                    }
+                }
+                return RelationshipEvaluation(
+                    events = listOf(
+                        RelationshipEvent(
+                            eventId = "${turn.sourceTurnId}:REPAIR",
+                            incarnationId = turn.incarnationId,
+                            canonicalSubjectId = turn.subjectId,
+                            sourceTurnId = turn.sourceTurnId,
+                            type = RelationshipEventType.REPAIR,
+                            confidence = 1.0f,
+                            evidenceDigest = "retry repair",
+                            createdAtMs = turn.completedAtMs,
+                        ),
+                    ),
+                    confidence = 1.0f,
+                )
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            transcriptStore = transcripts,
+            relationshipStore = relationshipStore,
+            relationshipEventEvaluator = evaluator,
+        )
+        val request = testRequest().copy(turnId = "cancellable-turn", text = "对不起，我刚才弄错了")
+
+        val firstAttempt = launch { pipeline.handle(request) }
+        started.await()
+        firstAttempt.cancel()
+        firstAttempt.join()
+        cancelled.await()
+
+        assertEquals(1, transcripts.page(50).turns.size)
+        pipeline.handle(request)
+
+        assertEquals(2, calls)
+        assertEquals(
+            listOf(RelationshipEventType.REPAIR),
+            relationshipStore.events("development", "QQ:u1").map(RelationshipEvent::type),
         )
     }
 

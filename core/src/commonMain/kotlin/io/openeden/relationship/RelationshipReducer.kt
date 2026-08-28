@@ -12,8 +12,16 @@ object RelationshipReducer {
             .sortedWith(compareBy(RelationshipEvent::createdAtMs, RelationshipEvent::eventId))
             .toList()
         val facts = allEvents.effectiveEvents().fold(RelationshipFacts(), ::apply)
+        val eventEffects = newEvents
+            .filter { event ->
+                event.incarnationId == initial.incarnationId &&
+                    event.canonicalSubjectId == initial.canonicalSubjectId &&
+                    initial.events.none { it.idempotencyKey() == event.idempotencyKey() }
+            }
+            .mapNotNull { event -> event.toEvidence()?.let { evidence -> evidence to event.createdAtMs } }
+            .fold(initial) { state, (evidence, createdAtMs) -> state.apply(evidence, createdAtMs) }
         val updatedAtMs = maxOf(initial.updatedAtMs, allEvents.maxOfOrNull(RelationshipEvent::createdAtMs) ?: 0L)
-        return initial.copy(facts = facts, events = allEvents, updatedAtMs = updatedAtMs)
+        return eventEffects.copy(facts = facts, events = allEvents, updatedAtMs = updatedAtMs)
     }
 
     private fun List<RelationshipEvent>.effectiveEvents(): List<RelationshipEvent> {
@@ -29,7 +37,7 @@ object RelationshipReducer {
             userConfessedAtMs = facts.userConfessedAtMs ?: event.createdAtMs,
         ).withMutualCommitment()
         RelationshipEventType.ATRI_ACCEPTANCE -> facts.copy(
-            atriAcceptedAtMs = facts.atriAcceptedAtMs ?: event.createdAtMs),
+            atriAcceptedAtMs = facts.atriAcceptedAtMs ?: event.createdAtMs)
         RelationshipEventType.MUTUAL_COMMITMENT -> facts.copy(
             mutualCommitmentAtMs = facts.mutualCommitmentAtMs ?: event.createdAtMs,
             phase = RelationshipPhase.COUPLE,
@@ -46,6 +54,12 @@ object RelationshipReducer {
         RelationshipEventType.RESET -> facts
         else -> facts
     }.withMutualCommitment()
+
+    private fun RelationshipEvent.toEvidence(): RelationshipEvidence? = when (type) {
+        RelationshipEventType.REPAIR -> RelationshipEvidence.REPAIR
+        RelationshipEventType.REPEATED_CONSISTENCY -> RelationshipEvidence.REPEATED_CONSISTENCY
+        else -> null
+    }
 
     private fun RelationshipFacts.withMutualCommitment(): RelationshipFacts {
         val commitmentAtMs = when {

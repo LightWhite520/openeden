@@ -6,7 +6,7 @@ interface RelationshipStateStore {
 
     suspend fun append(event: RelationshipEvent): RelationshipState {
         val state = readOrCreate(event.incarnationId, event.canonicalSubjectId, event.createdAtMs)
-        return RelationshipReducer.reduce(state, listOf(event)).also(::write)
+        return RelationshipReducer.reduce(state, listOf(event)).also { reduced -> write(reduced) }
     }
 
     suspend fun events(incarnationId: String, canonicalSubjectId: String): List<RelationshipEvent> =

@@ -452,12 +452,13 @@ class DevelopmentMessagePipeline(
             attributes = aggregatedCacheMetrics.traceAttributes(),
         )
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.FINALIZING))
-        return withContext(NonCancellable) {
+        val validatedOutput = validation.output
+        val validatedDelta = validation.delta
         val publicTurn = if (
             request.source == TurnSource.USER &&
             validation.isValid &&
-            validation.output != null &&
-            validation.delta != null &&
+            validatedOutput != null &&
+            validatedDelta != null &&
             transcriptStore != null
         ) {
             ConversationTurn(
@@ -468,55 +469,61 @@ class DevelopmentMessagePipeline(
                 scopeId = request.scopeId,
                 userId = request.userId,
                 userText = request.text,
-                assistantText = validation.output.response,
+                assistantText = validatedOutput.response,
                 completedAtMs = clock.nowMs(),
             )
         } else {
             null
         }
-        val write = if (validation.isValid && validation.delta != null) {
+        val write = if (validation.isValid && validatedDelta != null) {
             val detectedShock = inferenceExecutor.run {
                 ShockStateEngine.detectFromLlmOutput(
-                    vectorDelta = validation.delta,
+                    vectorDelta = validatedDelta,
                     emotionConfidence = emotionSignal.confidence,
-                    internalLogic = validation.output?.internalLogic.orEmpty(),
+                    internalLogic = validatedOutput?.internalLogic.orEmpty(),
                 )
             }
-            vectorWriteService.commitIncarnationTurn(
-                incarnationId = incarnationId,
-                baseSnapshot = current.vector,
-                preTickedSnapshot = preTick.preTicked,
-                delta = validation.delta,
-                shock = null,
-                shockSignal = detectedShock,
-                // Heartbeat turns evolve state but must not silence future proactive turns.
-                lastUserActivityMs = userActivityMs,
-                turn = publicTurn,
-            )
+            withContext(NonCancellable) {
+                vectorWriteService.commitIncarnationTurn(
+                    incarnationId = incarnationId,
+                    baseSnapshot = current.vector,
+                    preTickedSnapshot = preTick.preTicked,
+                    delta = validatedDelta,
+                    shockSignal = detectedShock,
+                    // Heartbeat turns evolve state but must not silence future proactive turns.
+                    lastUserActivityMs = userActivityMs,
+                    turn = publicTurn,
+                )
+            }
         } else {
             VectorWriteResult(state = current, traceTags = emptySet())
         }
         trace(traceContext, "state_commit", tags = write.traceTags)
         val alreadyCommitted = write.turnCommitOutcome == TurnCommitOutcome.ALREADY_COMMITTED
 
-        val relationshipWrite: Set<String> = if (
-            write.turnCommitOutcome == TurnCommitOutcome.INSERTED &&
+        val relationshipTurn = if (
             request.source == TurnSource.USER &&
             validation.isValid &&
             relationship != null &&
             publicTurn != null
         ) {
+            RelationshipTurn(
+                sourceTurnId = request.turnId,
+                incarnationId = incarnationId,
+                subjectId = canonicalSubjectId,
+                userText = request.text,
+                assistantText = publicTurn.assistantText,
+                completedAtMs = publicTurn.completedAtMs,
+            )
+        } else {
+            null
+        }
+        val relationshipWrite: Set<String> = if (
+            (write.turnCommitOutcome == TurnCommitOutcome.INSERTED || alreadyCommitted) &&
+            relationshipTurn != null
+        ) {
             try {
-                val evaluation = relationshipEventEvaluator.evaluate(
-                    RelationshipTurn(
-                        sourceTurnId = request.turnId,
-                        incarnationId = incarnationId,
-                        subjectId = canonicalSubjectId,
-                        userText = request.text,
-                        assistantText = validation.output.response,
-                        completedAtMs = publicTurn.completedAtMs,
-                    ),
-                )
+                val evaluation = relationshipEventEvaluator.evaluate(relationshipTurn)
                 val events = evaluation.committableEvents
                 trace(
                     traceContext,
@@ -528,12 +535,15 @@ class DevelopmentMessagePipeline(
                 )
                 if (evaluation.confidence >= 0.75f) {
                     if (events.isEmpty()) {
-                        relationshipStore.write(
-                            relationship.copy(
-                                familiarity = (relationship.familiarity + 0.005f).coerceAtMost(1.0f),
-                                updatedAtMs = clock.nowMs(),
-                            ),
-                        )
+                        if (!alreadyCommitted) {
+                            val relationshipState = relationship ?: error("relationship state is required for a committed user turn")
+                            relationshipStore.write(
+                                relationshipState.copy(
+                                    familiarity = (relationshipState.familiarity + 0.005f).coerceAtMost(1.0f),
+                                    updatedAtMs = clock.nowMs(),
+                                ),
+                            )
+                        }
                     } else {
                         events.forEach { relationshipStore.append(it) }
                     }
@@ -625,7 +635,7 @@ class DevelopmentMessagePipeline(
             attributes = mapOf("source" to request.source.name, "retrieval_mode" to retrievalResult.mode.name),
         )
 
-        DevelopmentMessageResult(
+        return DevelopmentMessageResult(
             sessionId = sessionId,
             retrievalMode = retrievalResult.mode,
             traceTags = inference.quantization.traceTags +
@@ -649,7 +659,6 @@ class DevelopmentMessagePipeline(
             validationErrors = validation.errors,
             cacheMetrics = aggregatedCacheMetrics,
         )
-        }
     }
 
     private suspend fun collectLlmOutput(

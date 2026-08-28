@@ -46,13 +46,14 @@ class SqlDelightRelationshipStateStore private constructor(
 
     override suspend fun append(event: RelationshipEvent): RelationshipState = withContext(ioDispatcher) {
         database.transactionWithResult {
-            insertEvent(event)
             val current = stateForReplay(
                 incarnationId = event.incarnationId,
                 canonicalSubjectId = event.canonicalSubjectId,
                 nowMs = event.createdAtMs,
             )
-            val reduced = RelationshipReducer.reduce(current, emptyList())
+            val isNew = current.events.none { it.idempotencyKey() == event.idempotencyKey() }
+            insertEvent(event)
+            val reduced = RelationshipReducer.reduce(current, if (isNew) listOf(event) else emptyList())
             writeSnapshot(reduced)
             reduced
         }
