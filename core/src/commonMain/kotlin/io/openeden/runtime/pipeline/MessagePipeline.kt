@@ -83,6 +83,7 @@ class DevelopmentMessagePipeline(
     private val userAffectAnalyzer: UserAffectAnalyzer,
     private val relationshipStore: RelationshipStateStore,
     private val relationshipRoleResolver: RelationshipRoleResolver,
+    private val relationshipEventEvaluator: RelationshipEventEvaluator = DeterministicRelationshipEventEvaluator(),
     private val affectInfluenceMapper: UserAffectInfluenceMapper,
     private val transcriptStore: TranscriptStore?,
     private val clock: RuntimeClock = SystemRuntimeClock,
@@ -499,23 +500,49 @@ class DevelopmentMessagePipeline(
         val alreadyCommitted = write.turnCommitOutcome == TurnCommitOutcome.ALREADY_COMMITTED
 
         val relationshipWrite: Set<String> = if (
-            !alreadyCommitted &&
+            write.turnCommitOutcome == TurnCommitOutcome.INSERTED &&
             request.source == TurnSource.USER &&
             validation.isValid &&
-            relationship != null
+            relationship != null &&
+            publicTurn != null
         ) {
-            val evidence = relationshipEvidence(request.text)
-            val updated = if (evidence != null) {
-                relationship.apply(evidence, clock.nowMs())
-            } else {
-                relationship.copy(
-                    familiarity = (relationship.familiarity + 0.005f).coerceAtMost(1.0f),
-                    updatedAtMs = clock.nowMs(),
-                )
-            }
             try {
-                relationshipStore.write(updated)
-                setOf<String>(TraceTag.RelationshipUpdated)
+                val evaluation = relationshipEventEvaluator.evaluate(
+                    RelationshipTurn(
+                        sourceTurnId = request.turnId,
+                        incarnationId = incarnationId,
+                        subjectId = canonicalSubjectId,
+                        userText = request.text,
+                        assistantText = validation.output.response,
+                        completedAtMs = publicTurn.completedAtMs,
+                    ),
+                )
+                val events = evaluation.committableEvents
+                trace(
+                    traceContext,
+                    "relationship_evaluation",
+                    attributes = mapOf(
+                        "confidence" to evaluation.confidence.toString(),
+                        "committable_event_count" to events.size.toString(),
+                    ),
+                )
+                if (evaluation.confidence >= 0.75f) {
+                    if (events.isEmpty()) {
+                        relationshipStore.write(
+                            relationship.copy(
+                                familiarity = (relationship.familiarity + 0.005f).coerceAtMost(1.0f),
+                                updatedAtMs = clock.nowMs(),
+                            ),
+                        )
+                    } else {
+                        events.forEach { relationshipStore.append(it) }
+                    }
+                    setOf<String>(TraceTag.RelationshipUpdated)
+                } else {
+                    emptySet()
+                }
+            } catch (cancellation: CancellationException) {
+                throw cancellation
             } catch (_: Throwable) {
                 setOf<String>(TraceTag.RelationshipDegraded)
             }
@@ -759,6 +786,7 @@ class DevelopmentMessagePipeline(
             userAffectAnalyzer: UserAffectAnalyzer = DeterministicUserAffectAnalyzer(),
             relationshipStore: RelationshipStateStore = InMemoryRelationshipStateStore(),
             relationshipRoleResolver: RelationshipRoleResolver = RelationshipRoleResolver(host = null),
+            relationshipEventEvaluator: RelationshipEventEvaluator = DeterministicRelationshipEventEvaluator(),
             affectInfluenceMapper: UserAffectInfluenceMapper = UserAffectInfluenceMapper.Default,
             transcriptStore: TranscriptStore? = store as? TranscriptStore,
             clock: RuntimeClock = SystemRuntimeClock,
@@ -784,6 +812,7 @@ class DevelopmentMessagePipeline(
             userAffectAnalyzer = userAffectAnalyzer,
             relationshipStore = relationshipStore,
             relationshipRoleResolver = relationshipRoleResolver,
+            relationshipEventEvaluator = relationshipEventEvaluator,
             affectInfluenceMapper = affectInfluenceMapper,
             transcriptStore = transcriptStore,
             clock = clock,
@@ -812,6 +841,7 @@ class DevelopmentMessagePipeline(
             userAffectAnalyzer: UserAffectAnalyzer = DeterministicUserAffectAnalyzer(),
             relationshipStore: RelationshipStateStore = InMemoryRelationshipStateStore(),
             relationshipRoleResolver: RelationshipRoleResolver = RelationshipRoleResolver(host = null),
+            relationshipEventEvaluator: RelationshipEventEvaluator = DeterministicRelationshipEventEvaluator(),
             affectInfluenceMapper: UserAffectInfluenceMapper = UserAffectInfluenceMapper.Default,
             transcriptStore: TranscriptStore? = store as? TranscriptStore,
             clock: RuntimeClock = SystemRuntimeClock,
@@ -866,6 +896,7 @@ class DevelopmentMessagePipeline(
                 userAffectAnalyzer = userAffectAnalyzer,
                 relationshipStore = relationshipStore,
                 relationshipRoleResolver = relationshipRoleResolver,
+                relationshipEventEvaluator = relationshipEventEvaluator,
                 affectInfluenceMapper = affectInfluenceMapper,
                 transcriptStore = effectiveTranscriptStore,
                 clock = effectiveClock,
@@ -876,12 +907,6 @@ class DevelopmentMessagePipeline(
         }
     }
 
-    private fun relationshipEvidence(text: String): RelationshipEvidence? = when {
-        text.contains(Regex("不要|别这样|请停|不想说")) -> RelationshipEvidence.BOUNDARY_REQUEST
-        text.contains(Regex("对不起|抱歉|误会|修正")) -> RelationshipEvidence.REPAIR
-        text.contains(Regex("你记得|一直都|每次都")) -> RelationshipEvidence.REPEATED_CONSISTENCY
-        else -> null
-    }
 }
 
 private fun String.requiresRecentContext(): Boolean =

@@ -33,11 +33,17 @@ import io.openeden.prompt.PromptSectionKeys
 import io.openeden.relationship.HostIdentity
 import io.openeden.relationship.DeterministicUserAffectAnalyzer
 import io.openeden.relationship.InMemoryRelationshipStateStore
+import io.openeden.relationship.RelationshipEvaluation
+import io.openeden.relationship.RelationshipEvent
+import io.openeden.relationship.RelationshipEventEvaluator
+import io.openeden.relationship.RelationshipEventType
 import io.openeden.relationship.RelationshipRoleResolver
+import io.openeden.relationship.RelationshipTurn
 import io.openeden.relationship.UserAffectInfluenceMapper
 import io.openeden.trace.TraceTag
 import io.openeden.trace.TraceSpan
 import io.openeden.trace.TraceStore
+import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.llm.CacheMetricAvailability
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -48,6 +54,111 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 class MessagePipelineTest {
+    @Test
+    fun `proposal phrase does not mutate relationship boundaries`() = runTest {
+        val transcripts = InMemoryTranscriptStore("development")
+        val relationshipStore = InMemoryRelationshipStateStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            transcriptStore = transcripts,
+            relationshipStore = relationshipStore,
+        )
+
+        pipeline.handle(testRequest().copy(text = "要不要吃饭"))
+
+        val state = relationshipStore.readOrCreate("development", "QQ:u1")
+        assertEquals(0.0f, state.boundarySensitivity)
+        assertTrue(state.events.none { it.type == RelationshipEventType.BOUNDARY_REQUEST })
+    }
+
+    @Test
+    fun `low confidence relationship evaluation does not mutate committed relationship state`() = runTest {
+        val transcripts = InMemoryTranscriptStore("development")
+        val relationshipStore = InMemoryRelationshipStateStore()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            transcriptStore = transcripts,
+            relationshipStore = relationshipStore,
+            relationshipEventEvaluator = object : RelationshipEventEvaluator {
+                override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation = RelationshipEvaluation(
+                    events = listOf(
+                        RelationshipEvent(
+                            eventId = "${turn.sourceTurnId}:BOUNDARY_REQUEST",
+                            incarnationId = turn.incarnationId,
+                            canonicalSubjectId = turn.subjectId,
+                            sourceTurnId = turn.sourceTurnId,
+                            type = RelationshipEventType.BOUNDARY_REQUEST,
+                            confidence = 0.74f,
+                            evidenceDigest = "uncertain boundary request",
+                            createdAtMs = turn.completedAtMs,
+                        ),
+                    ),
+                    confidence = 0.74f,
+                )
+            },
+        )
+
+        pipeline.handle(testRequest())
+
+        val state = relationshipStore.readOrCreate("development", "QQ:u1")
+        assertEquals(0.0f, state.familiarity)
+        assertTrue(state.events.isEmpty())
+    }
+
+    @Test
+    fun `committed user turn appends evaluated relationship event with canonical turn context`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val relationshipStore = InMemoryRelationshipStateStore()
+        var evaluatedTurn: RelationshipTurn? = null
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            transcriptStore = transcripts,
+            relationshipStore = relationshipStore,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "logic references NODE_12",
+                    vectorDelta = validDelta(),
+                    response = "validated assistant response",
+                )
+            },
+            relationshipEventEvaluator = object : RelationshipEventEvaluator {
+                override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
+                    evaluatedTurn = turn
+                    return RelationshipEvaluation(
+                        events = listOf(
+                            RelationshipEvent(
+                                eventId = "${turn.sourceTurnId}:BOUNDARY_REQUEST",
+                                incarnationId = turn.incarnationId,
+                                canonicalSubjectId = turn.subjectId,
+                                sourceTurnId = turn.sourceTurnId,
+                                type = RelationshipEventType.BOUNDARY_REQUEST,
+                                confidence = 1.0f,
+                                evidenceDigest = "validated boundary request",
+                                createdAtMs = turn.completedAtMs,
+                            ),
+                        ),
+                        confidence = 1.0f,
+                    )
+                }
+            },
+            nowMs = { 42L },
+        )
+
+        pipeline.handle(testRequest().copy(turnId = "relationship-turn", text = "不要这样，请停下"))
+
+        val turn = assertNotNull(evaluatedTurn)
+        assertEquals("relationship-turn", turn.sourceTurnId)
+        assertEquals("incarnation-a", turn.incarnationId)
+        assertEquals("QQ:u1", turn.subjectId)
+        assertEquals("不要这样，请停下", turn.userText)
+        assertEquals("validated assistant response", turn.assistantText)
+        assertEquals(42L, turn.completedAtMs)
+        assertEquals(
+            listOf(RelationshipEventType.BOUNDARY_REQUEST),
+            relationshipStore.events("incarnation-a", "QQ:u1").map(RelationshipEvent::type),
+        )
+    }
+
     @Test
     fun `pipeline traces redacted manifest and unavailable provider cache metrics`() = runTest {
         val traces = io.openeden.trace.InMemoryTraceStore()
