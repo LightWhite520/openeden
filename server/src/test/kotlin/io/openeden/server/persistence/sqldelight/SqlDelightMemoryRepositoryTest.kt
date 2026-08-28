@@ -429,6 +429,43 @@ class SqlDelightMemoryRepositoryTest {
     }
 
     @Test
+    fun `local fallback reloads when retrieval switches back to an earlier incarnation`() = runTest {
+        val first = memoryEntry("QQ:group:1000:raw", "QQ:group", "first").copy(
+            metadata = memoryEntry("QQ:group:1000:raw", "QQ:group", "first").metadata.copy(
+                incarnationId = "incarnation-1",
+                sourceSessionId = "QQ:group",
+                canonicalSubjectId = "QQ:user",
+                visibility = MemoryVisibility.IncarnationShared,
+            ),
+        )
+        val second = first.copy(
+            id = "QQ:group:2000:raw",
+            content = "second",
+            metadata = first.metadata.copy(incarnationId = "incarnation-2"),
+        )
+
+        SqlDelightMemoryRepository.open(dbPath).use { repository ->
+            repository.write(first)
+            repository.write(second)
+
+            fun request(incarnationId: String) = RetrievalRequest(
+                sessionId = "QQ:group",
+                userId = "user",
+                canonicalSubjectId = "QQ:user",
+                incarnationId = incarnationId,
+                userInput = "query",
+                currentVector = BioVector.Neutral,
+                origin = BioVector.Neutral,
+                mode = RetrievalMode.CONGRUENT,
+            )
+
+            assertEquals(listOf(first.id), repository.retrieve(request("incarnation-1")).memories.map { it.id })
+            assertEquals(listOf(second.id), repository.retrieve(request("incarnation-2")).memories.map { it.id })
+            assertEquals(listOf(first.id), repository.retrieve(request("incarnation-1")).memories.map { it.id })
+        }
+    }
+
+    @Test
     fun `blank retrieval incarnation fails closed for non operator visibility`() = runTest {
         val seed = memoryEntry("QQ:group:1000:raw", "QQ:group", "candidate").copy(
             metadata = MemoryMetadata(

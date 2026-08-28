@@ -67,7 +67,7 @@ class SqlDelightMemoryRepository(
     private val queries get() = database.memoryQueries
     private val localFallbackIndex = fallbackIndex ?: RebuildableInMemoryVectorIndex(inferenceExecutor)
     private val retrievalIndex = index ?: localFallbackIndex
-    private val loadedIncarnations = mutableSetOf<String>()
+    private var loadedIncarnationId: String? = null
     private val loadMutex = Mutex()
 
     suspend fun write(entry: MemoryEntry, modelId: String): Set<String> {
@@ -152,7 +152,7 @@ class SqlDelightMemoryRepository(
                 }
             }
             refreshedCount += refreshed.size
-            loadMutex.withLock { loadedIncarnations.clear() }
+            loadMutex.withLock { loadedIncarnationId = null }
             localFallbackIndex.markDirty()
             if (refreshed.size >= batchSize) yield()
         }
@@ -314,7 +314,7 @@ class SqlDelightMemoryRepository(
 
     private suspend fun ensureIndexed(incarnationId: String) {
         loadMutex.withLock {
-            if (incarnationId in loadedIncarnations) return
+            if (loadedIncarnationId == incarnationId) return
             val entries = withContext(ioDispatcher) {
                 queries.selectByIncarnation(incarnationId, ::mapRow).executeAsList()
                     .filter { it.modelId == activeModelId }
@@ -327,7 +327,7 @@ class SqlDelightMemoryRepository(
                 localFallbackIndex.markDirty()
                 indexed = false
             }
-            if (indexed) loadedIncarnations += incarnationId
+            if (indexed) loadedIncarnationId = incarnationId
         }
     }
 

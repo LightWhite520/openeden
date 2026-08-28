@@ -17,6 +17,14 @@ import kotlinx.coroutines.test.runTest
 
 class HomeostasisCentroidDriftTest {
     @Test
+    fun `stable vectors fail closed for a blank incarnation`() = runTest {
+        val memory = InMemoryMemoryPalace(DirectInferenceExecutor)
+        memory.write(entry(BioVector.Neutral.copy(p = 1.0f)))
+
+        assertEquals(emptyList(), memory.stableVectors("", 32))
+    }
+
+    @Test
     fun `centroid movement is bounded from persisted origin`() = runTest {
         val store = MutableSessionStateStore()
         val memory = InMemoryMemoryPalace(DirectInferenceExecutor)
@@ -40,6 +48,13 @@ class HomeostasisCentroidDriftTest {
         tags = setOf("daily", "stable"),
         semanticEmbedding = InMemoryMemoryPalace.embedText("stable"),
         emotionalEmbedding = vector.toList(),
-        metadata = MemoryMetadata(vector, 0.0f, VectorDelta.Zero, BioVector.Neutral, "u"),
+        metadata = MemoryMetadata(
+            vector,
+            0.0f,
+            VectorDelta.Zero,
+            BioVector.Neutral,
+            "u",
+            incarnationId = "S",
+        ),
     )
 }

@@ -293,10 +293,10 @@ class InMemoryMemoryPalace(
     }
 
     override suspend fun stableVectors(sessionId: String, limit: Int): List<BioVector> =
-        inferenceExecutor.run {
+        if (sessionId.isBlank()) emptyList() else inferenceExecutor.run {
             entries.asReversed()
                 .asSequence()
-                .filter { it.metadata.incarnationId.isBlank() || it.metadata.incarnationId == sessionId }
+                .filter { it.metadata.incarnationId == sessionId }
                 .filter { "daily" in it.tags && "stable" in it.tags }
                 .take(limit)
                 .map { it.metadata.snapshot8D }
