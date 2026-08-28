@@ -835,6 +835,44 @@ class SqlDelightMemoryRepositoryTest {
         driver.execute(
             null,
             """
+            CREATE TABLE incarnation_state (
+                singleton_id INTEGER NOT NULL PRIMARY KEY CHECK(singleton_id = 1),
+                active_incarnation_id TEXT NOT NULL,
+                created_at_ms INTEGER NOT NULL,
+                lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE',
+                lifecycle_changed_at_ms INTEGER NOT NULL DEFAULT 0,
+                termination_reason TEXT,
+                lifecycle_request_id TEXT
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
+            CREATE TABLE session_state (
+                session_id TEXT NOT NULL PRIMARY KEY,
+                vector_json TEXT NOT NULL,
+                origin_json TEXT NOT NULL,
+                omega REAL NOT NULL,
+                evolution_index INTEGER NOT NULL,
+                persona_mode TEXT,
+                persona_start_sub_state TEXT,
+                last_user_activity_ms INTEGER,
+                last_runtime_tick_at_ms INTEGER,
+                shock_active INTEGER,
+                shock_intensity REAL,
+                shock_description TEXT,
+                shock_triggered_at_ms INTEGER,
+                shock_decay_lambda REAL,
+                shock_heartbeat_fired INTEGER
+            )
+            """.trimIndent(),
+            0,
+        )
+        driver.execute(
+            null,
+            """
             CREATE TABLE memory_entries (
                 id TEXT NOT NULL PRIMARY KEY,
                 session_id TEXT NOT NULL,
@@ -887,6 +925,8 @@ class SqlDelightMemoryRepositoryTest {
             """.trimIndent(),
             0,
         )
+        createPreV13DiaryTasks(driver)
+        createLegacyRelationshipState(driver)
         // Version 8 is immediately before 8.sqm; opening runs 8.sqm and then 9.sqm.
         driver.execute(null, "PRAGMA user_version = 8", 0).value
     }

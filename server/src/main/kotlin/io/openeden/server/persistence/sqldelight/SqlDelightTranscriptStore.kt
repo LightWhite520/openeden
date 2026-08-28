@@ -15,6 +15,10 @@ import io.openeden.transcript.PromptHistoryAssembler
 import io.openeden.transcript.PromptHistoryChunk
 import io.openeden.transcript.PromptHistorySnapshot
 import io.openeden.transcript.TranscriptStore
+import io.openeden.transcript.TurnPostCommitPlan
+import io.openeden.transcript.TurnPostCommitStage
+import io.openeden.transcript.TurnPostCommitState
+import io.openeden.relationship.RelationshipEvaluation
 import io.openeden.runtime.time.RuntimeClock
 import io.openeden.runtime.time.SystemRuntimeClock
 import kotlinx.serialization.json.Json
@@ -79,6 +83,63 @@ class SqlDelightTranscriptStore private constructor(
                 mapper = ::mapTurn,
             ).executeAsList().asReversed()
         }
+
+    override suspend fun findByTurnId(turnId: String): ConversationTurn? = withContext(ioDispatcher) {
+        queries.selectTurnById(turnId, ::mapTurn).executeAsOneOrNull()
+    }
+
+    override suspend fun postCommitState(turnId: String): TurnPostCommitState? = withContext(ioDispatcher) {
+        queries.selectTurnPostCommit(turnId) { planJson, stagesJson ->
+            TurnPostCommitState(
+                plan = Json.decodeFromString<TurnPostCommitPlan>(planJson),
+                completedStages = Json.decodeFromString<Set<TurnPostCommitStage>>(stagesJson),
+            )
+        }.executeAsOneOrNull()
+    }
+
+    override suspend fun persistRelationshipEvaluation(
+        turnId: String,
+        evaluation: RelationshipEvaluation,
+    ): RelationshipEvaluation = withContext(ioDispatcher) {
+        var chosen = evaluation
+        database.transaction {
+            val current = queries.selectTurnPostCommit(turnId) { planJson, stagesJson ->
+                TurnPostCommitState(
+                    plan = Json.decodeFromString<TurnPostCommitPlan>(planJson),
+                    completedStages = Json.decodeFromString<Set<TurnPostCommitStage>>(stagesJson),
+                )
+            }.executeAsOneOrNull() ?: error("No post-commit plan exists for turn '$turnId'")
+            current.plan.relationshipEvaluation?.let { persisted ->
+                chosen = persisted
+                return@transaction
+            }
+            require(TurnPostCommitStage.RELATIONSHIP in current.plan.requiredStages) {
+                "Turn '$turnId' does not require relationship evaluation"
+            }
+            queries.updateTurnPostCommitPlan(
+                planJson = Json.encodeToString(current.plan.copy(relationshipEvaluation = evaluation)),
+                turnId = turnId,
+            )
+        }
+        chosen
+    }
+
+    override suspend fun markPostCommitStageCompleted(turnId: String, stage: TurnPostCommitStage) {
+        withContext(ioDispatcher) {
+            database.transaction {
+                val current = queries.selectTurnPostCommit(turnId) { planJson, stagesJson ->
+                    TurnPostCommitState(
+                        plan = Json.decodeFromString<TurnPostCommitPlan>(planJson),
+                        completedStages = Json.decodeFromString<Set<TurnPostCommitStage>>(stagesJson),
+                    )
+                }.executeAsOneOrNull() ?: error("No post-commit plan exists for turn '$turnId'")
+                queries.updateTurnPostCommitStages(
+                    completedStagesJson = Json.encodeToString(current.completedStages + stage),
+                    turnId = turnId,
+                )
+            }
+        }
+    }
 
     override suspend fun promptHistory(
         sessionId: String,

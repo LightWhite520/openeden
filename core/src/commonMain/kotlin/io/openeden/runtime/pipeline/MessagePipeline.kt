@@ -34,6 +34,7 @@ import io.openeden.runtime.affect.ShockStateEngine
 import io.openeden.runtime.diary.DiaryEvent
 import io.openeden.runtime.diary.DiaryTaskStore
 import io.openeden.runtime.diary.DiaryTriggerCoordinator
+import io.openeden.runtime.diary.DiaryTriggerOutcome
 import io.openeden.runtime.diary.SessionDiaryQueue
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.inference.InferenceExecutor
@@ -53,6 +54,8 @@ import io.openeden.transcript.AtomicTurnCommitStore
 import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.transcript.TurnPostCommitPlan
+import io.openeden.transcript.TurnPostCommitStage
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -153,9 +156,11 @@ class DevelopmentMessagePipeline(
     fun handleStreaming(request: DevelopmentMessageRequest): Flow<DevelopmentMessageEvent> = flow {
         lifecycleGate.withActiveTurn {
             val sessionId = "${request.platform}:${request.scopeId}"
-            emit(DevelopmentMessageEvent.Stage(DevelopmentStage.PREPARING))
-            val result = handleLocked(request, sessionId, ::emit)
-            emit(DevelopmentMessageEvent.Completed(result))
+            turnGate.withSession(sessionId) {
+                emit(DevelopmentMessageEvent.Stage(DevelopmentStage.PREPARING))
+                val result = handleLocked(request, sessionId, ::emit)
+                emit(DevelopmentMessageEvent.Completed(result))
+            }
         }
     }
 
@@ -176,14 +181,22 @@ class DevelopmentMessagePipeline(
         )
         val userActivityMs = clock.nowMs().takeIf { request.source == TurnSource.USER }
         if (userActivityMs != null) {
-            turnGate.withSession(sessionId) {
-                val scopedState = store.read(sessionId)
-                if (scopedState.lastUserActivityMs == null || scopedState.lastUserActivityMs < userActivityMs) {
-                    store.write(scopedState.copy(lastUserActivityMs = userActivityMs))
-                }
+            val scopedState = store.read(sessionId)
+            if (scopedState.lastUserActivityMs == null || scopedState.lastUserActivityMs < userActivityMs) {
+                store.write(scopedState.copy(lastUserActivityMs = userActivityMs))
             }
         }
         val incarnationId = transcriptStore?.activeIncarnation()?.id ?: DEVELOPMENT_INCARNATION_ID
+        val committedRetry = transcriptStore?.findByTurnId(request.turnId)?.also { committed ->
+            require(
+                committed.incarnationId == incarnationId &&
+                    committed.sessionId == sessionId &&
+                    committed.platform == request.platform &&
+                    committed.scopeId == request.scopeId &&
+                    committed.userId == request.userId &&
+                    committed.userText == request.text,
+            ) { "Turn ID '${request.turnId}' already exists for a different request" }
+        }
         val canonicalSubjectId = canonicalSubjectResolver.resolve(request.platform, request.userId).value
         val initial = vectorWriteService.readOrCreateIncarnation(
             incarnationId = incarnationId,
@@ -199,19 +212,13 @@ class DevelopmentMessagePipeline(
             attributes = mapOf("changed" to (centroid != initial.origin).toString()),
         )
         val current = initial.copy(origin = centroid)
-        var relationshipDegraded = false
         val relationship = if (request.source == TurnSource.USER) {
-            try {
-                relationshipStore.readOrCreate(incarnationId, canonicalSubjectId, clock.nowMs())
-            } catch (_: Throwable) {
-                relationshipDegraded = true
-                RelationshipState.neutral(incarnationId, canonicalSubjectId, clock.nowMs())
-            }
+            relationshipStore.readOrCreate(incarnationId, canonicalSubjectId, clock.nowMs())
         } else null
         if (relationship != null) trace(
             traceContext,
             "relationship_load",
-            tags = setOf(if (relationshipDegraded) TraceTag.RelationshipDegraded else TraceTag.RelationshipLoaded),
+            tags = setOf(TraceTag.RelationshipLoaded),
         )
         val observedAffect = if (request.source == TurnSource.USER) {
             inferenceExecutor.run {
@@ -374,15 +381,27 @@ class DevelopmentMessagePipeline(
         }
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.GENERATING))
         val llmCacheMeasurements = mutableListOf<LlmCacheMetrics>()
-        val firstOutput = collectLlmOutput(prompt, inference.generationSettings, emitEvent)
-        val firstCacheMetrics = firstOutput.cacheMetrics ?: LlmCacheMetrics.Unobservable
-        llmCacheMeasurements += firstCacheMetrics
-        trace(
-            traceContext,
-            "llm_inference",
-            tags = firstCacheMetrics.traceTags(),
-            attributes = firstCacheMetrics.traceAttributes(),
-        )
+        val firstOutput = committedRetry?.let { committed ->
+            emitEvent(DevelopmentMessageEvent.ResponseDelta(committed.assistantText))
+            committed.toReplayOutput(inference.quantization.activeNodes.firstOrNull())
+        } ?: collectLlmOutput(prompt, inference.generationSettings, emitEvent)
+        if (committedRetry == null) {
+            val firstCacheMetrics = firstOutput.cacheMetrics ?: LlmCacheMetrics.Unobservable
+            llmCacheMeasurements += firstCacheMetrics
+            trace(
+                traceContext,
+                "llm_inference",
+                tags = firstCacheMetrics.traceTags(),
+                attributes = firstCacheMetrics.traceAttributes(),
+            )
+        } else {
+            trace(
+                traceContext,
+                "turn_replay",
+                tags = setOf(TraceTag.TranscriptRetry),
+                attributes = mapOf("committed_turn_id" to committedRetry.turnId),
+            )
+        }
         val firstValidation = LlmOutputValidator.validate(firstOutput)
         var validation = firstValidation
         var groundingTraceTags = emptySet<String>()
@@ -444,13 +463,19 @@ class DevelopmentMessagePipeline(
             errorCode = if (validation.isValid) null else "TURN_REJECTED",
             errorSummary = validation.errors.joinToString("; "),
         )
-        val aggregatedCacheMetrics = LlmCacheMetrics.aggregate(llmCacheMeasurements)
-        trace(
-            traceContext,
-            "llm_cache",
-            tags = aggregatedCacheMetrics.traceTags(),
-            attributes = aggregatedCacheMetrics.traceAttributes(),
-        )
+        val aggregatedCacheMetrics = if (llmCacheMeasurements.isEmpty()) {
+            LlmCacheMetrics.Unobservable
+        } else {
+            LlmCacheMetrics.aggregate(llmCacheMeasurements)
+        }
+        if (committedRetry == null) {
+            trace(
+                traceContext,
+                "llm_cache",
+                tags = aggregatedCacheMetrics.traceTags(),
+                attributes = aggregatedCacheMetrics.traceAttributes(),
+            )
+        }
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.FINALIZING))
         val validatedOutput = validation.output
         val validatedDelta = validation.delta
@@ -470,10 +495,47 @@ class DevelopmentMessagePipeline(
                 userId = request.userId,
                 userText = request.text,
                 assistantText = validatedOutput.response,
-                completedAtMs = clock.nowMs(),
+                completedAtMs = committedRetry?.completedAtMs ?: clock.nowMs(),
             )
         } else {
             null
+        }
+        val preparedRawMemory = if (committedRetry == null && publicTurn != null && validatedDelta != null) {
+            inferenceExecutor.run {
+                prepareRawMemory(
+                    request = request,
+                    sessionId = sessionId,
+                    preTicked = preTick.preTicked,
+                    origin = current.origin,
+                    omega = current.omega,
+                    delta = validatedDelta,
+                    response = publicTurn.assistantText,
+                    incarnationId = incarnationId,
+                    canonicalSubjectId = canonicalSubjectId,
+                )
+            }
+        } else {
+            null
+        }
+        val postCommitPlan = publicTurn?.let { turn ->
+            if (committedRetry != null) {
+                transcriptStore?.postCommitState(turn.turnId)?.plan ?: TurnPostCommitPlan(turn.turnId)
+            } else {
+                TurnPostCommitPlan(
+                    turnId = turn.turnId,
+                    relationshipTurn = relationship?.let {
+                        RelationshipTurn(
+                            sourceTurnId = turn.turnId,
+                            incarnationId = incarnationId,
+                            subjectId = canonicalSubjectId,
+                            userText = turn.userText,
+                            assistantText = turn.assistantText,
+                            completedAtMs = turn.completedAtMs,
+                        )
+                    },
+                    rawMemory = preparedRawMemory,
+                )
+            }
         }
         val write = if (validation.isValid && validatedDelta != null) {
             val detectedShock = inferenceExecutor.run {
@@ -493,6 +555,7 @@ class DevelopmentMessagePipeline(
                     // Heartbeat turns evolve state but must not silence future proactive turns.
                     lastUserActivityMs = userActivityMs,
                     turn = publicTurn,
+                    postCommitPlan = postCommitPlan,
                 )
             }
         } else {
@@ -501,76 +564,134 @@ class DevelopmentMessagePipeline(
         trace(traceContext, "state_commit", tags = write.traceTags)
         val alreadyCommitted = write.turnCommitOutcome == TurnCommitOutcome.ALREADY_COMMITTED
 
-        val relationshipTurn = if (
-            request.source == TurnSource.USER &&
-            validation.isValid &&
-            relationship != null &&
-            publicTurn != null
+        val sourceTags: Set<String> = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
+        var relationshipWrite = emptySet<String>()
+        var diaryOutcome = DiaryOutcome("not_triggered", emptySet())
+        var memoryTraceTags = MemoryWriteOutcome(null, emptySet())
+        var centroidTags = emptySet<String>()
+        val durablePostCommit = if (
+            publicTurn != null &&
+            (write.turnCommitOutcome == TurnCommitOutcome.INSERTED || alreadyCommitted)
         ) {
-            RelationshipTurn(
-                sourceTurnId = request.turnId,
-                incarnationId = incarnationId,
-                subjectId = canonicalSubjectId,
-                userText = request.text,
-                assistantText = publicTurn.assistantText,
-                completedAtMs = publicTurn.completedAtMs,
-            )
+            checkNotNull(transcriptStore?.postCommitState(publicTurn.turnId)) {
+                "Committed turn '${publicTurn.turnId}' is missing its post-commit plan"
+            }
         } else {
             null
         }
-        val relationshipWrite: Set<String> = if (
-            (write.turnCommitOutcome == TurnCommitOutcome.INSERTED || alreadyCommitted) &&
-            relationshipTurn != null
-        ) {
-            try {
-                val evaluation = relationshipEventEvaluator.evaluate(relationshipTurn)
-                val events = evaluation.committableEvents
-                trace(
-                    traceContext,
-                    "relationship_evaluation",
-                    attributes = mapOf(
-                        "confidence" to evaluation.confidence.toString(),
-                        "committable_event_count" to events.size.toString(),
-                    ),
-                )
-                if (evaluation.confidence >= 0.75f) {
-                    if (events.isEmpty()) {
-                        if (!alreadyCommitted) {
-                            val relationshipState = relationship ?: error("relationship state is required for a committed user turn")
-                            relationshipStore.write(
-                                relationshipState.copy(
-                                    familiarity = (relationshipState.familiarity + 0.005f).coerceAtMost(1.0f),
-                                    updatedAtMs = clock.nowMs(),
-                                ),
-                            )
-                        }
-                    } else {
-                        events.forEach { relationshipStore.append(it) }
-                    }
-                    setOf<String>(TraceTag.RelationshipUpdated)
-                } else {
-                    emptySet()
+        if (durablePostCommit != null) {
+            val committedTurn = requireNotNull(publicTurn)
+            val completeStage: suspend (TurnPostCommitStage) -> Unit = { stage ->
+                withContext(NonCancellable) {
+                    requireNotNull(transcriptStore).markPostCommitStageCompleted(committedTurn.turnId, stage)
                 }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (_: Throwable) {
-                setOf<String>(TraceTag.RelationshipDegraded)
             }
-        } else {
-            emptySet<String>()
-        }
-
-        val sourceTags: Set<String> = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
-
-        var diaryOutcome = DiaryOutcome("not_triggered", emptySet())
-        val memoryTraceTags = if (
+            for (stage in durablePostCommit.pendingStages) {
+                when (stage) {
+                    TurnPostCommitStage.RELATIONSHIP -> {
+                        val evaluation = durablePostCommit.plan.relationshipEvaluation ?: run {
+                            val candidate = relationshipEventEvaluator.evaluate(
+                                requireNotNull(durablePostCommit.plan.relationshipTurn) {
+                                    "Pending relationship stage is missing its evaluation input"
+                                },
+                            )
+                            withContext(NonCancellable) {
+                                requireNotNull(transcriptStore).persistRelationshipEvaluation(
+                                    committedTurn.turnId,
+                                    candidate,
+                                )
+                            }
+                        }
+                        trace(
+                            traceContext,
+                            "relationship_evaluation",
+                            attributes = mapOf(
+                                "confidence" to evaluation.confidence.toString(),
+                                "committable_event_count" to evaluation.committableEvents.size.toString(),
+                            ),
+                        )
+                        val events = if (evaluation.confidence >= 0.75f) {
+                            evaluation.committableEvents.ifEmpty {
+                                listOf(
+                                    RelationshipEvent(
+                                        eventId = "${committedTurn.turnId}:${RelationshipEventType.ACQUAINTANCE.name}",
+                                        incarnationId = committedTurn.incarnationId,
+                                        canonicalSubjectId = canonicalSubjectId,
+                                        sourceTurnId = committedTurn.turnId,
+                                        type = RelationshipEventType.ACQUAINTANCE,
+                                        confidence = evaluation.confidence,
+                                        evidenceDigest = "committed interaction",
+                                        createdAtMs = committedTurn.completedAtMs,
+                                    ),
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        }
+                        events.forEach { relationshipStore.append(it) }
+                        relationshipWrite = buildSet {
+                            if (evaluation.confidence >= 0.75f) add(TraceTag.RelationshipUpdated)
+                        }
+                        completeStage(stage)
+                    }
+                    TurnPostCommitStage.RAW_MEMORY -> {
+                        memoryTraceTags = inferenceExecutor.run {
+                            writeRawMemory(requireNotNull(durablePostCommit.plan.rawMemory))
+                        }
+                        completeStage(stage)
+                    }
+                    TurnPostCommitStage.DIARY -> {
+                        val rawMemory = requireNotNull(durablePostCommit.plan.rawMemory)
+                        val triggerOutcome = diaryTriggerCoordinator?.onVectorDelta(
+                            sessionId,
+                            rawMemory.id,
+                            rawMemory.metadata.deltaVec,
+                            rawMemory.metadata,
+                            clock.nowMs(),
+                        ) ?: DiaryTriggerOutcome.fromTraceTags(
+                            diaryQueue.tryEnqueue(
+                                DiaryEvent(
+                                    sessionId = sessionId,
+                                    traceId = rawMemory.id,
+                                    reason = "vector_delta",
+                                    incarnationId = incarnationId,
+                                    platform = request.platform,
+                                    userId = request.userId,
+                                    canonicalSubjectId = canonicalSubjectId,
+                                    visibility = rawMemory.metadata.visibility,
+                                ),
+                            ),
+                        )
+                        diaryOutcome = triggerOutcome.toPipelineOutcome()
+                        completeStage(stage)
+                    }
+                    TurnPostCommitStage.CENTROID -> {
+                        val updatedOrigin = memoryStore?.let {
+                            inferenceExecutor.run { centroidProvider.centroidFor(incarnationId) }
+                        }
+                        if (updatedOrigin != null && updatedOrigin != write.state.origin) {
+                            vectorWriteService.updateIncarnation(incarnationId) { it.copy(origin = updatedOrigin) }
+                            centroidTags = setOf(TraceTag.CentroidUpdated)
+                        }
+                        completeStage(stage)
+                    }
+                }
+            }
+            val remainingStages = requireNotNull(transcriptStore)
+                .postCommitState(committedTurn.turnId)
+                ?.pendingStages
+                ?: error("Committed turn '${committedTurn.turnId}' lost its post-commit plan")
+            check(remainingStages.isEmpty()) {
+                "Committed turn '${committedTurn.turnId}' still has pending post-commit stages: $remainingStages"
+            }
+        } else if (
             !alreadyCommitted &&
             validation.isValid &&
             validation.delta != null &&
             validation.output != null
         ) {
-            inferenceExecutor.run<MemoryWriteOutcome> {
-                writeMemories(
+            val rawMemory = inferenceExecutor.run {
+                prepareRawMemory(
                     request = request,
                     sessionId = sessionId,
                     preTicked = preTick.preTicked,
@@ -582,48 +703,36 @@ class DevelopmentMessagePipeline(
                     canonicalSubjectId = canonicalSubjectId,
                 )
             }
-        } else {
-            MemoryWriteOutcome(null, emptySet())
-        }
-        val diaryDelta = validation.delta
-        val diaryMemoryId = memoryTraceTags.rawMemoryId
-        if (validation.isValid && diaryDelta != null && validation.output != null && diaryMemoryId != null) {
-            val triggered = diaryDelta.toList().any { kotlin.math.abs(it) > 0.0f }
-            val tags = if (triggered) {
-                    diaryTriggerCoordinator?.onVectorDelta(
-                        sessionId, diaryMemoryId, diaryDelta, requireNotNull(memoryTraceTags.rawMetadata), clock.nowMs(),
-                    )
-                        ?: diaryQueue.tryEnqueue(
+            if (rawMemory != null) {
+                memoryTraceTags = inferenceExecutor.run { writeRawMemory(rawMemory) }
+                val triggered = validation.delta.toList().any { kotlin.math.abs(it) > 0.0f }
+                if (triggered) {
+                    val triggerOutcome = diaryTriggerCoordinator?.onVectorDelta(
+                        sessionId, rawMemory.id, validation.delta, rawMemory.metadata, clock.nowMs(),
+                    ) ?: DiaryTriggerOutcome.fromTraceTags(
+                        diaryQueue.tryEnqueue(
                             DiaryEvent(
                                 sessionId = sessionId,
-                                traceId = "development",
+                                traceId = rawMemory.id,
                                 reason = "vector_delta",
                                 incarnationId = incarnationId,
                                 platform = request.platform,
                                 userId = request.userId,
                                 canonicalSubjectId = canonicalSubjectId,
-                                visibility = io.openeden.memory.MemoryVisibility.ScopeShared(sessionId),
+                                visibility = rawMemory.metadata.visibility,
                             ),
-                        )
-            } else {
-                emptySet()
-            }
-            if (triggered) {
-                diaryOutcome = DiaryOutcome(if (tags.isEmpty()) "enqueued" else "overflow", tags)
+                        ),
+                    )
+                    diaryOutcome = triggerOutcome.toPipelineOutcome()
+                }
+                val updatedOrigin = inferenceExecutor.run { centroidProvider.centroidFor(incarnationId) }
+                if (updatedOrigin != write.state.origin) {
+                    vectorWriteService.updateIncarnation(incarnationId) { it.copy(origin = updatedOrigin) }
+                    centroidTags = setOf(TraceTag.CentroidUpdated)
+                }
             }
         }
         trace(traceContext, "memory_write", tags = memoryTraceTags.traceTags)
-        val shouldUpdatePostCentroid =
-            !alreadyCommitted && validation.isValid && validation.delta != null && validation.output != null
-        val updatedOrigin = if (!shouldUpdatePostCentroid) null else memoryStore?.let {
-            inferenceExecutor.run { centroidProvider.centroidFor(incarnationId) }
-        }
-        val centroidTags: Set<String> = if (updatedOrigin != null && updatedOrigin != write.state.origin) {
-            vectorWriteService.updateIncarnation(incarnationId) { it.copy(origin = updatedOrigin) }
-            setOf(TraceTag.CentroidUpdated)
-        } else {
-            emptySet<String>()
-        }
         trace(traceContext, "centroid_update", tags = centroidTags)
         trace(traceContext, "diary_publish", tags = diaryOutcome.traceTags, attributes = mapOf("outcome" to diaryOutcome.label))
 
@@ -718,7 +827,7 @@ class DevelopmentMessagePipeline(
         }
     }
 
-    private suspend fun writeMemories(
+    private suspend fun prepareRawMemory(
         request: DevelopmentMessageRequest,
         sessionId: String,
         preTicked: BioVector,
@@ -728,8 +837,8 @@ class DevelopmentMessagePipeline(
         response: String,
         incarnationId: String,
         canonicalSubjectId: String,
-    ): MemoryWriteOutcome {
-        val store = memoryStore ?: return MemoryWriteOutcome(null, emptySet())
+    ): MemoryEntry? {
+        if (memoryStore == null) return null
         val rawContent = "user=${request.userId}\ninput=${request.text}\nresponse=$response"
         val metadata = io.openeden.memory.MemoryMetadata(
             snapshot8D = preTicked,
@@ -740,7 +849,7 @@ class DevelopmentMessagePipeline(
             incarnationId = incarnationId,
             sourceSessionId = sessionId,
             canonicalSubjectId = canonicalSubjectId,
-            visibility = MemoryVisibility.ScopeShared(sessionId),
+            visibility = request.memoryVisibility(sessionId, canonicalSubjectId),
             platform = request.platform,
             lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf(request.turnId)),
             contentFingerprint = io.openeden.memory.MemoryContentFingerprint.of(rawContent),
@@ -752,23 +861,26 @@ class DevelopmentMessagePipeline(
         } else {
             emptySet()
         }
-        val rawTrace = store.write(
-            MemoryEntry(
-                id = rawId,
-                sessionId = sessionId,
-                content = rawContent,
-                room = MemoryRoom.EVENT_ROOM,
-                kind = MemoryKind.RAW,
-                tags = rawTags,
-                semanticEmbedding = memoryEmbeddingModel.embed(rawContent),
-                emotionalEmbedding = memoryEmbeddingModel.embed(preTicked),
-                metadata = metadata,
-                createdAtMs = memoryCreatedAtMs,
-            ),
+        return MemoryEntry(
+            id = rawId,
+            sessionId = sessionId,
+            content = rawContent,
+            room = MemoryRoom.EVENT_ROOM,
+            kind = MemoryKind.RAW,
+            tags = rawTags,
+            semanticEmbedding = memoryEmbeddingModel.embed(rawContent),
+            emotionalEmbedding = memoryEmbeddingModel.embed(preTicked),
+            metadata = metadata,
+            createdAtMs = memoryCreatedAtMs,
         )
+    }
+
+    private suspend fun writeRawMemory(entry: MemoryEntry): MemoryWriteOutcome {
+        val store = memoryStore ?: return MemoryWriteOutcome(null, emptySet())
+        val rawTrace = store.write(entry)
         // Diary generation is consumed by the asynchronous worker after the RAW commit. The user
         // turn must never create a NARRATIVE memory synchronously or wait for Diary inference.
-        return MemoryWriteOutcome(rawId, rawTrace, metadata)
+        return MemoryWriteOutcome(entry.id, rawTrace, entry.metadata)
     }
 
     companion object {
@@ -921,6 +1033,30 @@ class DevelopmentMessagePipeline(
 private fun String.requiresRecentContext(): Boolean =
     contains(Regex("刚刚|刚才|上一句|上一次|之前|前面|刚才说了什么|刚刚说了什么|记得吗"))
 
+private fun DevelopmentMessageRequest.memoryVisibility(
+    sessionId: String,
+    canonicalSubjectId: String,
+): MemoryVisibility = if (userId.isNotBlank() && scopeId == userId) {
+    MemoryVisibility.PrivateSubject(canonicalSubjectId)
+} else {
+    MemoryVisibility.ScopeShared(sessionId)
+}
+
+private fun ConversationTurn.toReplayOutput(activeNode: String?): LlmOutput = LlmOutput(
+    internalLogic = "Committed turn replay${activeNode?.let { "; active node $it" }.orEmpty()}",
+    vectorDelta = mapOf(
+        "L" to 0.0f,
+        "P" to 0.0f,
+        "E" to 0.0f,
+        "S" to 0.0f,
+        "tau" to 0.0f,
+        "V" to 0.0f,
+        "M" to 0.0f,
+        "F" to 0.0f,
+    ),
+    response = assistantText,
+)
+
 private fun LlmCacheMetrics.traceTags(): Set<String> = when (availability) {
     io.openeden.llm.CacheMetricAvailability.REPORTED -> setOf(TraceTag.LlmCacheMeasured)
     io.openeden.llm.CacheMetricAvailability.UNOBSERVABLE -> setOf(TraceTag.LlmCacheUnobservable)
@@ -935,6 +1071,11 @@ private data class MemoryWriteOutcome(
     val rawMemoryId: String?,
     val traceTags: Set<String>,
     val rawMetadata: MemoryMetadata? = null,
+)
+
+private fun DiaryTriggerOutcome.toPipelineOutcome(): DiaryOutcome = DiaryOutcome(
+    label = name.lowercase(),
+    traceTags = traceTags,
 )
 
 private data class PipelineInferenceResult(

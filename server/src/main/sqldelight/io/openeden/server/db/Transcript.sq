@@ -16,6 +16,13 @@ ON conversation_turns(incarnation_id, completed_at_ms DESC, turn_id DESC);
 CREATE INDEX conversation_turns_session_recent
 ON conversation_turns(session_id, completed_at_ms DESC, turn_id DESC);
 
+CREATE TABLE turn_post_commit (
+    turn_id TEXT NOT NULL PRIMARY KEY,
+    plan_json TEXT NOT NULL,
+    completed_stages_json TEXT NOT NULL,
+    FOREIGN KEY(turn_id) REFERENCES conversation_turns(turn_id)
+);
+
 CREATE TABLE prompt_history_state (
     session_id TEXT NOT NULL PRIMARY KEY,
     cache_epoch INTEGER NOT NULL,
@@ -59,6 +66,25 @@ SELECT turn_id, incarnation_id, session_id, platform, scope_id, user_id,
        user_text, assistant_text, completed_at_ms
 FROM conversation_turns
 WHERE turn_id = ?;
+
+insertTurnPostCommitIfAbsent:
+INSERT OR IGNORE INTO turn_post_commit(turn_id, plan_json, completed_stages_json)
+VALUES (?, ?, ?);
+
+selectTurnPostCommit:
+SELECT plan_json, completed_stages_json
+FROM turn_post_commit
+WHERE turn_id = ?;
+
+updateTurnPostCommitStages:
+UPDATE turn_post_commit
+SET completed_stages_json = :completedStagesJson
+WHERE turn_id = :turnId;
+
+updateTurnPostCommitPlan:
+UPDATE turn_post_commit
+SET plan_json = :planJson
+WHERE turn_id = :turnId;
 
 selectTurnPage:
 SELECT turn_id, incarnation_id, session_id, platform, scope_id, user_id,
@@ -106,3 +132,12 @@ INSERT OR IGNORE INTO prompt_history_chunks(
 
 deleteAllConversationTurns:
 DELETE FROM conversation_turns;
+
+deleteAllPromptHistoryChunks:
+DELETE FROM prompt_history_chunks;
+
+deleteAllPromptHistoryState:
+DELETE FROM prompt_history_state;
+
+deleteAllTurnPostCommit:
+DELETE FROM turn_post_commit;

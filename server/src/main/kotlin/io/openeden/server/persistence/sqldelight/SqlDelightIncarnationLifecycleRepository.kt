@@ -94,6 +94,9 @@ class SqlDelightIncarnationLifecycleRepository(
             database.sessionStateQueries.deleteAllSessionStates()
             database.relationshipQueries.deleteAllRelationshipEvents()
             database.relationshipQueries.deleteAllRelationships()
+            database.transcriptQueries.deleteAllPromptHistoryChunks()
+            database.transcriptQueries.deleteAllPromptHistoryState()
+            database.transcriptQueries.deleteAllTurnPostCommit()
             database.transcriptQueries.deleteAllConversationTurns()
             database.incarnationQueries.updateLifecycle(
                 lifecycle_status = IncarnationLifecycle.TERMINATED.name,

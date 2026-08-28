@@ -12,6 +12,9 @@ import io.openeden.prompt.PromptSectionKeys
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
+import io.openeden.runtime.incarnation.IncarnationState
+import io.openeden.runtime.incarnation.IncarnationStateStore
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -84,6 +87,26 @@ internal class CountingSessionStateStore : SessionStateStore {
     }
 
     override suspend fun sessionIds(): Set<String> = delegate.sessionIds()
+}
+
+internal class CountingIncarnationStateStore : IncarnationStateStore {
+    private val delegate = MutableIncarnationStateStore()
+
+    var writeCount: Int = 0
+        private set
+
+    override suspend fun read(incarnationId: String): IncarnationState = delegate.read(incarnationId)
+
+    override suspend fun readOrCreate(
+        incarnationId: String,
+        personaMode: PersonaMode,
+        personaStartSubState: PersonaSubState,
+    ): IncarnationState = delegate.readOrCreate(incarnationId, personaMode, personaStartSubState)
+
+    override suspend fun write(state: IncarnationState) {
+        writeCount += 1
+        delegate.write(state)
+    }
 }
 
 internal fun validStreamingOutput(response: String): LlmOutput = LlmOutput(

@@ -1,9 +1,12 @@
 package io.openeden.relationship
 
+import kotlinx.serialization.Serializable
+
 interface RelationshipEventEvaluator {
     suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation
 }
 
+@Serializable
 data class RelationshipEvaluation(
     val events: List<RelationshipEvent>,
     val confidence: Float,
@@ -20,6 +23,7 @@ data class RelationshipEvaluation(
     }
 }
 
+@Serializable
 data class RelationshipTurn(
     val sourceTurnId: String,
     val incarnationId: String,

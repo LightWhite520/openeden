@@ -279,6 +279,24 @@ class SqlDelightTranscriptStoreTest {
     }
 
     @Test
+    fun `version fifteen migrates through post commit and relationship accumulator to current version eighteen`() = runTest {
+        assertEquals(18L, Database.Schema.version)
+        createVersionFifteenDatabase()
+        assertEquals(15L, schemaVersion())
+        assertEquals(0L, tableCount("turn_post_commit"))
+
+        val store = SqlDelightTranscriptStore.open(dbPath)
+        try {
+            assertEquals(listOf("v15-preserved-turn"), store.page(50).turns.map { it.turnId })
+        } finally {
+            store.close()
+        }
+
+        assertEquals(18L, schemaVersion())
+        assertEquals(1L, tableCount("turn_post_commit"))
+    }
+
+    @Test
     fun `migration ten installs session recent query with ordering and limit`() = runTest {
         createVersionFourDatabase()
 
@@ -360,6 +378,8 @@ class SqlDelightTranscriptStoreTest {
                 """.trimIndent(),
                 0,
             )
+            createPreV13DiaryTasks(driver)
+            createLegacyRelationshipState(driver)
             driver.execute(
                 null,
                 """
@@ -375,6 +395,66 @@ class SqlDelightTranscriptStoreTest {
                 bindLong(4, 99L)
             }
             driver.execute(null, "PRAGMA user_version = 4", 0)
+        }
+    }
+
+    private fun createVersionFifteenDatabase() {
+        createVersionFourDatabase()
+        JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            Database.Schema.migrate(driver, 4L, 15L).value
+            val incarnationId = driver.executeQuery(
+                null,
+                "SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1",
+                { cursor ->
+                    check(cursor.next().value)
+                    QueryResult.Value(checkNotNull(cursor.getString(0)))
+                },
+                0,
+            ).value
+            driver.execute(
+                null,
+                """
+                INSERT INTO conversation_turns(
+                    turn_id, incarnation_id, session_id, platform, scope_id, user_id,
+                    user_text, assistant_text, completed_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                9,
+            ) {
+                bindString(0, "v15-preserved-turn")
+                bindString(1, incarnationId)
+                bindString(2, "QQ:group-1")
+                bindString(3, "QQ")
+                bindString(4, "group-1")
+                bindString(5, "user-1")
+                bindString(6, "preserved user")
+                bindString(7, "preserved assistant")
+                bindLong(8, 1_500L)
+            }
+            driver.execute(null, "PRAGMA user_version = 15", 0).value
+        }
+    }
+
+    private fun schemaVersion(): Long = scalarLong("PRAGMA user_version")
+
+    private fun tableCount(table: String): Long = scalarLong(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '$table'",
+    )
+
+    private fun scalarLong(sql: String): Long {
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}")
+        return try {
+            driver.executeQuery(
+                null,
+                sql,
+                { cursor ->
+                    check(cursor.next().value)
+                    QueryResult.Value(checkNotNull(cursor.getLong(0)))
+                },
+                0,
+            ).value
+        } finally {
+            driver.close()
         }
     }
 

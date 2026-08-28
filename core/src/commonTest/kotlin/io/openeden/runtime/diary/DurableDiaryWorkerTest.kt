@@ -10,6 +10,7 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
+import io.openeden.memory.MemoryVisibility
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -18,7 +19,9 @@ import kotlin.test.assertTrue
 class DurableDiaryWorkerTest {
     @Test
     fun `worker writes narrative memory and completes task without state mutation`() = runTest {
-        val taskStore = TestDiaryTaskStore(DiaryTask("task:1", "S", "raw:1", "vector_delta"))
+        val taskStore = TestDiaryTaskStore(
+            DiaryTask("task:1", "S", "raw:1", "vector_delta", incarnationId = "inc-1"),
+        )
         val memory = InMemoryMemoryPalace(DirectInferenceExecutor)
         val worker = DurableDiaryWorker(
             taskStore = taskStore,
@@ -38,6 +41,9 @@ class DurableDiaryWorkerTest {
                         VectorDelta.Zero,
                         BioVector.Neutral,
                         "diary",
+                        incarnationId = "inc-1",
+                        sourceSessionId = "S",
+                        visibility = MemoryVisibility.ScopeShared("S"),
                     ),
                 ), "raw:actual")
             },
@@ -47,7 +53,12 @@ class DurableDiaryWorkerTest {
         assertEquals(DiaryTaskStatus.DONE, taskStore.task.status)
         val result = memory.retrieve(
             io.openeden.memory.RetrievalRequest(
-                "S", "distilled", BioVector.Neutral, BioVector.Neutral, io.openeden.memory.RetrievalMode.CONGRUENT,
+                "S",
+                "distilled",
+                BioVector.Neutral,
+                BioVector.Neutral,
+                io.openeden.memory.RetrievalMode.CONGRUENT,
+                incarnationId = "inc-1",
             ),
         )
         assertEquals("distilled narrative", result.memories.single().content)

@@ -3,6 +3,7 @@ package io.openeden.server.persistence.sqldelight
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import io.openeden.relationship.RelationshipCorrection
+import io.openeden.relationship.RelationshipContinuousAccumulator
 import io.openeden.relationship.RelationshipEvent
 import io.openeden.relationship.RelationshipEventType
 import io.openeden.relationship.RelationshipFacts
@@ -119,6 +120,7 @@ class SqlDelightRelationshipStateStore private constructor(
     }
 
     private fun writeSnapshot(state: RelationshipState) {
+        val accumulator = state.continuousAccumulator ?: RelationshipContinuousAccumulator.from(state)
         queries.upsert(
             incarnation_id = state.incarnationId,
             canonical_subject_id = state.canonicalSubjectId,
@@ -135,6 +137,14 @@ class SqlDelightRelationshipStateStore private constructor(
             atri_accepted_at_ms = state.facts.atriAcceptedAtMs,
             mutual_commitment_at_ms = state.facts.mutualCommitmentAtMs,
             preferred_addresses_json = json.encodeToString(state.facts.preferredAddresses.toList()),
+            continuous_accumulator_version = RelationshipContinuousAccumulator.CURRENT_VERSION.toLong(),
+            accumulator_trust = accumulator.trust.toDouble(),
+            accumulator_familiarity = accumulator.familiarity.toDouble(),
+            accumulator_safety = accumulator.safety.toDouble(),
+            accumulator_boundary_sensitivity = accumulator.boundarySensitivity.toDouble(),
+            accumulator_unresolved_tension = accumulator.unresolvedTension.toDouble(),
+            accumulator_reciprocal_interest = accumulator.reciprocalInterest.toDouble(),
+            continuous_baseline_event_ids_json = json.encodeToString(state.continuousBaselineEventIds.sorted()),
         )
     }
 
@@ -155,6 +165,14 @@ class SqlDelightRelationshipStateStore private constructor(
         atriAcceptedAtMs: Long?,
         mutualCommitmentAtMs: Long?,
         preferredAddressesJson: String,
+        continuousAccumulatorVersion: Long,
+        accumulatorTrust: Double,
+        accumulatorFamiliarity: Double,
+        accumulatorSafety: Double,
+        accumulatorBoundarySensitivity: Double,
+        accumulatorUnresolvedTension: Double,
+        accumulatorReciprocalInterest: Double,
+        continuousBaselineEventIdsJson: String,
     ): RelationshipState = RelationshipState(
         incarnationId = incarnationId,
         canonicalSubjectId = canonicalSubjectId,
@@ -173,6 +191,16 @@ class SqlDelightRelationshipStateStore private constructor(
             mutualCommitmentAtMs = mutualCommitmentAtMs,
             preferredAddresses = json.decodeFromString<List<String>>(preferredAddressesJson).toSet(),
         ),
+        continuousAccumulator = RelationshipContinuousAccumulator(
+            trust = accumulatorTrust.toFloat(),
+            familiarity = accumulatorFamiliarity.toFloat(),
+            safety = accumulatorSafety.toFloat(),
+            boundarySensitivity = accumulatorBoundarySensitivity.toFloat(),
+            unresolvedTension = accumulatorUnresolvedTension.toFloat(),
+            reciprocalInterest = accumulatorReciprocalInterest.toFloat(),
+        ),
+        continuousAccumulatorVersion = continuousAccumulatorVersion.toInt(),
+        continuousBaselineEventIds = json.decodeFromString<List<String>>(continuousBaselineEventIdsJson).toSet(),
     )
 
     @Suppress("LongParameterList")

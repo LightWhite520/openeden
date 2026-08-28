@@ -14,11 +14,31 @@ class DiaryTriggerCoordinatorTest {
         val checkpoints = InMemoryDiaryCheckpointStore()
         val coordinator = DiaryTriggerCoordinator(store, checkpoints, InMemoryDiaryRawMemorySource())
 
-        assertTrue(coordinator.onVectorDelta("S", "raw-1", VectorDelta(p = 0.249f), 100L).isEmpty())
-        assertTrue(coordinator.onVectorDelta("S", "raw-1", VectorDelta(p = 0.25f), 101L).isEmpty())
-        assertTrue(coordinator.onVectorDelta("S", "raw-1", VectorDelta(p = 0.25f), 102L).isEmpty())
+        assertEquals(
+            DiaryTriggerOutcome.SKIPPED_BELOW_THRESHOLD,
+            coordinator.onVectorDelta("S", "raw-1", VectorDelta(p = 0.249f), 100L),
+        )
+        assertEquals(
+            DiaryTriggerOutcome.ENQUEUED,
+            coordinator.onVectorDelta("S", "raw-1", VectorDelta(p = 0.25f), 101L),
+        )
+        assertEquals(
+            DiaryTriggerOutcome.ENQUEUED,
+            coordinator.onVectorDelta("S", "raw-1", VectorDelta(p = 0.25f), 102L),
+        )
         assertEquals(1, store.tasks.size)
         assertEquals("vector_delta", store.tasks.single().reason)
+    }
+
+    @Test
+    fun `queue overflow is distinct from a successful enqueue and preserves its trace tag`() = runTest {
+        val store = RecordingDiaryTaskStore(enqueueTags = setOf(io.openeden.trace.TraceTag.DiaryQueueOverflow))
+        val coordinator = DiaryTriggerCoordinator(store, InMemoryDiaryCheckpointStore(), InMemoryDiaryRawMemorySource())
+
+        val outcome = coordinator.onVectorDelta("S", "raw-overflow", VectorDelta(p = 0.25f), 100L)
+
+        assertEquals(DiaryTriggerOutcome.OVERFLOW, outcome)
+        assertEquals(setOf(io.openeden.trace.TraceTag.DiaryQueueOverflow), outcome.traceTags)
     }
 
     @Test
@@ -49,12 +69,14 @@ class DiaryTriggerCoordinatorTest {
     }
 }
 
-private class RecordingDiaryTaskStore : DiaryTaskStore {
+private class RecordingDiaryTaskStore(
+    private val enqueueTags: Set<String> = emptySet(),
+) : DiaryTaskStore {
     val tasks = mutableListOf<DiaryTask>()
     override suspend fun enqueue(task: DiaryTask): Set<String> {
         if (tasks.any { it.id == task.id }) return emptySet()
         tasks += task
-        return emptySet()
+        return enqueueTags
     }
     override suspend fun enqueueIfAbsent(task: DiaryTask): Set<String> {
         if (tasks.any { it.id == task.id }) return emptySet()

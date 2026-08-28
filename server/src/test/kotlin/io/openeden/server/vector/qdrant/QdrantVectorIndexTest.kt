@@ -46,12 +46,17 @@ class QdrantVectorIndexTest {
 
         index.insert(entry("memory-1", semantic = listOf(.1f, .2f), emotional = listOf(.3f, .4f, .5f)))
 
-        assertEquals(7, requests.size)
+        assertEquals(9, requests.size)
         val create = requests[1].jsonBody()
         assertEquals(2, create["vectors"]!!.jsonObject.size)
         assertEquals(2, create["vectors"]!!.jsonObject["semantic"]!!.jsonObject["size"]!!.jsonPrimitive.content.toInt())
         assertEquals(3, create["vectors"]!!.jsonObject["emotional"]!!.jsonObject["size"]!!.jsonPrimitive.content.toInt())
-        assertTrue(requests.drop(2).take(4).all { it.url.encodedPath.endsWith("/index") })
+        val indexRequests = requests.drop(2).take(6)
+        assertTrue(indexRequests.all { it.url.encodedPath.endsWith("/index") })
+        assertEquals(
+            listOf("session_id", "incarnation_id", "room", "kind", "model_id", "visibility_key"),
+            indexRequests.map { it.jsonBody()["field_name"]!!.jsonPrimitive.content },
+        )
         val point = requests.last().jsonBody()["points"]!!.jsonArray.single().jsonObject
         assertEquals("memory-1", point["payload"]!!.jsonObject["memory_id"]!!.jsonPrimitive.content)
         assertEquals("local-v1", point["payload"]!!.jsonObject["model_id"]!!.jsonPrimitive.content)
@@ -92,7 +97,10 @@ class QdrantVectorIndexTest {
         index.insert(entry("memory-1", semantic = listOf(.1f, .2f), emotional = listOf(.3f, .4f, .5f)))
 
         val collectionPath = "/collections/${QdrantCollectionNaming("eden").collectionName("local-v1")}"
-        assertEquals(listOf(collectionPath, "$collectionPath/index", "$collectionPath/index", "$collectionPath/index", "$collectionPath/index", "$collectionPath/points"), requests.map { it.url.encodedPath })
+        assertEquals(
+            listOf(collectionPath) + List(6) { "$collectionPath/index" } + "$collectionPath/points",
+            requests.map { it.url.encodedPath },
+        )
         client.close()
     }
 
@@ -113,11 +121,11 @@ class QdrantVectorIndexTest {
             batchSize = 2,
         )
 
-        val delete = requests[6].jsonBody()
-        assertTrue(requests[6].url.encodedPath.endsWith("/points/delete"))
+        val delete = requests[8].jsonBody()
+        assertTrue(requests[8].url.encodedPath.endsWith("/points/delete"))
         assertEquals("local-v1", delete["filter"]!!.jsonObject["must"]!!.jsonArray.single().jsonObject["match"]!!.jsonObject["value"]!!.jsonPrimitive.content)
-        assertEquals(2, requests[7].jsonBody()["points"]!!.jsonArray.size)
-        assertEquals(1, requests[8].jsonBody()["points"]!!.jsonArray.size)
+        assertEquals(2, requests[9].jsonBody()["points"]!!.jsonArray.size)
+        assertEquals(1, requests[10].jsonBody()["points"]!!.jsonArray.size)
         client.close()
     }
 

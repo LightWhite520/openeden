@@ -4,6 +4,13 @@ import io.openeden.runtime.affect.ShockState
 import io.openeden.codebook.CodebookQuantizer
 import io.openeden.codebook.QuantizationResult
 import io.openeden.runtime.diary.SessionDiaryQueue
+import io.openeden.runtime.diary.DiaryCheckpoint
+import io.openeden.runtime.diary.DiaryCheckpointStore
+import io.openeden.runtime.diary.DiaryRawMemoryCursor
+import io.openeden.runtime.diary.DiaryRawMemorySource
+import io.openeden.runtime.diary.DiaryTask
+import io.openeden.runtime.diary.DiaryTaskStore
+import io.openeden.runtime.diary.DiaryTriggerCoordinator
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.inference.InferenceExecutor
 import io.openeden.runtime.inference.RecordingInferenceExecutor
@@ -38,6 +45,7 @@ import io.openeden.relationship.RelationshipEvent
 import io.openeden.relationship.RelationshipEventEvaluator
 import io.openeden.relationship.RelationshipEventType
 import io.openeden.relationship.RelationshipRoleResolver
+import io.openeden.relationship.RelationshipStateStore
 import io.openeden.relationship.RelationshipTurn
 import io.openeden.relationship.UserAffectInfluenceMapper
 import io.openeden.trace.TraceTag
@@ -120,7 +128,7 @@ class MessagePipelineTest {
             relationshipStore = relationshipStore,
             llmClient = object : io.openeden.llm.LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
-                    internalLogic = "logic references NODE_12",
+                    internalLogic = "logic references HEURISTIC_FALLBACK",
                     vectorDelta = validDelta(),
                     response = "validated assistant response",
                 )
@@ -182,45 +190,45 @@ class MessagePipelineTest {
         val repaired = relationshipStore.readOrCreate("development", "QQ:u1")
         assertEquals(0.52f, repaired.trust)
         assertEquals(0.52f, repaired.safety)
-        assertEquals(0.12f, repaired.unresolvedTension)
+        assertEquals(0.12f, repaired.unresolvedTension, absoluteTolerance = 0.0001f)
 
         pipeline.handle(testRequest().copy(turnId = "repeat-turn", text = "你一直都记得我们的约定"))
         val repeated = relationshipStore.readOrCreate("development", "QQ:u1")
         assertEquals(0.53f, repeated.trust)
         assertEquals(0.53f, repeated.safety)
         assertEquals(0.01f, repeated.familiarity)
-        assertEquals(0.12f, repeated.unresolvedTension)
+        assertEquals(0.12f, repeated.unresolvedTension, absoluteTolerance = 0.0001f)
     }
 
     @Test
-    fun `relationship evaluation remains cancellable after atomic turn commit and retries idempotently`() = runTest {
+    fun `committed retry reuses one durable relationship evaluation after side effect cancellation`() = runTest {
         val transcripts = InMemoryTranscriptStore("development")
-        val relationshipStore = InMemoryRelationshipStateStore()
-        val started = CompletableDeferred<Unit>()
-        val cancelled = CompletableDeferred<Unit>()
+        val relationshipDelegate = InMemoryRelationshipStateStore()
+        var appendCalls = 0
+        val relationshipStore = object : RelationshipStateStore by relationshipDelegate {
+            override suspend fun append(event: RelationshipEvent): io.openeden.relationship.RelationshipState {
+                val state = relationshipDelegate.append(event)
+                appendCalls += 1
+                if (appendCalls == 1) throw CancellationException("cancel after relationship append")
+                return state
+            }
+        }
         var calls = 0
+        var llmCalls = 0
         val evaluator = object : RelationshipEventEvaluator {
             override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
                 calls += 1
-                if (calls == 1) {
-                    started.complete(Unit)
-                    try {
-                        awaitCancellation()
-                    } catch (cancellation: CancellationException) {
-                        cancelled.complete(Unit)
-                        throw cancellation
-                    }
-                }
+                val type = if (calls == 1) RelationshipEventType.REPAIR else RelationshipEventType.BOUNDARY_VIOLATION
                 return RelationshipEvaluation(
                     events = listOf(
                         RelationshipEvent(
-                            eventId = "${turn.sourceTurnId}:REPAIR",
+                            eventId = "${turn.sourceTurnId}:${type.name}",
                             incarnationId = turn.incarnationId,
                             canonicalSubjectId = turn.subjectId,
                             sourceTurnId = turn.sourceTurnId,
-                            type = RelationshipEventType.REPAIR,
+                            type = type,
                             confidence = 1.0f,
-                            evidenceDigest = "retry repair",
+                            evidenceDigest = "evaluation-$calls",
                             createdAtMs = turn.completedAtMs,
                         ),
                     ),
@@ -233,22 +241,30 @@ class MessagePipelineTest {
             transcriptStore = transcripts,
             relationshipStore = relationshipStore,
             relationshipEventEvaluator = evaluator,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    llmCalls += 1
+                    return LlmOutput(
+                        internalLogic = "retry test references HEURISTIC_FALLBACK",
+                        vectorDelta = validDelta(),
+                        response = "generated-response-$llmCalls",
+                    )
+                }
+            },
         )
         val request = testRequest().copy(turnId = "cancellable-turn", text = "对不起，我刚才弄错了")
 
-        val firstAttempt = launch { pipeline.handle(request) }
-        started.await()
-        firstAttempt.cancel()
-        firstAttempt.join()
-        cancelled.await()
+        kotlin.test.assertFailsWith<CancellationException> { pipeline.handle(request) }
 
         assertEquals(1, transcripts.page(50).turns.size)
-        pipeline.handle(request)
+        val retry = pipeline.handle(request)
 
-        assertEquals(2, calls)
+        assertEquals(1, llmCalls)
+        assertEquals("generated-response-1", retry.response)
+        assertEquals(1, calls)
         assertEquals(
             listOf(RelationshipEventType.REPAIR),
-            relationshipStore.events("development", "QQ:u1").map(RelationshipEvent::type),
+            relationshipDelegate.events("development", "QQ:u1").map(RelationshipEvent::type),
         )
     }
 
@@ -432,11 +448,48 @@ class MessagePipelineTest {
     }
 
     @Test
+    fun `below-threshold durable diary trigger is reported as skipped rather than enqueued`() = runTest {
+        val coordinator = DiaryTriggerCoordinator(
+            taskStore = NoopDiaryTaskStore,
+            checkpointStore = NoopDiaryCheckpointStore,
+            rawMemorySource = NoopDiaryRawMemorySource,
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "logic references HEURISTIC_FALLBACK",
+                    vectorDelta = mapOf(
+                        "L" to 0.0f,
+                        "P" to 0.2f,
+                        "E" to 0.0f,
+                        "S" to 0.0f,
+                        "tau" to 0.0f,
+                        "V" to 0.0f,
+                        "M" to 0.0f,
+                        "F" to 0.0f,
+                    ),
+                    response = "response",
+                )
+            },
+            diaryTriggerCoordinator = coordinator,
+        )
+
+        val result = pipeline.handle(testRequest().copy(turnId = "below-threshold-diary"))
+
+        assertEquals("skipped_below_threshold", result.diaryOutcome)
+    }
+
+    @Test
     fun `shock back-detection persists shock state and omega jump behind confidence gate`() = runTest {
         val store = MutableSessionStateStore()
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = store.transcript,
+        )
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(),
             store = store,
+            incarnationStateStore = incarnationStore,
             llmClient = object : io.openeden.llm.LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
                     internalLogic = "a severe discontinuity was inferred from HEURISTIC_FALLBACK",
@@ -466,7 +519,7 @@ class MessagePipelineTest {
             ),
         )
 
-        val state = store.read("QQ:100")
+        val state = incarnationStore.read("development")
         val shock = assertNotNull(state.shockState)
         assertEquals(true, shock.active)
         assertEquals(0.4f, shock.intensity)
@@ -476,9 +529,13 @@ class MessagePipelineTest {
     @Test
     fun `repeated shock detections merge without repeating activation omega jump`() = runTest {
         val store = MutableSessionStateStore()
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = store.transcript,
+        )
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(),
             store = store,
+            incarnationStateStore = incarnationStore,
             llmClient = object : io.openeden.llm.LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
                     internalLogic = "a severe discontinuity was inferred from HEURISTIC_FALLBACK",
@@ -500,7 +557,7 @@ class MessagePipelineTest {
         pipeline.handle(testRequest().copy(turnId = "shock-1", emotionConfidence = 0.65f))
         pipeline.handle(testRequest().copy(turnId = "shock-2", emotionConfidence = 0.65f))
 
-        val state = store.read("QQ:100")
+        val state = incarnationStore.read("development")
         assertEquals(0.64f, assertNotNull(state.shockState).intensity, absoluteTolerance = 0.0001f)
         assertEquals(0.06f, state.omega.value, absoluteTolerance = 0.0001f)
         assertEquals(2, state.evolutionIndex)
@@ -556,14 +613,19 @@ class MessagePipelineTest {
     @Test
     fun `existing session keeps its selected persona starting point`() = runTest {
         val store = MutableSessionStateStore()
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = store.transcript,
+        )
         DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(PersonaSubState.TRUE_SELF),
             store = store,
+            incarnationStateStore = incarnationStore,
         ).handle(testRequest())
 
         val result = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(PersonaSubState.AWAKENED, PersonaMode.LEGACY),
             store = store,
+            incarnationStateStore = incarnationStore,
         ).handle(testRequest())
 
         assertContains(result.promptPreview, "TRUE_SELF")
@@ -855,4 +917,27 @@ private fun validDelta(): Map<String, Float> = mapOf(
             }
         }
     }
+}
+
+private object NoopDiaryTaskStore : DiaryTaskStore {
+    override suspend fun enqueue(task: DiaryTask): Set<String> = emptySet()
+    override suspend fun enqueueIfAbsent(task: DiaryTask): Set<String> = emptySet()
+    override suspend fun leaseNext(sessionId: String, nowMs: Long, leaseMs: Long): DiaryTask? = null
+    override suspend fun complete(taskId: String) = Unit
+    override suspend fun fail(taskId: String, nowMs: Long, error: String, maxAttempts: Int) = Unit
+    override suspend fun recoverExpired(nowMs: Long) = Unit
+}
+
+private object NoopDiaryCheckpointStore : DiaryCheckpointStore {
+    override suspend fun read(sessionId: String): DiaryCheckpoint? = null
+    override suspend fun sessions(): Set<String> = emptySet()
+}
+
+private object NoopDiaryRawMemorySource : DiaryRawMemorySource {
+    override suspend fun sessionsWithRawMemories(): Set<String> = emptySet()
+    override suspend fun latestRawMemory(sessionId: String): DiaryRawMemoryCursor? = null
+    override suspend fun firstRawMemoryAfter(
+        sessionId: String,
+        coveredRawMemoryId: String?,
+    ): DiaryRawMemoryCursor? = null
 }

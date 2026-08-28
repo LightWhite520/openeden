@@ -4,11 +4,11 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.bearerAuth
-import io.ktor.client.request.contentType
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.utils.io.core.readBytes

@@ -1,0 +1,6 @@
+CREATE TABLE turn_post_commit (
+    turn_id TEXT NOT NULL PRIMARY KEY,
+    plan_json TEXT NOT NULL,
+    completed_stages_json TEXT NOT NULL,
+    FOREIGN KEY(turn_id) REFERENCES conversation_turns(turn_id)
+);

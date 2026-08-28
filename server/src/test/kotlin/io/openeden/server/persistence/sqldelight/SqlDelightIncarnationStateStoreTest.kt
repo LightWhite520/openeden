@@ -8,6 +8,11 @@ import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.incarnation.IncarnationState
 import io.openeden.runtime.incarnation.IncarnationStateStore
+import io.openeden.relationship.RelationshipEvaluation
+import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.transcript.TurnPostCommitPlan
+import io.openeden.transcript.TurnPostCommitStage
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
@@ -136,8 +141,106 @@ class SqlDelightIncarnationStateStoreTest {
         }
     }
 
+    @Test
+    fun `atomic turn commit persists post commit plan and stage checkpoints`() = runTest {
+        val transcript = SqlDelightTranscriptStore.open(dbPath)
+        val incarnation = transcript.activeIncarnation()
+        val plan = TurnPostCommitPlan(
+            turnId = "durable-side-effects",
+            relationshipEvaluation = RelationshipEvaluation(emptyList(), 1.0f),
+        )
+        val turn = ConversationTurn(
+            turnId = plan.turnId,
+            incarnationId = incarnation.id,
+            sessionId = "QQ:group-42",
+            platform = "QQ",
+            scopeId = "group-42",
+            userId = "owner",
+            userText = "hello",
+            assistantText = "response",
+            completedAtMs = 1_000L,
+        )
+        val stateDispatcher = newSqliteDispatcher("post-commit-state-test")
+        val stateStore = SqlDelightIncarnationStateStore.open(
+            dbPath = dbPath,
+            ioDispatcher = stateDispatcher,
+            committedTranscriptStore = transcript,
+        )
+        try {
+            val initial = stateStore.readOrCreate(
+                incarnation.id,
+                PersonaMode.GROWTH,
+                PersonaSubState.PRE_COMMAND,
+            )
+            assertEquals(
+                TurnCommitOutcome.INSERTED,
+                stateStore.writeCommittedTurn(initial.copy(evolutionIndex = 1L), turn, plan),
+            )
+            assertEquals(plan, transcript.postCommitState(turn.turnId)?.plan)
+            transcript.markPostCommitStageCompleted(turn.turnId, TurnPostCommitStage.RELATIONSHIP)
+            assertEquals(
+                setOf(TurnPostCommitStage.RELATIONSHIP),
+                transcript.postCommitState(turn.turnId)?.completedStages,
+            )
+        } finally {
+            stateStore.shutdown()
+        }
+        transcript.close()
+    }
+
+    @Test
+    fun `legacy committed turn atomically adopts retry plan without rewriting Bio`() = runTest {
+        val transcript = SqlDelightTranscriptStore.open(dbPath)
+        val incarnation = transcript.activeIncarnation()
+        val plan = TurnPostCommitPlan(turnId = "legacy-durable-side-effects")
+        val turn = ConversationTurn(
+            turnId = plan.turnId,
+            incarnationId = incarnation.id,
+            sessionId = "QQ:group-42",
+            platform = "QQ",
+            scopeId = "group-42",
+            userId = "owner",
+            userText = "hello",
+            assistantText = "persisted response",
+            completedAtMs = 1_000L,
+        )
+        transcript.append(turn)
+        val stateStore = SqlDelightIncarnationStateStore.open(
+            dbPath = dbPath,
+            ioDispatcher = newSqliteDispatcher("legacy-post-commit-state-test"),
+            committedTranscriptStore = transcript,
+        )
+        try {
+            val persisted = stateStore.readOrCreate(
+                incarnation.id,
+                PersonaMode.GROWTH,
+                PersonaSubState.PRE_COMMAND,
+            ).copy(evolutionIndex = 7L)
+            stateStore.write(persisted)
+
+            assertEquals(
+                TurnCommitOutcome.ALREADY_COMMITTED,
+                stateStore.writeCommittedTurn(
+                    persisted.copy(evolutionIndex = 8L),
+                    turn.copy(completedAtMs = 2_000L),
+                    plan,
+                ),
+            )
+
+            assertEquals(persisted, stateStore.read(incarnation.id))
+            assertEquals(plan, transcript.postCommitState(turn.turnId)?.plan)
+            assertEquals(emptyList(), transcript.postCommitState(turn.turnId)?.pendingStages)
+        } finally {
+            stateStore.shutdown()
+            transcript.close()
+        }
+    }
+
     private fun openVersion11DatabaseWithTwoSessionStates() {
         JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            createLegacyMemoryEntries(driver, includesLineage = true)
+            createPreV13DiaryTasks(driver)
+            createLegacyRelationshipState(driver)
             driver.execute(
                 null,
                 """
@@ -210,6 +313,9 @@ class SqlDelightIncarnationStateStoreTest {
 
     private fun openVersionFourDatabase() {
         JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            createLegacyMemoryEntries(driver)
+            createPreV13DiaryTasks(driver)
+            createLegacyRelationshipState(driver)
             driver.execute(
                 null,
                 """
@@ -219,8 +325,6 @@ class SqlDelightIncarnationStateStoreTest {
                     origin_json TEXT NOT NULL,
                     omega REAL NOT NULL,
                     evolution_index INTEGER NOT NULL,
-                    persona_mode TEXT,
-                    persona_start_sub_state TEXT,
                     last_user_activity_ms INTEGER,
                     shock_active INTEGER,
                     shock_intensity REAL,
@@ -238,9 +342,8 @@ class SqlDelightIncarnationStateStoreTest {
                 null,
                 """
                 INSERT INTO session_state(
-                    session_id, vector_json, origin_json, omega, evolution_index, persona_mode,
-                    persona_start_sub_state, last_user_activity_ms
-                ) VALUES (?, ?, ?, ?, ?, 'growth', 'awakened', ?)
+                    session_id, vector_json, origin_json, omega, evolution_index, last_user_activity_ms
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
                 6,
             ) {
@@ -257,6 +360,9 @@ class SqlDelightIncarnationStateStoreTest {
 
     private fun openVersionTenDatabaseWithoutSingleton() {
         JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            createLegacyMemoryEntries(driver, includesLineage = true)
+            createPreV13DiaryTasks(driver)
+            createLegacyRelationshipState(driver)
             driver.execute(
                 null,
                 """
@@ -310,6 +416,65 @@ class SqlDelightIncarnationStateStoreTest {
                 shock_triggered_at_ms INTEGER,
                 shock_decay_lambda REAL,
                 shock_heartbeat_fired INTEGER
+            )
+            """.trimIndent(),
+            0,
+        )
+    }
+
+    private fun createLegacyMemoryEntries(
+        driver: JdbcSqliteDriver,
+        includesLineage: Boolean = false,
+    ) {
+        val lineageColumns = if (includesLineage) {
+            """
+                ,source_turn_ids_json TEXT NOT NULL DEFAULT '[]'
+                ,source_memory_ids_json TEXT NOT NULL DEFAULT '[]'
+                ,content_fingerprint TEXT
+                ,lineage_version INTEGER NOT NULL DEFAULT 1
+            """.trimIndent()
+        } else {
+            ""
+        }
+        driver.execute(
+            null,
+            """
+            CREATE TABLE memory_entries (
+                id TEXT NOT NULL PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                room TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tags_json TEXT NOT NULL,
+                created_at_ms INTEGER NOT NULL,
+                snapshot_l REAL NOT NULL,
+                snapshot_p REAL NOT NULL,
+                snapshot_e REAL NOT NULL,
+                snapshot_s REAL NOT NULL,
+                snapshot_tau REAL NOT NULL,
+                snapshot_v REAL NOT NULL,
+                snapshot_m REAL NOT NULL,
+                snapshot_f REAL NOT NULL,
+                omega_state REAL NOT NULL,
+                delta_l REAL NOT NULL,
+                delta_p REAL NOT NULL,
+                delta_e REAL NOT NULL,
+                delta_s REAL NOT NULL,
+                delta_tau REAL NOT NULL,
+                delta_v REAL NOT NULL,
+                delta_m REAL NOT NULL,
+                delta_f REAL NOT NULL,
+                origin_l REAL NOT NULL,
+                origin_p REAL NOT NULL,
+                origin_e REAL NOT NULL,
+                origin_s REAL NOT NULL,
+                origin_tau REAL NOT NULL,
+                origin_v REAL NOT NULL,
+                origin_m REAL NOT NULL,
+                origin_f REAL NOT NULL
+                $lineageColumns
             )
             """.trimIndent(),
             0,

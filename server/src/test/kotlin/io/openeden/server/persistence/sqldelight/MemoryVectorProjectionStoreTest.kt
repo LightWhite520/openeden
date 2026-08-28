@@ -196,6 +196,7 @@ class MemoryVectorProjectionStoreTest {
             0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             0.0,
             "[]", "[]", null, 1L,
+            "incarnation", "session", "subject", "scope_shared", null, "session",
         )
     }
 }

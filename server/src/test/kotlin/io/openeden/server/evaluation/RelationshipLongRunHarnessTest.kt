@@ -1,6 +1,7 @@
 package io.openeden.server.evaluation
 
 import java.nio.file.Files
+import io.openeden.llm.CacheMetricAvailability
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -89,14 +90,16 @@ class RelationshipLongRunHarnessTest {
     }
 
     @Test
-    fun `variants expose a cache behavior difference independent of labels`() = runTest {
+    fun `fake variants never manufacture provider cache measurements`() = runTest {
         val baseline = RelationshipLongRunHarness.fake(EvaluationVariant.A).run(RelationshipScenario.canonical(EvaluationVariant.A))
         val candidate = RelationshipLongRunHarness.fake(EvaluationVariant.B).run(RelationshipScenario.canonical(EvaluationVariant.B))
 
-        assertTrue(baseline.cacheReadRate!! > candidate.cacheReadRate!!)
-        assertNotEquals(
-            baseline.promptCacheManifest.map { it.metrics.cachedInputTokens },
-            candidate.promptCacheManifest.map { it.metrics.cachedInputTokens },
+        assertEquals(null, baseline.cacheReadRate)
+        assertEquals(null, candidate.cacheReadRate)
+        assertTrue(
+            (baseline.promptCacheManifest + candidate.promptCacheManifest).all {
+                it.metrics.availability == CacheMetricAvailability.UNOBSERVABLE
+            },
         )
     }
 

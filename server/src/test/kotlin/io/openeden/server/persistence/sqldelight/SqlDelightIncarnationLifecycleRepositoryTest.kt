@@ -80,6 +80,38 @@ class SqlDelightIncarnationLifecycleRepositoryTest {
     }
 
     @Test
+    fun `termination deletes post commit children before transcript parents`() = runTest {
+        seedIncarnation()
+        insertPostCommitPlan("turn-1")
+        installPostCommitDeleteOrderGuard()
+        val repo = openRepository()
+
+        repo.markCritical()
+        repo.beginTermination()
+        repo.archiveAndPurge(TerminationReason("critical", 900L))
+
+        assertEquals(0, count("turn_post_commit"))
+        assertEquals(0, count("conversation_turns"))
+    }
+
+    @Test
+    fun `termination deletes prompt history chunks before prompt history state`() = runTest {
+        seedIncarnation()
+        insertPromptHistory()
+        installPromptHistoryDeleteOrderGuard()
+        val repo = openRepository()
+
+        assertEquals(1, count("prompt_history_chunks"))
+        assertEquals(1, count("prompt_history_state"))
+        repo.markCritical()
+        repo.beginTermination()
+        repo.archiveAndPurge(TerminationReason("critical", 900L))
+
+        assertEquals(0, count("prompt_history_chunks"))
+        assertEquals(0, count("prompt_history_state"))
+    }
+
+    @Test
     fun `archive verification failure rolls back every delete`() = runTest {
         val incarnationId = seedIncarnation()
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
@@ -172,6 +204,89 @@ class SqlDelightIncarnationLifecycleRepositoryTest {
 
     private fun openRepository(): SqlDelightIncarnationLifecycleRepository =
         SqlDelightIncarnationLifecycleRepository.open(dbPath).also { repository = it }
+
+    private fun insertPostCommitPlan(turnId: String) {
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
+            connection.prepareStatement(
+                "INSERT INTO turn_post_commit(turn_id, plan_json, completed_stages_json) VALUES (?, ?, ?)",
+            ).use { statement ->
+                statement.setString(1, turnId)
+                statement.setString(2, "{\"turnId\":\"$turnId\"}")
+                statement.setString(3, "[]")
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    private fun installPostCommitDeleteOrderGuard() {
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    CREATE TRIGGER enforce_post_commit_delete_order
+                    BEFORE DELETE ON conversation_turns
+                    WHEN EXISTS (SELECT 1 FROM turn_post_commit WHERE turn_id = OLD.turn_id)
+                    BEGIN
+                        SELECT RAISE(ABORT, 'post-commit child must be deleted first');
+                    END
+                    """.trimIndent(),
+                )
+            }
+        }
+    }
+
+    private fun insertPromptHistory() {
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
+            connection.prepareStatement(
+                "INSERT INTO prompt_history_state(session_id, cache_epoch, serializer_version, updated_at_ms) VALUES (?, ?, ?, ?)",
+            ).use { statement ->
+                statement.setString(1, "QQ:42")
+                statement.setLong(2, 1L)
+                statement.setLong(3, 1L)
+                statement.setLong(4, 1_000L)
+                statement.executeUpdate()
+            }
+            connection.prepareStatement(
+                """
+                INSERT INTO prompt_history_chunks(
+                    chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+                    turn_ids_json, serialized_text, token_count, fingerprint, serializer_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, "QQ:42|1|turn-1")
+                statement.setString(2, "QQ:42")
+                statement.setLong(3, 1L)
+                statement.setString(4, "turn-1")
+                statement.setString(5, "turn-1")
+                statement.setString(6, "[\"turn-1\"]")
+                statement.setString(7, "serialized history")
+                statement.setLong(8, 10L)
+                statement.setString(9, "fingerprint")
+                statement.setLong(10, 1L)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    private fun installPromptHistoryDeleteOrderGuard() {
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    CREATE TRIGGER enforce_prompt_history_delete_order
+                    BEFORE DELETE ON prompt_history_state
+                    WHEN EXISTS (
+                        SELECT 1 FROM prompt_history_chunks WHERE session_id = OLD.session_id
+                    )
+                    BEGIN
+                        SELECT RAISE(ABORT, 'prompt history chunks must be deleted first');
+                    END
+                    """.trimIndent(),
+                )
+            }
+        }
+    }
 
     private fun count(table: String): Int =
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->

@@ -19,7 +19,12 @@ class InMemoryMemoryPalace(
     private val entries = mutableListOf<MemoryEntry>()
 
     override suspend fun write(entry: MemoryEntry): Set<String> {
-        entries += entry
+        val existingIndex = entries.indexOfFirst { it.id == entry.id }
+        if (existingIndex >= 0) {
+            entries[existingIndex] = entry
+        } else {
+            entries += entry
+        }
         index.insert(entry)
         return setOf(TraceTag.MemoryWritten)
     }

@@ -1,5 +1,6 @@
 package io.openeden.transcript
 
+import io.openeden.relationship.RelationshipEvaluation
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -11,6 +12,7 @@ class InMemoryTranscriptStore(
     private val activeIncarnation = ActiveIncarnation(activeIncarnationId, createdAtMs)
     internal val atomicMutex = Mutex()
     private val turnsById = mutableMapOf<String, ConversationTurn>()
+    private val postCommitByTurnId = mutableMapOf<String, TurnPostCommitState>()
     private val promptHistoryEpochs = mutableMapOf<String, Long>()
     private val promptHistorySerializerVersions = mutableMapOf<String, Int>()
     private val promptHistoryChunks = mutableMapOf<String, MutableList<PromptHistoryChunk>>()
@@ -21,6 +23,40 @@ class InMemoryTranscriptStore(
 
     override suspend fun append(turn: ConversationTurn) {
         atomicMutex.withLock { appendLocked(turn) }
+    }
+
+    override suspend fun findByTurnId(turnId: String): ConversationTurn? = atomicMutex.withLock {
+        turnsById[turnId]
+    }
+
+    override suspend fun postCommitState(turnId: String): TurnPostCommitState? = atomicMutex.withLock {
+        postCommitByTurnId[turnId]
+    }
+
+    override suspend fun persistRelationshipEvaluation(
+        turnId: String,
+        evaluation: RelationshipEvaluation,
+    ): RelationshipEvaluation = atomicMutex.withLock {
+        val current = checkNotNull(postCommitByTurnId[turnId]) {
+            "No post-commit plan exists for turn '$turnId'"
+        }
+        current.plan.relationshipEvaluation?.let { return@withLock it }
+        require(TurnPostCommitStage.RELATIONSHIP in current.plan.requiredStages) {
+            "Turn '$turnId' does not require relationship evaluation"
+        }
+        postCommitByTurnId[turnId] = current.copy(
+            plan = current.plan.copy(relationshipEvaluation = evaluation),
+        )
+        evaluation
+    }
+
+    override suspend fun markPostCommitStageCompleted(turnId: String, stage: TurnPostCommitStage) {
+        atomicMutex.withLock {
+            val current = checkNotNull(postCommitByTurnId[turnId]) {
+                "No post-commit plan exists for turn '$turnId'"
+            }
+            postCommitByTurnId[turnId] = current.copy(completedStages = current.completedStages + stage)
+        }
     }
 
     override suspend fun recentForSession(sessionId: String, limit: Int): List<ConversationTurn> =
@@ -84,6 +120,14 @@ class InMemoryTranscriptStore(
             "Turn ID '${turn.turnId}' already exists with a different payload"
         }
         if (existing == null) turnsById[turn.turnId] = turn
+    }
+
+    internal fun preparePostCommitLocked(plan: TurnPostCommitPlan) {
+        val existing = postCommitByTurnId[plan.turnId]
+        require(existing == null || existing.plan == plan) {
+            "Turn ID '${plan.turnId}' already has a different post-commit plan"
+        }
+        if (existing == null) postCommitByTurnId[plan.turnId] = TurnPostCommitState(plan)
     }
 
     internal fun pageLocked(

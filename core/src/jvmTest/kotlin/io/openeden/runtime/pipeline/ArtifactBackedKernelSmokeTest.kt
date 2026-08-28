@@ -10,6 +10,7 @@ import io.openeden.persona.PersonaFileLoader
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.runtime.inference.JvmInferenceExecutor
 import io.openeden.runtime.inference.RecordingInferenceExecutor
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.state.VectorWriteService
 import io.openeden.trace.TraceTag
@@ -88,8 +89,9 @@ class ArtifactBackedKernelSmokeTest {
                 }
             }
             val store = MutableSessionStateStore()
+            val incarnationStore = MutableIncarnationStateStore(transcriptStore = store.transcript)
             val vectorWriteService = VectorWriteService(
-                store = store,
+                incarnationStore = incarnationStore,
                 inferenceExecutor = recordingExecutor,
             )
             val memoryStore = InMemoryMemoryPalace(
@@ -100,6 +102,7 @@ class ArtifactBackedKernelSmokeTest {
                 personaConfig = personaConfig,
                 llmClient = llmClient,
                 store = store,
+                incarnationStateStore = incarnationStore,
                 vectorWriteService = vectorWriteService,
                 inferenceExecutor = recordingExecutor,
                 quantizer = quantizer,
@@ -168,7 +171,7 @@ class ArtifactBackedKernelSmokeTest {
             )
 
             assertEquals(1L, result.evolutionIndex)
-            val persistedState = store.read(result.sessionId)
+            val persistedState = incarnationStore.read("development")
             assertEquals(1L, persistedState.evolutionIndex)
             assertEquals(result.updatedVector, persistedState.vector)
             assertEquals(personaConfig.mode, persistedState.personaMode)

@@ -1,16 +1,23 @@
 package io.openeden.server.bootstrap
 
+import io.openeden.runtime.incarnation.IncarnationStateStore
 import kotlinx.coroutines.Job
 
 internal class RuntimeShutdownCoordinator(
     private val runtimeJob: Job,
+    private val incarnationStore: IncarnationStateStore? = null,
     private val closers: List<suspend () -> Unit>,
 ) {
     fun stopping() {
         runtimeJob.cancel()
     }
 
-    suspend fun stopped(): Throwable? = closeBestEffortSuspend(closers)
+    suspend fun stopped(): Throwable? = closeBestEffortSuspend(
+        buildList {
+            incarnationStore?.let { store -> add { store.shutdown() } }
+            addAll(closers)
+        },
+    )
 }
 
 internal suspend fun closeBestEffortSuspend(closers: Iterable<suspend () -> Unit>): Throwable? {

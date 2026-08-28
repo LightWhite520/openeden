@@ -3,9 +3,11 @@ package io.openeden.runtime.incarnation
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.AtomicTurnCommitStore
 import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.transcript.TurnPostCommitPlan
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -41,11 +43,15 @@ class MutableIncarnationStateStore(
         }
     }
 
-    override fun commitsTo(transcriptStore: TranscriptStore): Boolean = this.transcriptStore != null
+    override fun commitsTo(transcriptStore: TranscriptStore): Boolean = this.transcriptStore?.let { backing ->
+        transcriptStore === backing ||
+            (transcriptStore as? AtomicTurnCommitStore)?.commitsTo(backing) == true
+    } == true
 
     override suspend fun writeCommittedTurn(
         state: IncarnationState,
         turn: ConversationTurn,
+        postCommitPlan: TurnPostCommitPlan,
     ): TurnCommitOutcome {
         val transcript = checkNotNull(transcriptStore) {
             "Public turns require an atomic incarnation state store"
@@ -58,6 +64,7 @@ class MutableIncarnationStateStore(
                 require(existing.matchesRetry(turn)) {
                     "Turn ID '${turn.turnId}' already exists with a different payload"
                 }
+                transcript.preparePostCommitLocked(postCommitPlan)
                 return@withLock TurnCommitOutcome.ALREADY_COMMITTED
             }
             mutex.withLock {
@@ -68,6 +75,7 @@ class MutableIncarnationStateStore(
                     ) { "Persona mode and starting point are immutable for an existing incarnation" }
                 }
                 transcript.appendLocked(turn)
+                transcript.preparePostCommitLocked(postCommitPlan)
                 states[state.incarnationId] = state
             }
             TurnCommitOutcome.INSERTED

@@ -14,6 +14,10 @@ import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
+import io.openeden.transcript.InMemoryTranscriptStore
+import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.TranscriptStore
+import io.openeden.transcript.TurnCommitOutcome
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -61,27 +65,38 @@ class TurnCoordinatorConcurrencyTest {
     fun `same session turns serialize the whole stateful flow`() = runTest {
         val store = MutableSessionStateStore()
         val incarnationStore = MutableIncarnationStateStore(transcriptStore = store.transcript)
+        val completionMutex = Mutex()
+        var concurrentCompletions = 0
+        var maximumConcurrentCompletions = 0
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(),
             store = store,
             incarnationStateStore = incarnationStore,
             llmClient = object : LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
-                    delay(1)
-                    return LlmOutput(
-                        internalLogic = "serialized test turn references HEURISTIC_FALLBACK",
-                        vectorDelta = mapOf(
-                            "L" to 0.0f,
-                            "P" to 0.01f,
-                            "E" to 0.0f,
-                            "S" to 0.0f,
-                            "tau" to 0.0f,
-                            "V" to 0.0f,
-                            "M" to 0.0f,
-                            "F" to 0.0f,
-                        ),
-                        response = "ok",
-                    )
+                    completionMutex.withLock {
+                        concurrentCompletions += 1
+                        maximumConcurrentCompletions = maxOf(maximumConcurrentCompletions, concurrentCompletions)
+                    }
+                    try {
+                        delay(1)
+                        return LlmOutput(
+                            internalLogic = "serialized test turn references HEURISTIC_FALLBACK",
+                            vectorDelta = mapOf(
+                                "L" to 0.0f,
+                                "P" to 0.01f,
+                                "E" to 0.0f,
+                                "S" to 0.0f,
+                                "tau" to 0.0f,
+                                "V" to 0.0f,
+                                "M" to 0.0f,
+                                "F" to 0.0f,
+                            ),
+                            response = "ok",
+                        )
+                    } finally {
+                        completionMutex.withLock { concurrentCompletions -= 1 }
+                    }
                 }
             },
         )
@@ -102,6 +117,7 @@ class TurnCoordinatorConcurrencyTest {
         }.awaitAll()
 
         assertEquals((1L..100L).toSet(), results.map { it.evolutionIndex }.toSet())
+        assertEquals(1, maximumConcurrentCompletions)
         val state = incarnationStore.read("development")
         assertEquals(100L, state.evolutionIndex)
         assertTrue(state.vector.p >= 0.99f)
@@ -123,7 +139,8 @@ class TurnCoordinatorConcurrencyTest {
 }
 
 private class GlobalIncarnationPipelineFixture {
-    private val store = TrackingIncarnationStateStore()
+    private val sessionStore = MutableSessionStateStore()
+    private val store = TrackingIncarnationStateStore(sessionStore.transcript)
     private val pipeline = DevelopmentMessagePipeline.create(
         personaConfig = PersonaConfig(
             mode = PersonaMode.GROWTH,
@@ -138,9 +155,9 @@ private class GlobalIncarnationPipelineFixture {
                 PromptSectionKeys.ShockHeartbeat to "shock",
             ),
         ),
-        store = MutableSessionStateStore(),
+        store = sessionStore,
         incarnationStateStore = store,
-        transcriptStore = null,
+        transcriptStore = sessionStore.transcript,
         llmClient = object : LlmClient {
             override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
                 delay(1)
@@ -185,8 +202,8 @@ private class GlobalIncarnationPipelineFixture {
     suspend fun state() = store.read("development")
 }
 
-private class TrackingIncarnationStateStore : IncarnationStateStore {
-    private val delegate = MutableIncarnationStateStore()
+private class TrackingIncarnationStateStore(transcriptStore: InMemoryTranscriptStore) : IncarnationStateStore {
+    private val delegate = MutableIncarnationStateStore(transcriptStore = transcriptStore)
     private val measurementMutex = Mutex()
     private var concurrentWrites = 0
     private var maximumWrites = 0
@@ -219,16 +236,28 @@ private class TrackingIncarnationStateStore : IncarnationStateStore {
     }
 
     override suspend fun write(state: IncarnationState) {
+        trackWrite { delegate.write(state) }
+    }
+
+    override suspend fun writeCommittedTurn(
+        state: IncarnationState,
+        turn: ConversationTurn,
+        postCommitPlan: io.openeden.transcript.TurnPostCommitPlan,
+    ): TurnCommitOutcome = trackWrite { delegate.writeCommittedTurn(state, turn, postCommitPlan) }
+
+    private suspend fun <T> trackWrite(block: suspend () -> T): T {
         measurementMutex.withLock {
             concurrentWrites += 1
             maximumWrites = maxOf(maximumWrites, concurrentWrites)
         }
         try {
             delay(1)
-            delegate.write(state)
+            return block()
         } finally {
             measurementMutex.withLock { concurrentWrites -= 1 }
         }
     }
+
+    override fun commitsTo(transcriptStore: TranscriptStore): Boolean = delegate.commitsTo(transcriptStore)
 
 }

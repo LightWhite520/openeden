@@ -14,6 +14,14 @@ CREATE TABLE relationship_state (
     atri_accepted_at_ms INTEGER,
     mutual_commitment_at_ms INTEGER,
     preferred_addresses_json TEXT NOT NULL,
+    continuous_accumulator_version INTEGER NOT NULL DEFAULT 0,
+    accumulator_trust REAL NOT NULL DEFAULT 0.5,
+    accumulator_familiarity REAL NOT NULL DEFAULT 0.0,
+    accumulator_safety REAL NOT NULL DEFAULT 0.5,
+    accumulator_boundary_sensitivity REAL NOT NULL DEFAULT 0.0,
+    accumulator_unresolved_tension REAL NOT NULL DEFAULT 0.0,
+    accumulator_reciprocal_interest REAL NOT NULL DEFAULT 0.0,
+    continuous_baseline_event_ids_json TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY(incarnation_id, canonical_subject_id)
 );
 
@@ -37,30 +45,22 @@ ON relationship_events(incarnation_id, canonical_subject_id, created_at_ms, even
 selectByIdentity:
 SELECT incarnation_id, canonical_subject_id, trust, familiarity, safety, boundary_sensitivity,
        unresolved_tension, reciprocal_interest, evidence_count, updated_at_ms, phase,
-       user_confessed_at_ms, atri_accepted_at_ms, mutual_commitment_at_ms, preferred_addresses_json
+       user_confessed_at_ms, atri_accepted_at_ms, mutual_commitment_at_ms, preferred_addresses_json,
+       continuous_accumulator_version, accumulator_trust, accumulator_familiarity, accumulator_safety,
+       accumulator_boundary_sensitivity, accumulator_unresolved_tension, accumulator_reciprocal_interest,
+       continuous_baseline_event_ids_json
 FROM relationship_state
 WHERE incarnation_id = ? AND canonical_subject_id = ?;
 
 upsert:
-INSERT INTO relationship_state(
+INSERT OR REPLACE INTO relationship_state(
     incarnation_id, canonical_subject_id, trust, familiarity, safety, boundary_sensitivity,
     unresolved_tension, reciprocal_interest, evidence_count, updated_at_ms, phase,
-    user_confessed_at_ms, atri_accepted_at_ms, mutual_commitment_at_ms, preferred_addresses_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(incarnation_id, canonical_subject_id) DO UPDATE SET
-    trust = excluded.trust,
-    familiarity = excluded.familiarity,
-    safety = excluded.safety,
-    boundary_sensitivity = excluded.boundary_sensitivity,
-    unresolved_tension = excluded.unresolved_tension,
-    reciprocal_interest = excluded.reciprocal_interest,
-    evidence_count = excluded.evidence_count,
-    updated_at_ms = excluded.updated_at_ms,
-    phase = excluded.phase,
-    user_confessed_at_ms = excluded.user_confessed_at_ms,
-    atri_accepted_at_ms = excluded.atri_accepted_at_ms,
-    mutual_commitment_at_ms = excluded.mutual_commitment_at_ms,
-    preferred_addresses_json = excluded.preferred_addresses_json;
+    user_confessed_at_ms, atri_accepted_at_ms, mutual_commitment_at_ms, preferred_addresses_json,
+    continuous_accumulator_version, accumulator_trust, accumulator_familiarity, accumulator_safety,
+    accumulator_boundary_sensitivity, accumulator_unresolved_tension, accumulator_reciprocal_interest,
+    continuous_baseline_event_ids_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectEvents:
 SELECT event_id, incarnation_id, canonical_subject_id, source_turn_id, event_type,

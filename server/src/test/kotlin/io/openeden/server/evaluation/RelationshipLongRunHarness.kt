@@ -112,7 +112,10 @@ data class LongRunResult(
             },
             outputDirectory.resolve("prompt-cache-manifest.jsonl") to observations.joinToString("\n") { observation ->
                 val metrics = observation.cacheMetrics
-                "{\"turn\":${observation.transcript.index},\"now_ms\":${observation.transcript.nowMs},\"trace_id\":\"${observation.trace.traceId}\",\"trace_stage\":\"${observation.trace.stage}\",\"input_tokens\":${metrics.inputTokens},\"cached_input_tokens\":${metrics.cachedInputTokens},\"cache_read_rate\":${metrics.cacheHitRate}}"
+                val cacheReadRate = metrics.cacheHitRate.takeIf {
+                    metrics.availability == io.openeden.llm.CacheMetricAvailability.REPORTED
+                }
+                "{\"turn\":${observation.transcript.index},\"now_ms\":${observation.transcript.nowMs},\"trace_id\":\"${observation.trace.traceId}\",\"trace_stage\":\"${observation.trace.stage}\",\"availability\":\"${metrics.availability}\",\"input_tokens\":${metrics.inputTokens},\"cached_input_tokens\":${metrics.cachedInputTokens},\"cache_read_rate\":${cacheReadRate ?: "null"}}"
             },
             outputDirectory.resolve("evaluation-report.md") to buildString {
                 appendLine("# Relationship Evaluation")
@@ -241,14 +244,10 @@ private class FakeEvaluationPipeline(
         EvaluationVariant.B -> "candidate-prompt-cache"
     }
 
-    private fun cacheMetricsFor(index: Int, variant: EvaluationVariant): LlmCacheMetrics = LlmCacheMetrics(
-        inputTokens = 1_000L,
-        cachedInputTokens = when {
-            index == 1 -> 0L
-            variant == EvaluationVariant.A -> 900L
-            else -> 650L
-        },
-    )
+    private fun cacheMetricsFor(index: Int, variant: EvaluationVariant): LlmCacheMetrics {
+        require(index > 0 && variant == this.variant)
+        return LlmCacheMetrics.Unobservable
+    }
 
     private fun deterministicBio(index: Int): BioVector {
         val offset = (index % 20) / 100.0f
@@ -263,6 +262,7 @@ private val relationshipEventTags = setOf(
 )
 
 private fun List<LlmCacheMetrics>.cacheReadRate(): Double? {
+    if (isEmpty() || any { it.availability != io.openeden.llm.CacheMetricAvailability.REPORTED }) return null
     val inputTokens = sumOf(LlmCacheMetrics::inputTokens)
     return inputTokens.takeIf { it > 0L }?.let { sumOf(LlmCacheMetrics::cachedInputTokens).toDouble() / it }
 }

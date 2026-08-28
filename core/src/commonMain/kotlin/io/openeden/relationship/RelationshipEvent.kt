@@ -1,5 +1,8 @@
 package io.openeden.relationship
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class RelationshipEvent(
     val eventId: String,
     val incarnationId: String,

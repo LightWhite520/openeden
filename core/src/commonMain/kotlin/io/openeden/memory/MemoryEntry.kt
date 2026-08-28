@@ -1,5 +1,8 @@
 package io.openeden.memory
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 data class MemoryEntry(
     val id: String,
     val sessionId: String,

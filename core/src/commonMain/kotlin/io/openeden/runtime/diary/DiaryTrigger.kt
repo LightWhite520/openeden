@@ -2,7 +2,22 @@ package io.openeden.runtime.diary
 
 import io.openeden.bio.VectorDelta
 import io.openeden.memory.MemoryMetadata
+import io.openeden.trace.TraceTag
 import kotlin.math.abs
+
+enum class DiaryTriggerOutcome(
+    val traceTags: Set<String>,
+) {
+    SKIPPED_BELOW_THRESHOLD(emptySet()),
+    ENQUEUED(emptySet()),
+    OVERFLOW(setOf(TraceTag.DiaryQueueOverflow)),
+    ;
+
+    companion object {
+        fun fromTraceTags(traceTags: Set<String>): DiaryTriggerOutcome =
+            if (TraceTag.DiaryQueueOverflow in traceTags) OVERFLOW else ENQUEUED
+    }
+}
 
 data class DiaryTriggerConfig(
     val deltaThreshold: Float = 0.25f,
@@ -26,7 +41,7 @@ class DiaryTriggerCoordinator(
         rawMemoryId: String,
         delta: VectorDelta,
         nowMs: Long,
-    ): Set<String> = onVectorDelta(sessionId, rawMemoryId, delta, metadata = null, nowMs)
+    ): DiaryTriggerOutcome = onVectorDelta(sessionId, rawMemoryId, delta, metadata = null, nowMs)
 
     suspend fun onVectorDelta(
         sessionId: String,
@@ -34,8 +49,10 @@ class DiaryTriggerCoordinator(
         delta: VectorDelta,
         metadata: MemoryMetadata?,
         nowMs: Long,
-    ): Set<String> {
-        if (delta.toList().maxOf(::abs) < config.deltaThreshold) return emptySet()
+    ): DiaryTriggerOutcome {
+        if (delta.toList().maxOf(::abs) < config.deltaThreshold) {
+            return DiaryTriggerOutcome.SKIPPED_BELOW_THRESHOLD
+        }
         return enqueue(sessionId, REASON_VECTOR_DELTA, rawMemoryId, metadata, nowMs)
     }
 
@@ -43,18 +60,18 @@ class DiaryTriggerCoordinator(
         sessionId: String,
         lastCoveredRawMemoryId: String,
         nowMs: Long,
-    ): Set<String> = onContextCompacted(sessionId, lastCoveredRawMemoryId, nowMs, metadata = null)
+    ): DiaryTriggerOutcome = onContextCompacted(sessionId, lastCoveredRawMemoryId, nowMs, metadata = null)
 
     suspend fun onContextCompacted(
         sessionId: String,
         lastCoveredRawMemoryId: String,
         nowMs: Long,
-        metadata: MemoryMetadata,
-    ): Set<String> = enqueue(sessionId, REASON_CONTEXT_COMPACTED, lastCoveredRawMemoryId, metadata, nowMs)
+        metadata: MemoryMetadata?,
+    ): DiaryTriggerOutcome = enqueue(sessionId, REASON_CONTEXT_COMPACTED, lastCoveredRawMemoryId, metadata, nowMs)
 
-    suspend fun flushElapsedSessions(nowMs: Long): Map<String, Set<String>> {
+    suspend fun flushElapsedSessions(nowMs: Long): Map<String, DiaryTriggerOutcome> {
         val sessions = rawMemorySource.sessionsWithRawMemories()
-        val result = linkedMapOf<String, Set<String>>()
+        val result = linkedMapOf<String, DiaryTriggerOutcome>()
         for (sessionId in sessions.sorted()) {
             val latest = rawMemorySource.latestRawMemory(sessionId) ?: continue
             val checkpoint = checkpointStore.read(sessionId)
@@ -73,8 +90,7 @@ class DiaryTriggerCoordinator(
         upperBoundRawMemoryId: String,
         metadata: MemoryMetadata?,
         nowMs: Long,
-    ): Set<String> {
-        val legacy = metadata == null
+    ): DiaryTriggerOutcome {
         val task = DiaryTask(
             id = taskId(sessionId, reason, upperBoundRawMemoryId),
             sessionId = sessionId,
@@ -88,7 +104,7 @@ class DiaryTriggerCoordinator(
             canonicalSubjectId = metadata?.canonicalSubjectId.orEmpty(),
             visibility = metadata?.visibility ?: io.openeden.memory.MemoryVisibility.OperatorOnly,
         )
-        return taskStore.enqueueIfAbsent(task)
+        return DiaryTriggerOutcome.fromTraceTags(taskStore.enqueueIfAbsent(task))
     }
 
     companion object {

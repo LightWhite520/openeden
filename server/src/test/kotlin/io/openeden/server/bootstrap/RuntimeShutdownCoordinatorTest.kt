@@ -9,6 +9,10 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
+import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
+import io.openeden.runtime.incarnation.IncarnationState
+import io.openeden.runtime.incarnation.IncarnationStateStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -18,6 +22,33 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RuntimeShutdownCoordinatorTest {
+    @Test
+    fun `normal shutdown closes incarnation store lifecycle`() = runTest {
+        var shutdownCalls = 0
+        val incarnationStore = object : IncarnationStateStore {
+            override suspend fun read(incarnationId: String): IncarnationState = error("not used")
+            override suspend fun readOrCreate(
+                incarnationId: String,
+                personaMode: PersonaMode,
+                personaStartSubState: PersonaSubState,
+            ): IncarnationState = error("not used")
+
+            override suspend fun write(state: IncarnationState) = Unit
+            override suspend fun shutdown() {
+                shutdownCalls += 1
+            }
+        }
+        val coordinator = RuntimeShutdownCoordinator(
+            runtimeJob = Job(),
+            incarnationStore = incarnationStore,
+            closers = emptyList(),
+        )
+
+        assertEquals(null, coordinator.stopped())
+
+        assertEquals(1, shutdownCalls)
+    }
+
     @Test
     fun `stopping cancels runtime child and stopped closes after parent join`() = runTest {
         val events = mutableListOf<String>()

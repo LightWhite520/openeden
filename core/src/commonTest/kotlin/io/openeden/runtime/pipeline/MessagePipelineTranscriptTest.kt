@@ -1,6 +1,8 @@
 package io.openeden.runtime.pipeline
 
 import io.openeden.bio.BioVector
+import io.openeden.identity.CanonicalSubjectId
+import io.openeden.identity.CanonicalSubjectResolver
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutput
 import io.openeden.memory.InMemoryMemoryPalace
@@ -8,6 +10,7 @@ import io.openeden.memory.MemoryContentFingerprint
 import io.openeden.memory.MemoryExclusionContext
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryStore
+import io.openeden.memory.MemoryVisibility
 import io.openeden.memory.MemorySnippet
 import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
@@ -21,6 +24,9 @@ import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.relationship.InMemoryRelationshipStateStore
+import io.openeden.relationship.RelationshipEvaluation
+import io.openeden.relationship.RelationshipEventEvaluator
+import io.openeden.relationship.RelationshipTurn
 import io.openeden.runtime.diary.SessionDiaryQueue
 import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.session.MutableSessionStateStore
@@ -36,6 +42,7 @@ import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.transcript.TurnPostCommitPlan
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.collect
@@ -47,9 +54,58 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class MessagePipelineTranscriptTest {
+    @Test
+    fun `direct memory follows canonical subject across platforms`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val owner = CanonicalSubjectId("owner")
+        val resolver = CanonicalSubjectResolver(
+            mapOf(
+                CanonicalSubjectResolver.PlatformUser("QQ", "qq-owner") to owner,
+                CanonicalSubjectResolver.PlatformUser("WEB", "web-owner") to owner,
+            ),
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            llmClient = ValidLlmClient(response = "记住了"),
+            transcriptStore = transcripts,
+            memoryStore = memories,
+            canonicalSubjectResolver = resolver,
+        )
+
+        pipeline.handle(
+            DevelopmentMessageRequest(
+                turnId = "qq-private-turn",
+                platform = "QQ",
+                scopeId = "qq-owner",
+                userId = "qq-owner",
+                text = "我最喜欢雨后的海边",
+                emotionConfidence = 0.49f,
+            ),
+        )
+
+        val stored = memories.recent("QQ:qq-owner", 10).single()
+        assertIs<MemoryVisibility.PrivateSubject>(stored.metadata.visibility)
+        val retrieved = memories.retrieve(
+            RetrievalRequest(
+                sessionId = "WEB:web-owner",
+                userId = "web-owner",
+                userInput = "我最喜欢雨后的海边",
+                currentVector = BioVector.Neutral,
+                origin = BioVector.Neutral,
+                mode = RetrievalMode.CONGRUENT,
+                incarnationId = "incarnation-a",
+                canonicalSubjectId = owner.value,
+            ),
+        )
+        assertEquals(listOf(stored.id), retrieved.memories.map(MemorySnippet::id))
+    }
+
     @Test
     fun `validated user turn publishes one public transcript record`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
@@ -70,6 +126,34 @@ class MessagePipelineTranscriptTest {
         assertEquals("user-1", turn.userId)
         assertEquals("hello", turn.userText)
         assertEquals("validated response", turn.assistantText)
+    }
+
+    @Test
+    fun `relationship evaluation starts only after the user turn and pending stage commit atomically`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        var observedCommittedTurn = false
+        var observedPendingRelationshipStage = false
+        val evaluator = object : RelationshipEventEvaluator {
+            override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
+                observedCommittedTurn = transcripts.findByTurnId(turn.sourceTurnId) != null
+                observedPendingRelationshipStage = transcripts.postCommitState(turn.sourceTurnId)
+                    ?.pendingStages
+                    ?.contains(io.openeden.transcript.TurnPostCommitStage.RELATIONSHIP) == true
+                return RelationshipEvaluation(emptyList(), confidence = 0.0f)
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            llmClient = ValidLlmClient(response = "validated response"),
+            transcriptStore = transcripts,
+            relationshipEventEvaluator = evaluator,
+        )
+
+        pipeline.handle(request(turnId = "post-commit-evaluation"))
+
+        assertTrue(observedCommittedTurn)
+        assertTrue(observedPendingRelationshipStage)
+        assertNotNull(transcripts.postCommitState("post-commit-evaluation"))
     }
 
     @Test
@@ -287,6 +371,7 @@ class MessagePipelineTranscriptTest {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = persona(),
             store = transcripts,
+            incarnationStateStore = transcripts.incarnationStateStore,
             transcriptStore = transcripts,
             memoryStore = memoryStore,
             llmClient = ValidLlmClient(),
@@ -303,22 +388,29 @@ class MessagePipelineTranscriptTest {
     @Test
     fun `invalid user and heartbeat turns do not enter public transcript`() = runTest {
         val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = store.transcript,
+        )
 
-        pipeline(store, InvalidLlmClient).handle(request(turnId = "invalid-user"))
-        pipeline(store, ValidLlmClient()).handle(
+        pipeline(store, InvalidLlmClient, incarnationStore = incarnationStore).handle(request(turnId = "invalid-user"))
+        pipeline(store, ValidLlmClient(), incarnationStore = incarnationStore).handle(
             request(turnId = "heartbeat-1").copy(source = TurnSource.HEARTBEAT),
         )
 
         assertTrue(store.page(50).turns.isEmpty())
-        assertEquals(1L, store.read("CLI:local").evolutionIndex)
+        assertEquals(1L, incarnationStore.read("incarnation-a").evolutionIndex)
     }
 
     @Test
     fun `inference failure does not partially commit state or transcript`() = runTest {
         val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = store.transcript,
+        )
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = persona(),
             store = store,
+            incarnationStateStore = incarnationStore,
             llmClient = ThrowingLlmClient(IllegalStateException("inference failed")),
             transcriptStore = store,
             centroidProvider = HomeostasisCentroidProvider { BioVector.Neutral.copy(l = 0.2f) },
@@ -328,15 +420,19 @@ class MessagePipelineTranscriptTest {
             pipeline.handle(request(turnId = "failed-turn"))
         }
 
-        assertEquals(BioVector.Neutral, store.read("CLI:local").vector)
-        assertEquals(BioVector.Neutral, store.read("CLI:local").origin)
-        assertEquals(0L, store.read("CLI:local").evolutionIndex)
+        val state = incarnationStore.read("incarnation-a")
+        assertEquals(BioVector.Neutral, state.vector)
+        assertEquals(BioVector.Neutral, state.origin)
+        assertEquals(0L, state.evolutionIndex)
         assertTrue(store.page(50).turns.isEmpty())
     }
 
     @Test
     fun `invalid output does not persist the inference centroid`() = runTest {
         val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = store.transcript,
+        )
         val centroids = listOf(
             BioVector.Neutral.copy(p = 0.2f),
             BioVector.Neutral.copy(p = 0.3f),
@@ -345,6 +441,7 @@ class MessagePipelineTranscriptTest {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = persona(),
             store = store,
+            incarnationStateStore = incarnationStore,
             llmClient = InvalidLlmClient,
             transcriptStore = store,
             centroidProvider = HomeostasisCentroidProvider { centroids[centroidCalls++] },
@@ -352,23 +449,137 @@ class MessagePipelineTranscriptTest {
 
         pipeline.handle(request(turnId = "invalid-centroid"))
 
-        assertEquals(BioVector.Neutral, store.read("CLI:local").origin)
-        assertEquals(0L, store.read("CLI:local").evolutionIndex)
+        assertEquals(BioVector.Neutral, incarnationStore.read("incarnation-a").origin)
+        assertEquals(0L, incarnationStore.read("incarnation-a").evolutionIndex)
         assertEquals(1, centroidCalls)
     }
 
     @Test
     fun `cancellation does not partially commit state or transcript`() = runTest {
         val store = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
-        val pipeline = pipeline(store, ThrowingLlmClient(CancellationException("cancelled")))
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = store.transcript,
+        )
+        val pipeline = pipeline(
+            store,
+            ThrowingLlmClient(CancellationException("cancelled")),
+            incarnationStore = incarnationStore,
+        )
 
         assertFailsWith<CancellationException> {
             pipeline.handle(request(turnId = "cancelled-turn"))
         }
 
-        assertEquals(BioVector.Neutral, store.read("CLI:local").vector)
-        assertEquals(0L, store.read("CLI:local").evolutionIndex)
+        assertEquals(BioVector.Neutral, incarnationStore.read("incarnation-a").vector)
+        assertEquals(0L, incarnationStore.read("incarnation-a").evolutionIndex)
         assertTrue(store.page(50).turns.isEmpty())
+    }
+
+    @Test
+    fun `legacy committed retry attaches no-op post commit plan without inference or Bio advance`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = transcripts,
+        )
+        val persistedState = incarnationStore.readOrCreate(
+            incarnationId = "incarnation-a",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        ).copy(evolutionIndex = 7L)
+        incarnationStore.write(persistedState)
+        transcripts.append(
+            ConversationTurn(
+                turnId = "legacy-committed-turn",
+                incarnationId = "incarnation-a",
+                sessionId = "CLI:local",
+                platform = "CLI",
+                scopeId = "local",
+                userId = "user-1",
+                userText = "hello",
+                assistantText = "legacy response",
+                completedAtMs = 500L,
+            ),
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            llmClient = ThrowingLlmClient(AssertionError("LLM must not run for a committed retry")),
+            store = stateStore,
+            incarnationStateStore = incarnationStore,
+            transcriptStore = transcripts,
+            nowMs = { 1_000L },
+        )
+
+        val replay = pipeline.handle(request(turnId = "legacy-committed-turn"))
+
+        assertEquals("legacy response", replay.response)
+        assertEquals(persistedState, incarnationStore.read("incarnation-a"))
+        assertEquals(
+            TurnPostCommitPlan("legacy-committed-turn"),
+            transcripts.postCommitState("legacy-committed-turn")?.plan,
+        )
+        assertEquals(emptyList(), transcripts.postCommitState("legacy-committed-turn")?.pendingStages)
+        assertContains(replay.traceTags, TraceTag.TranscriptRetry)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun `committed retry completes raw memory diary and centroid without duplicate memory`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = transcripts,
+        )
+        val memoryPalace = InMemoryMemoryPalace(DirectInferenceExecutor)
+        var memoryWrites = 0
+        val memories = object : MemoryStore by memoryPalace {
+            override suspend fun write(entry: io.openeden.memory.MemoryEntry): Set<String> {
+                val tags = memoryPalace.write(entry)
+                memoryWrites += 1
+                if (memoryWrites == 1) throw CancellationException("cancel after durable raw memory")
+                return tags
+            }
+        }
+        val diaryQueue = SessionDiaryQueue()
+        val diaryEvents = mutableListOf<io.openeden.runtime.diary.DiaryEvent>()
+        backgroundScope.launch { diaryQueue.events().collect { diaryEvents += it } }
+        runCurrent()
+        val updatedOrigin = BioVector.Neutral.copy(l = 0.7f)
+        var llmCalls = 0
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    llmCalls += 1
+                    return ValidLlmClient().complete(prompt)
+                }
+            },
+            store = stateStore,
+            incarnationStateStore = incarnationStore,
+            transcriptStore = transcripts,
+            memoryStore = memories,
+            diaryQueue = diaryQueue,
+            centroidProvider = HomeostasisCentroidProvider {
+                if (memoryPalace.recent("CLI:local", 1).isEmpty()) BioVector.Neutral else updatedOrigin
+            },
+            nowMs = { 1_000L },
+        )
+        val request = request(turnId = "post-commit-recovery")
+
+        assertFailsWith<CancellationException> { pipeline.handle(request) }
+        assertEquals(1, transcripts.page(50).turns.size)
+        assertEquals(1L, incarnationStore.read("incarnation-a").evolutionIndex)
+        assertTrue(diaryEvents.isEmpty())
+
+        val replay = pipeline.handle(request)
+        runCurrent()
+
+        assertEquals(1, llmCalls)
+        assertEquals(1, memoryPalace.recent("CLI:local", 50).size)
+        assertEquals(1, diaryEvents.size)
+        assertEquals(updatedOrigin, incarnationStore.read("incarnation-a").origin)
+        assertEquals(1L, replay.evolutionIndex)
+        assertContains(replay.traceTags, TraceTag.TranscriptRetry)
     }
 
     @Test
@@ -376,6 +587,9 @@ class MessagePipelineTranscriptTest {
     fun `retrying the same turn id does not evolve state twice`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
         val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = transcripts,
+        )
         val relationships = InMemoryRelationshipStateStore()
         val memoryPalace = InMemoryMemoryPalace(DirectInferenceExecutor)
         val retrievalOrigins = mutableListOf<BioVector>()
@@ -394,11 +608,13 @@ class MessagePipelineTranscriptTest {
         val firstPostOrigin = BioVector.Neutral.copy(l = 0.6f)
         val retryPreOrigin = BioVector.Neutral.copy(l = 0.2f)
         val centroids = listOf(firstPreOrigin, firstPostOrigin, retryPreOrigin)
+        val traces = io.openeden.trace.InMemoryTraceStore()
         var clock = 1_000L
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = persona(),
             llmClient = ValidLlmClient(),
             store = stateStore,
+            incarnationStateStore = incarnationStore,
             transcriptStore = transcripts,
             relationshipStore = relationships,
             memoryStore = memories,
@@ -406,6 +622,7 @@ class MessagePipelineTranscriptTest {
             centroidProvider = HomeostasisCentroidProvider {
                 centroids[centroidCalls++]
             },
+            traceStore = traces,
             nowMs = { clock },
         )
         val request = request(turnId = "stable-retry-id")
@@ -413,11 +630,13 @@ class MessagePipelineTranscriptTest {
         val firstResult = pipeline.handle(request)
         runCurrent()
         val firstTurn = transcripts.page(50).turns.single()
-        val firstRelationship = relationships.readOrCreate("CLI:local", "user-1", clock)
+        val firstRelationship = relationships.readOrCreate("incarnation-a", "CLI:user-1", clock)
         val firstMemories = memoryPalace.recent("CLI:local", 50)
         val firstDiaryCount = diaryEvents.size
         val firstCentroidCalls = centroidCalls
-        val firstState = stateStore.read("CLI:local")
+        val firstState = incarnationStore.read("incarnation-a")
+        val firstLlmInferenceCount = traces.snapshot().count { it.stage == "llm_inference" }
+        val firstLlmCacheCount = traces.snapshot().count { it.stage == "llm_cache" }
         assertTrue(firstRelationship.familiarity > 0.0f)
         assertTrue(firstMemories.isNotEmpty())
         assertEquals(listOf("stable-retry-id"), firstMemories.single().metadata.lineage.sourceTurnIds)
@@ -437,11 +656,11 @@ class MessagePipelineTranscriptTest {
         assertEquals(1_000L, firstTurn.completedAtMs)
         assertEquals(firstTurn.completedAtMs, transcripts.page(50).turns.single().completedAtMs)
         assertEquals(firstResult.updatedVector, retryResult.updatedVector)
-        assertEquals(1L, stateStore.read("CLI:local").evolutionIndex)
-        assertEquals(firstState, stateStore.read("CLI:local"))
-        assertEquals(stateStore.read("CLI:local").vector, retryResult.updatedVector)
+        assertEquals(1L, incarnationStore.read("incarnation-a").evolutionIndex)
+        assertEquals(firstState, incarnationStore.read("incarnation-a"))
+        assertEquals(incarnationStore.read("incarnation-a").vector, retryResult.updatedVector)
         assertEquals(1L, retryResult.evolutionIndex)
-        assertEquals(firstRelationship, relationships.readOrCreate("CLI:local", "user-1", clock))
+        assertEquals(firstRelationship, relationships.readOrCreate("incarnation-a", "CLI:user-1", clock))
         assertEquals(firstMemories, memoryPalace.recent("CLI:local", 50))
         assertEquals(firstDiaryCount, diaryEvents.size)
         assertEquals(firstCentroidCalls + 1, centroidCalls)
@@ -449,6 +668,9 @@ class MessagePipelineTranscriptTest {
         assertContains(retryResult.traceTags, TraceTag.TranscriptRetry)
         assertFalse(TraceTag.VectorWriteSerialized in retryResult.traceTags)
         assertFalse(TraceTag.ShockStateTransition in retryResult.traceTags)
+        assertEquals(firstLlmInferenceCount, traces.snapshot().count { it.stage == "llm_inference" })
+        assertEquals(firstLlmCacheCount, traces.snapshot().count { it.stage == "llm_cache" })
+        assertEquals(1, traces.snapshot().count { it.stage == "turn_replay" })
     }
 
     @Test
@@ -489,6 +711,25 @@ class MessagePipelineTranscriptTest {
     }
 
     @Test
+    fun `pipeline refuses a successful response while a required post commit stage remains pending`() = runTest {
+        val store = FailingRecentTranscriptStore(dropStageCompletions = true)
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            llmClient = ValidLlmClient(),
+            store = store,
+            incarnationStateStore = store.incarnationStateStore,
+            transcriptStore = store,
+            nowMs = { 1_000L },
+        )
+
+        assertFailsWith<IllegalStateException> {
+            pipeline.handle(request(turnId = "pending-post-commit"))
+        }
+
+        assertTrue(store.postCommitState("pending-post-commit")?.pendingStages?.isNotEmpty() == true)
+    }
+
+    @Test
     fun `non-memory transcript without co-backed state is rejected before callbacks`() {
         var callbacks = 0
         val callbackTranscript = object : TranscriptStore {
@@ -520,9 +761,12 @@ class MessagePipelineTranscriptTest {
         store: MutableSessionStateStore,
         llmClient: LlmClient,
         nowMs: () -> Long = { 1_000L },
+        incarnationStore: io.openeden.runtime.incarnation.IncarnationStateStore =
+            io.openeden.runtime.incarnation.MutableIncarnationStateStore(transcriptStore = store.transcript),
     ) = DevelopmentMessagePipeline.create(
         personaConfig = persona(),
         store = store,
+        incarnationStateStore = incarnationStore,
         llmClient = llmClient,
         transcriptStore = store,
         nowMs = nowMs,
@@ -570,8 +814,17 @@ class MessagePipelineTranscriptTest {
         )
     }
 
-    private class FailingRecentTranscriptStore : SessionStateStore, AtomicTurnCommitStore, TranscriptStore {
+    private class FailingRecentTranscriptStore(
+        private val dropStageCompletions: Boolean = false,
+    ) : SessionStateStore, AtomicTurnCommitStore, TranscriptStore {
         private val delegate = MutableSessionStateStore(activeIncarnationId = "incarnation-a")
+        private val incarnationDelegate = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = delegate.transcript,
+        )
+        val incarnationStateStore = object : io.openeden.runtime.incarnation.IncarnationStateStore by incarnationDelegate {
+            override fun commitsTo(transcriptStore: TranscriptStore): Boolean =
+                transcriptStore === this@FailingRecentTranscriptStore
+        }
 
         override suspend fun read(sessionId: String): SessionState = delegate.read(sessionId)
 
@@ -595,6 +848,20 @@ class MessagePipelineTranscriptTest {
         override suspend fun activeIncarnation(): ActiveIncarnation = delegate.activeIncarnation()
 
         override suspend fun append(turn: ConversationTurn) = delegate.append(turn)
+
+        override suspend fun postCommitState(turnId: String) = delegate.postCommitState(turnId)
+
+        override suspend fun persistRelationshipEvaluation(
+            turnId: String,
+            evaluation: RelationshipEvaluation,
+        ): RelationshipEvaluation = delegate.persistRelationshipEvaluation(turnId, evaluation)
+
+        override suspend fun markPostCommitStageCompleted(
+            turnId: String,
+            stage: io.openeden.transcript.TurnPostCommitStage,
+        ) {
+            if (!dropStageCompletions) delegate.markPostCommitStageCompleted(turnId, stage)
+        }
 
         override suspend fun recentForSession(sessionId: String, limit: Int): List<ConversationTurn> =
             error("recent transcript unavailable")

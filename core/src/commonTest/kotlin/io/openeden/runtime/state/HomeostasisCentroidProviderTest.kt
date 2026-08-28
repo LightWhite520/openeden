@@ -61,6 +61,7 @@ class HomeostasisCentroidProviderTest {
                 deltaVec = VectorDelta.Zero,
                 snapshotOrigin = BioVector.Neutral,
                 userId = "user",
+                incarnationId = "QQ:centroid",
             ),
         )
 }

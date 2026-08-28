@@ -3,8 +3,13 @@ param(
     [string]$Variant = "A",
     [ValidateRange(1, 100)]
     [int]$Runs = 3,
-    [string]$OutputDirectory = (Join-Path $PSScriptRoot "..\build\relationship-evaluation")
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot "..\build\relationship-evaluation"),
+    [switch]$AllowSyntheticFixture
 )
+
+if (-not $AllowSyntheticFixture) {
+    throw "This runner exports synthetic fixtures only. Pass -AllowSyntheticFixture for format tests; it is not a production A/B evaluation."
+}
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $outputRoot = Join-Path ([System.IO.Path]::GetFullPath($OutputDirectory)) $Variant

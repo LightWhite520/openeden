@@ -36,7 +36,10 @@ import io.openeden.memory.DjlMemoryEmbeddingModel
 import io.openeden.memory.MemoryEmbeddingModel
 import io.openeden.relationship.UserAffectAnalyzer
 import io.openeden.relationship.DjlTextAffectAnalyzer
+import io.openeden.relationship.DeterministicRelationshipEventEvaluator
+import io.openeden.relationship.FallbackRelationshipEventEvaluator
 import io.openeden.relationship.HostIdentity
+import io.openeden.relationship.OpenAiRelationshipEventEvaluator
 import io.openeden.relationship.RelationshipRoleResolver
 import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryKind
@@ -83,8 +86,14 @@ import io.openeden.onebot.heartbeat.OneBotHeartbeatDelivery
 import io.openeden.onebot.ingress.OneBotAdapter
 import io.openeden.onebot.ingress.OneBotMessageHandler
 import io.openeden.onebot.ingress.OneBotMessageResult
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.server.application.*
 import io.ktor.util.AttributeKey
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -169,7 +178,7 @@ private suspend fun Application.startRuntime(
             committedTranscriptStore = transcriptStore,
         )
     }
-    startupClosers.addFirst { incarnationStore.close() }
+    startupClosers.addFirst { incarnationStore.shutdown() }
     val relationshipStore = SqlDelightRelationshipStateStore.open(serverConfig.runtimeDbPath)
     startupClosers.addFirst { relationshipStore.close() }
     val diaryTaskStore = persistenceIo.open {
@@ -248,6 +257,17 @@ private suspend fun Application.startRuntime(
         defaultGenerationSettings = staticGenerationSettings,
     )
     startupClosers.addFirst { llmClient.close() }
+    val relationshipEvaluatorClient = relationshipEvaluatorHttpClient()
+    startupClosers.addFirst { relationshipEvaluatorClient.close() }
+    val relationshipEventEvaluator = FallbackRelationshipEventEvaluator(
+        primary = OpenAiRelationshipEventEvaluator(
+            apiKey = serverConfig.apiKey,
+            model = serverConfig.model,
+            baseUrl = serverConfig.baseUrl,
+            httpClient = relationshipEvaluatorClient,
+        ),
+        fallback = DeterministicRelationshipEventEvaluator(),
+    )
     val capabilityProvider: OpenAiCapabilityProvider = if (serverConfig.capabilityProbeEnabled) {
         val capabilityCache = OpenAiCapabilityCache()
         val capabilityProbe = OpenAiCapabilityProbe(
@@ -285,6 +305,7 @@ private suspend fun Application.startRuntime(
             host = serverConfig.hostIdentity,
             hostAddress = serverConfig.hostAddress,
         ),
+        relationshipEventEvaluator = relationshipEventEvaluator,
         userAffectAnalyzer = models.userAffectAnalyzer,
         diaryTriggerCoordinator = diaryCoordinator,
         transcriptStore = transcriptStore,
@@ -427,11 +448,11 @@ private suspend fun Application.startRuntime(
 
     val shutdown = RuntimeShutdownCoordinator(
         runtimeJob = runtimeJob,
+        incarnationStore = incarnationStore,
         closers = listOf(
             { lifecycleRepository.close() },
             { transcriptStore.close() },
             { store.close() },
-            { incarnationStore.close() },
             { memoryStore.close(); Unit },
             { qdrantRuntime?.client?.close() },
             { projectionStore.close() },
@@ -439,6 +460,7 @@ private suspend fun Application.startRuntime(
             { traceStore.close() },
             { relationshipStore.close() },
             { oneBotAdapter?.shutdown() },
+            { relationshipEvaluatorClient.close() },
             { llmClient.close() },
             { models.close() },
             { inferenceExecutor.close() },
@@ -632,6 +654,18 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         vectorDatabase = loadVectorDatabaseConfig(config),
         oneBot = oneBot,
     )
+}
+
+internal fun relationshipEvaluatorHttpClient(
+    engine: HttpClientEngine = CIO.create(),
+    requestTimeoutMillis: Long = 30_000L,
+): HttpClient = HttpClient(engine) {
+    install(HttpTimeout) {
+        this.requestTimeoutMillis = requestTimeoutMillis
+        connectTimeoutMillis = 10_000L
+        socketTimeoutMillis = requestTimeoutMillis
+    }
+    install(ContentNegotiation) { json() }
 }
 
 private fun loadCanonicalSubjectResolver(

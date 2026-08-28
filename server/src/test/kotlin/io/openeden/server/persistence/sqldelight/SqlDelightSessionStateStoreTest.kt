@@ -10,6 +10,7 @@ import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.pipeline.DevelopmentMessageRequest
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.server.persistence.sqldelight.SqlDelightSessionStateStore
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import kotlinx.serialization.json.Json
@@ -89,9 +90,14 @@ class SqlDelightSessionStateStoreTest {
     }
 
     @Test
-    fun `persona starting point survives restart and ignores later config changes`() = runTest {
+    fun `persona starting point is global and ignores later session config changes`() = runTest {
+        val incarnationStore = MutableIncarnationStateStore()
         SqlDelightSessionStateStore.open(dbPath).use { store ->
-            DevelopmentMessagePipeline.create(persona(PersonaSubState.TRUE_SELF), store = store)
+            DevelopmentMessagePipeline.create(
+                personaConfig = persona(PersonaSubState.TRUE_SELF),
+                store = store,
+                incarnationStateStore = incarnationStore,
+            )
                 .handle(request())
         }
 
@@ -99,12 +105,14 @@ class SqlDelightSessionStateStoreTest {
             val result = DevelopmentMessagePipeline.create(
                 persona(PersonaSubState.AWAKENED, PersonaMode.LEGACY),
                 store = reopened,
+                incarnationStateStore = incarnationStore,
             )
                 .handle(request())
 
             assertTrue("TRUE_SELF" in result.promptPreview)
             assertTrue("\"persona_mode\": \"GROWTH\"" in result.promptPreview)
             assertTrue("AWAKENED\"" !in result.promptPreview)
+            assertEquals(PersonaSubState.TRUE_SELF, incarnationStore.read("development").personaStartSubState)
         }
     }
 
@@ -142,6 +150,8 @@ class SqlDelightSessionStateStoreTest {
             """.trimIndent(),
             0,
         )
+        createPreV13DiaryTasks(driver)
+        createLegacyRelationshipState(driver)
         val vectorJson = Json.encodeToString(BioVector.serializer(), BioVector.Neutral)
         driver.execute(
             null,

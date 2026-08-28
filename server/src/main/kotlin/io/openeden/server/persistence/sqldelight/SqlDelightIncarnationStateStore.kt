@@ -13,10 +13,13 @@ import io.openeden.server.db.Database
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.transcript.TurnPostCommitPlan
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Properties
@@ -68,6 +71,7 @@ class SqlDelightIncarnationStateStore(
     override suspend fun writeCommittedTurn(
         state: IncarnationState,
         turn: ConversationTurn,
+        postCommitPlan: TurnPostCommitPlan,
     ): TurnCommitOutcome = withContext(ioDispatcher) {
         var outcome = TurnCommitOutcome.INSERTED
         database.transaction {
@@ -83,6 +87,20 @@ class SqlDelightIncarnationStateStore(
                 ?.let { existing ->
                     require(existing.matchesRetry(turn)) {
                         "Turn ID '${turn.turnId}' already exists with a different payload"
+                    }
+                    val persistedPlan = transcriptQueries.selectTurnPostCommit(turn.turnId) { planJson, _ ->
+                        json.decodeFromString<TurnPostCommitPlan>(planJson)
+                    }.executeAsOneOrNull()
+                    if (persistedPlan != null) {
+                        require(persistedPlan == postCommitPlan) {
+                            "Turn ID '${turn.turnId}' already has a different post-commit plan"
+                        }
+                    } else {
+                        transcriptQueries.insertTurnPostCommitIfAbsent(
+                            turn_id = turn.turnId,
+                            plan_json = json.encodeToString(postCommitPlan),
+                            completed_stages_json = "[]",
+                        )
                     }
                     outcome = TurnCommitOutcome.ALREADY_COMMITTED
                     return@transaction
@@ -102,11 +120,24 @@ class SqlDelightIncarnationStateStore(
             require(transcriptQueries.selectTurnById(turn.turnId, ::toConversationTurn).executeAsOne() == turn) {
                 "Turn ID '${turn.turnId}' was not committed with the expected payload"
             }
+            transcriptQueries.insertTurnPostCommitIfAbsent(
+                turn_id = turn.turnId,
+                plan_json = json.encodeToString(postCommitPlan),
+                completed_stages_json = "[]",
+            )
         }
         outcome
     }
 
     fun close() = driver.close()
+
+    override suspend fun shutdown() {
+        withContext(ioDispatcher) {
+            if (driver is JdbcSqliteDriver) driver.closeCurrentThreadConnection()
+            driver.close()
+        }
+        (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
+    }
 
     private fun readInitialized(incarnationId: String): IncarnationState =
         queries.selectBioByIncarnationId(incarnationId, ::toIncarnationState)
@@ -278,5 +309,9 @@ class SqlDelightIncarnationStateStore(
                 committedTranscriptStore = committedTranscriptStore,
             )
         }
+    }
+
+    private fun JdbcSqliteDriver.closeCurrentThreadConnection() {
+        closeConnection(getConnection())
     }
 }

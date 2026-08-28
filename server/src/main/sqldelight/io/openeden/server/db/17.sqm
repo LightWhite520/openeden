@@ -1,0 +1,30 @@
+ALTER TABLE relationship_state ADD COLUMN continuous_accumulator_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE relationship_state ADD COLUMN accumulator_trust REAL NOT NULL DEFAULT 0.5;
+ALTER TABLE relationship_state ADD COLUMN accumulator_familiarity REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE relationship_state ADD COLUMN accumulator_safety REAL NOT NULL DEFAULT 0.5;
+ALTER TABLE relationship_state ADD COLUMN accumulator_boundary_sensitivity REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE relationship_state ADD COLUMN accumulator_unresolved_tension REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE relationship_state ADD COLUMN accumulator_reciprocal_interest REAL NOT NULL DEFAULT 0.0;
+ALTER TABLE relationship_state ADD COLUMN continuous_baseline_event_ids_json TEXT NOT NULL DEFAULT '[]';
+
+UPDATE relationship_state
+SET continuous_accumulator_version = 1,
+    accumulator_trust = trust,
+    accumulator_familiarity = familiarity,
+    accumulator_safety = safety,
+    accumulator_boundary_sensitivity = boundary_sensitivity,
+    accumulator_unresolved_tension = unresolved_tension,
+    accumulator_reciprocal_interest = reciprocal_interest,
+    continuous_baseline_event_ids_json = COALESCE(
+        (
+            SELECT json_group_array(baseline_event.event_id)
+            FROM (
+                SELECT event.event_id
+                FROM relationship_events AS event
+                WHERE event.incarnation_id = relationship_state.incarnation_id
+                  AND event.canonical_subject_id = relationship_state.canonical_subject_id
+                ORDER BY event.created_at_ms, event.event_id
+            ) AS baseline_event
+        ),
+        '[]'
+    );

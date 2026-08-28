@@ -5,6 +5,7 @@ import io.openeden.relationship.RelationshipEvent
 import io.openeden.relationship.RelationshipEventType
 import io.openeden.relationship.RelationshipPhase
 import io.openeden.relationship.RelationshipState
+import io.openeden.server.db.Database
 import io.openeden.server.persistence.sqldelight.SqlDelightRelationshipStateStore
 import kotlinx.coroutines.test.runTest
 import java.sql.DriverManager
@@ -59,7 +60,7 @@ class SqlDelightRelationshipStateStoreTest {
             val other = reopened.readOrCreate("inc-1", "other")
             assertEquals(RelationshipPhase.COUPLE, host.facts.phase)
             assertNotNull(host.facts.mutualCommitmentAtMs)
-            assertEquals(0.4f, host.reciprocalInterest)
+            assertEquals(0.5f, host.reciprocalInterest)
             assertEquals(0L, other.evidenceCount)
             assertEquals("other", other.canonicalSubjectId)
         } finally {
@@ -105,10 +106,141 @@ class SqlDelightRelationshipStateStoreTest {
     }
 
     @Test
+    fun `restart then correction restores exact trust after a clamped conflict`() = runTest {
+        val dbPath = Files.createTempFile("openeden-relationship-boundary", ".db")
+        val conflict = event("conflict", RelationshipEventType.CONFLICT, 10L)
+        val store = SqlDelightRelationshipStateStore.open(dbPath)
+        try {
+            store.write(RelationshipState.neutral("inc-1", "host").copy(trust = 0.02f))
+            assertEquals(0.0f, store.append(conflict).trust, 0.00001f)
+        } finally {
+            store.close()
+        }
+
+        val reopened = SqlDelightRelationshipStateStore.open(dbPath)
+        try {
+            val corrected = reopened.correct(
+                RelationshipCorrection(
+                    event = event(
+                        sourceTurnId = "correction",
+                        type = RelationshipEventType.PREFERENCE_RESPECTED,
+                        createdAtMs = 20L,
+                        supersedesEventId = conflict.eventId,
+                    ),
+                ),
+            )
+
+            assertEquals(0.02f, corrected.trust, 0.00001f)
+            assertEquals(0.52f, corrected.safety, 0.00001f)
+        } finally {
+            reopened.close()
+        }
+    }
+
+    @Test
+    fun `version 17 relationship state migrates deterministically to version 18`() = runTest {
+        val dbPath = Files.createTempFile("openeden-relationship-v17", ".db")
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(VERSION_17_RELATIONSHIP_STATE_SQL)
+                statement.executeUpdate(VERSION_17_RELATIONSHIP_EVENTS_SQL)
+                statement.executeUpdate(
+                    """
+                    INSERT INTO relationship_state VALUES (
+                        'inc-1', 'host', 0.0, 0.0, 0.5, 0.0, 0.12, 0.0, 1, 10,
+                        'STRANGER', NULL, NULL, NULL, '[]'
+                    )
+                    """.trimIndent(),
+                )
+                statement.executeUpdate(
+                    """
+                    INSERT INTO relationship_events VALUES (
+                        'conflict:CONFLICT', 'inc-1', 'host', 'conflict', 'CONFLICT',
+                        1.0, 'CONFLICT', 10, NULL, NULL
+                    )
+                    """.trimIndent(),
+                )
+                statement.execute("PRAGMA user_version = 17")
+            }
+        }
+
+        val migrated = SqlDelightRelationshipStateStore.open(dbPath)
+        try {
+            val state = migrated.readOrCreate("inc-1", "host")
+            assertEquals(0.0f, state.trust, 0.00001f)
+            assertEquals(0.12f, state.unresolvedTension, 0.00001f)
+            assertEquals(setOf("conflict:CONFLICT"), state.continuousBaselineEventIds)
+
+            val corrected = migrated.correct(
+                RelationshipCorrection(
+                    event = event(
+                        sourceTurnId = "legacy-correction",
+                        type = RelationshipEventType.PREFERENCE_RESPECTED,
+                        createdAtMs = 20L,
+                        supersedesEventId = "conflict:CONFLICT",
+                    ),
+                ),
+            )
+            assertEquals(0.0f, corrected.trust, 0.00001f)
+            assertEquals(0.5f, corrected.safety, 0.00001f)
+            assertEquals(0.12f, corrected.unresolvedTension, 0.00001f)
+            assertEquals(1L, corrected.evidenceCount)
+            assertEquals(2, corrected.events.size)
+        } finally {
+            migrated.close()
+        }
+
+        val reopened = SqlDelightRelationshipStateStore.open(dbPath)
+        try {
+            val state = reopened.readOrCreate("inc-1", "host")
+            assertEquals(setOf("conflict:CONFLICT"), state.continuousBaselineEventIds)
+            assertEquals(0.0f, state.trust, 0.00001f)
+            assertEquals(0.5f, state.safety, 0.00001f)
+            assertEquals(0.12f, state.unresolvedTension, 0.00001f)
+            assertEquals(1L, state.evidenceCount)
+            assertEquals(2, state.events.size)
+        } finally {
+            reopened.close()
+        }
+
+        DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("PRAGMA user_version").use { result ->
+                    assertEquals(18L, result.getLong(1))
+                    assertEquals(Database.Schema.version, result.getLong(1))
+                }
+            }
+        }
+    }
+
+    @Test
     fun `legacy relationship rows migrate to neutral incarnation subject state`() = runTest {
         val dbPath = Files.createTempFile("openeden-relationship-legacy", ".db")
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
             connection.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TABLE diary_tasks (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        source_memory_id TEXT,
+                        reason TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        attempts INTEGER NOT NULL,
+                        created_at_ms INTEGER NOT NULL,
+                        available_at_ms INTEGER NOT NULL,
+                        lease_expires_at_ms INTEGER,
+                        lease_token TEXT,
+                        last_error TEXT,
+                        incarnation_id TEXT NOT NULL DEFAULT 'legacy-incarnation',
+                        source_session_id TEXT NOT NULL DEFAULT '',
+                        canonical_subject_id TEXT NOT NULL DEFAULT '',
+                        visibility_kind TEXT NOT NULL DEFAULT 'SCOPE_SHARED',
+                        visibility_subject_id TEXT,
+                        visibility_session_id TEXT
+                    )
+                    """.trimIndent(),
+                )
                 statement.executeUpdate(
                     """
                     CREATE TABLE relationship_state (
@@ -167,4 +299,45 @@ class SqlDelightRelationshipStateStoreTest {
         createdAtMs = createdAtMs,
         supersedesEventId = supersedesEventId,
     )
+
+    private companion object {
+        val VERSION_17_RELATIONSHIP_STATE_SQL =
+            """
+            CREATE TABLE relationship_state (
+                incarnation_id TEXT NOT NULL,
+                canonical_subject_id TEXT NOT NULL,
+                trust REAL NOT NULL,
+                familiarity REAL NOT NULL,
+                safety REAL NOT NULL,
+                boundary_sensitivity REAL NOT NULL,
+                unresolved_tension REAL NOT NULL,
+                reciprocal_interest REAL NOT NULL,
+                evidence_count INTEGER NOT NULL,
+                updated_at_ms INTEGER NOT NULL,
+                phase TEXT NOT NULL,
+                user_confessed_at_ms INTEGER,
+                atri_accepted_at_ms INTEGER,
+                mutual_commitment_at_ms INTEGER,
+                preferred_addresses_json TEXT NOT NULL,
+                PRIMARY KEY(incarnation_id, canonical_subject_id)
+            )
+            """.trimIndent()
+
+        val VERSION_17_RELATIONSHIP_EVENTS_SQL =
+            """
+            CREATE TABLE relationship_events (
+                event_id TEXT NOT NULL PRIMARY KEY,
+                incarnation_id TEXT NOT NULL,
+                canonical_subject_id TEXT NOT NULL,
+                source_turn_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                evidence_digest TEXT NOT NULL,
+                created_at_ms INTEGER NOT NULL,
+                supersedes_event_id TEXT,
+                preferred_address TEXT,
+                UNIQUE(source_turn_id, event_type, incarnation_id, canonical_subject_id)
+            )
+            """.trimIndent()
+    }
 }

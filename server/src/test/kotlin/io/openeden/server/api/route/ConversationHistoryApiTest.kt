@@ -12,6 +12,7 @@ import io.openeden.llm.StreamingLlmClient
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.session.MutableSessionStateStore
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.transcript.ActiveIncarnation
 import io.openeden.transcript.ConversationHistoryPage
 import io.openeden.transcript.ConversationTurn
@@ -195,6 +196,7 @@ class ConversationHistoryApiTest {
     fun `streaming retry with the same client request id commits one turn and advances once`() = runTest {
         val transcripts = InMemoryTranscriptStore("active-incarnation", createdAtMs = 0L)
         val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
+        val incarnationStore = MutableIncarnationStateStore(transcriptStore = transcripts)
         val clientRequestId = "id_" + "a".repeat(125)
         val output = LlmOutput(
             internalLogic = "logic references HEURISTIC_FALLBACK",
@@ -211,6 +213,7 @@ class ConversationHistoryApiTest {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = output
             },
             store = stateStore,
+            incarnationStateStore = incarnationStore,
             transcriptStore = transcripts,
             nowMs = { 100L },
         )
@@ -243,7 +246,7 @@ class ConversationHistoryApiTest {
                 listOf(clientRequestId),
                 transcripts.page(50).turns.map { it.turnId },
             )
-            assertEquals(1L, stateStore.read("CLI:local").evolutionIndex)
+            assertEquals(1L, incarnationStore.read("active-incarnation").evolutionIndex)
         }
     }
 

@@ -1,6 +1,7 @@
 package io.openeden.runtime.pipeline
 
 import io.openeden.runtime.session.MutableSessionStateStore
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 
 
 import io.openeden.bio.BioVector
@@ -25,9 +26,11 @@ class RuntimePipelineTest {
     @Test
     fun `local runtime request maps to CLI session and persists state`() = runTest {
         val store = MutableSessionStateStore()
+        val incarnationStore = MutableIncarnationStateStore(transcriptStore = store.transcript)
         val pipeline = OpenEdenRuntimePipeline.local(
             personaConfig = testPersonaConfig(),
             store = store,
+            incarnationStateStore = incarnationStore,
             llmClient = object : LlmClient {
                 override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
                     internalLogic = "local runtime contract test references HEURISTIC_FALLBACK",
@@ -58,7 +61,7 @@ class RuntimePipelineTest {
         assertEquals("CLI:owner", result.sessionId)
         assertEquals("ok", result.response)
         assertEquals(1, result.evolutionIndex)
-        assertEquals(BioVector.Neutral.copy(p = 0.6f), store.read("CLI:owner").vector)
+        assertEquals(BioVector.Neutral.copy(p = 0.6f), incarnationStore.read("development").vector)
         assertContains(result.traceTags, TraceTag.CodebookHeuristicFallback)
     }
 

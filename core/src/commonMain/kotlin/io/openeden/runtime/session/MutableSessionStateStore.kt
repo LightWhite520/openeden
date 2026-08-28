@@ -10,6 +10,9 @@ import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.transcript.TurnPostCommitStage
+import io.openeden.transcript.TurnPostCommitState
+import io.openeden.relationship.RelationshipEvaluation
 import kotlinx.coroutines.sync.withLock
 
 class MutableSessionStateStore(
@@ -74,6 +77,16 @@ class MutableSessionStateStore(
     override suspend fun activeIncarnation(): ActiveIncarnation = transcript.activeIncarnation()
 
     override suspend fun append(turn: ConversationTurn) = transcript.append(turn)
+
+    override suspend fun postCommitState(turnId: String): TurnPostCommitState? = transcript.postCommitState(turnId)
+
+    override suspend fun persistRelationshipEvaluation(
+        turnId: String,
+        evaluation: RelationshipEvaluation,
+    ): RelationshipEvaluation = transcript.persistRelationshipEvaluation(turnId, evaluation)
+
+    override suspend fun markPostCommitStageCompleted(turnId: String, stage: TurnPostCommitStage) =
+        transcript.markPostCommitStageCompleted(turnId, stage)
 
     override suspend fun page(limit: Int, before: HistoryCursor?): ConversationHistoryPage =
         transcript.page(limit, before)

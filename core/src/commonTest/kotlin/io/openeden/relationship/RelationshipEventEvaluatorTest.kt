@@ -3,7 +3,9 @@ package io.openeden.relationship
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 
 class RelationshipEventEvaluatorTest {
@@ -67,6 +69,54 @@ class RelationshipEventEvaluatorTest {
         listOf("我不是在道歉", "我不是每次都这样").forEach { text ->
             assertTrue(evaluator.evaluate(turn(text)).events.isEmpty(), text)
         }
+    }
+
+    @Test
+    fun `provider failure falls back to deterministic high precision rules`() = runTest {
+        val evaluator = FallbackRelationshipEventEvaluator(
+            primary = evaluator { error("provider unavailable") },
+            fallback = DeterministicRelationshipEventEvaluator(),
+        )
+
+        val evaluation = evaluator.evaluate(turn("对不起，我刚才弄错了"))
+
+        assertEquals(RelationshipEventType.REPAIR, evaluation.events.single().type)
+    }
+
+    @Test
+    fun `provider cancellation is never converted into fallback evaluation`() = runTest {
+        var fallbackCalled = false
+        val evaluator = FallbackRelationshipEventEvaluator(
+            primary = evaluator { throw CancellationException("cancelled") },
+            fallback = evaluator {
+                fallbackCalled = true
+                RelationshipEvaluation(emptyList(), confidence = 1.0f)
+            },
+        )
+
+        assertFailsWith<CancellationException> { evaluator.evaluate(turn("对不起，我刚才弄错了")) }
+        assertFalse(fallbackCalled)
+    }
+
+    @Test
+    fun `non exception failures propagate without fallback evaluation`() = runTest {
+        var fallbackCalled = false
+        val evaluator = FallbackRelationshipEventEvaluator(
+            primary = evaluator { throw AssertionError("fatal") },
+            fallback = evaluator {
+                fallbackCalled = true
+                RelationshipEvaluation(emptyList(), confidence = 1.0f)
+            },
+        )
+
+        assertFailsWith<AssertionError> { evaluator.evaluate(turn("对不起，我刚才弄错了")) }
+        assertFalse(fallbackCalled)
+    }
+
+    private fun evaluator(
+        block: suspend (RelationshipTurn) -> RelationshipEvaluation,
+    ): RelationshipEventEvaluator = object : RelationshipEventEvaluator {
+        override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation = block(turn)
     }
 
     private fun turn(userText: String): RelationshipTurn = RelationshipTurn(

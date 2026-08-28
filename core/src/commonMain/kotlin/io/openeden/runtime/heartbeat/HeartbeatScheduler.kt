@@ -52,16 +52,21 @@ class HeartbeatScheduler(
     suspend fun evaluateOnce(now: Long = clock.nowMs()) {
         val activeIncarnationId = transcriptStore?.activeIncarnation()?.id
         val activeIncarnation = activeIncarnationId?.let { incarnationStore?.read(it) }
-        val processedIncarnations = mutableSetOf<String>()
-        for (sessionId in store.sessionIds()) {
-            val scopeState = store.read(sessionId)
-            val decision = if (activeIncarnation != null) {
-                decide(scopeState.lastUserActivityMs, activeIncarnation.shockState, now)
-            } else {
-                decide(scopeState, now)
-            }
-            if (decision == HeartbeatDecision.SKIP) continue
-            if (activeIncarnationId != null && !processedIncarnations.add(activeIncarnationId)) continue
+        val context = store.sessionIds()
+            .map { sessionId -> sessionId to store.read(sessionId) }
+            .sortedWith(
+                compareByDescending<Pair<String, SessionState>> { (_, state) -> state.lastUserActivityMs ?: Long.MIN_VALUE }
+                    .thenBy { (sessionId, _) -> sessionId },
+            )
+            .firstOrNull()
+            ?: return
+        val (sessionId, scopeState) = context
+        val lastActivityMs = listOfNotNull(
+            scopeState.lastUserActivityMs,
+            activeIncarnation?.lastUserActivityMs,
+        ).maxOrNull()
+        val decision = decide(lastActivityMs, activeIncarnation?.shockState ?: scopeState.shockState, now)
+        if (decision != HeartbeatDecision.SKIP) {
             val shock = decision == HeartbeatDecision.SHOCK
             val platform = sessionId.substringBefore(':')
             val scopeId = sessionId.substringAfter(':')

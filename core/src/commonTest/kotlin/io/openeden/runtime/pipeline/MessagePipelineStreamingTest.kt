@@ -16,9 +16,11 @@ class MessagePipelineStreamingTest {
     @Test
     fun `streamed turn emits deltas then commits once after validation`() = runTest {
         val store = CountingSessionStateStore()
+        val incarnationStore = CountingIncarnationStateStore()
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = streamingTestPersona(),
             store = store,
+            incarnationStateStore = incarnationStore,
             llmClient = StreamingStub(listOf("你", "好"), validStreamingOutput("你好")),
         )
 
@@ -29,23 +31,25 @@ class MessagePipelineStreamingTest {
             events.filterIsInstance<DevelopmentMessageEvent.ResponseDelta>().map { it.text },
         )
         assertIs<DevelopmentMessageEvent.Completed>(events.last())
-        assertEquals(1L, store.read("CLI:local").evolutionIndex)
-        assertEquals(1, store.writeCount)
+        assertEquals(1L, incarnationStore.read("development").evolutionIndex)
+        assertEquals(1, incarnationStore.writeCount)
     }
 
     @Test
     fun `cancelling collection before completion performs no state write`() = runTest {
         val store = CountingSessionStateStore()
+        val incarnationStore = CountingIncarnationStateStore()
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = streamingTestPersona(),
             store = store,
+            incarnationStateStore = incarnationStore,
             llmClient = SuspendedStreamingStub(),
         )
 
         pipeline.handleStreaming(request()).take(2).toList()
 
-        assertEquals(0L, store.readOrCreate("CLI:local").evolutionIndex)
-        assertEquals(0, store.writeCount)
+        assertEquals(0L, incarnationStore.read("development").evolutionIndex)
+        assertEquals(0, incarnationStore.writeCount)
     }
 
     @Test

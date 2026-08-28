@@ -7,6 +7,7 @@ import io.openeden.runtime.affect.OmegaState
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.transcript.TurnPostCommitPlan
 
 interface IncarnationStateStore {
     suspend fun read(incarnationId: String): IncarnationState
@@ -19,11 +20,14 @@ interface IncarnationStateStore {
 
     suspend fun write(state: IncarnationState)
 
+    suspend fun shutdown() = Unit
+
     fun commitsTo(transcriptStore: TranscriptStore): Boolean = false
 
     suspend fun writeCommittedTurn(
         state: IncarnationState,
         turn: ConversationTurn,
+        postCommitPlan: TurnPostCommitPlan,
     ): TurnCommitOutcome = error("Incarnation state store does not support atomic turn commits")
 
     companion object {

@@ -17,6 +17,7 @@ import io.openeden.runtime.session.SessionStateStore
 import io.openeden.transcript.AtomicTurnCommitStore
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.transcript.TurnPostCommitPlan
 
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
@@ -232,6 +233,7 @@ class VectorWriteService(
         shockSignal: ShockSignal?,
         lastUserActivityMs: Long?,
         turn: ConversationTurn? = null,
+        postCommitPlan: TurnPostCommitPlan? = null,
     ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
         val latest = bioStore.read(incarnationId)
         val updatedVector = inferenceExecutor.run {
@@ -255,10 +257,18 @@ class VectorWriteService(
             lastUserActivityMs = maxOfNullable(latest.lastUserActivityMs, lastUserActivityMs),
         )
         val outcome = if (turn == null) {
+            require(postCommitPlan == null) { "Post-commit plan requires a committed transcript turn" }
             bioStore.write(updated)
             null
         } else {
-            bioStore.writeCommittedTurn(updated, turn)
+            val committedPlan = requireNotNull(postCommitPlan).let { plan ->
+                plan.copy(
+                    rawMemory = plan.rawMemory?.let { memory ->
+                        memory.copy(metadata = memory.metadata.copy(omegaState = updated.omega.value))
+                    },
+                )
+            }
+            bioStore.writeCommittedTurn(updated, turn, committedPlan)
         }
         val committed = if (outcome == TurnCommitOutcome.ALREADY_COMMITTED) bioStore.read(incarnationId) else updated
         VectorWriteResult(

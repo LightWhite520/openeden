@@ -1,9 +1,32 @@
 package io.openeden.transcript
 
+import io.openeden.relationship.RelationshipEvaluation
+
 interface TranscriptStore {
     suspend fun activeIncarnation(): ActiveIncarnation
 
     suspend fun append(turn: ConversationTurn)
+
+    suspend fun findByTurnId(turnId: String): ConversationTurn? {
+        var before: HistoryCursor? = null
+        do {
+            val page = page(limit = DEFAULT_PAGE_SIZE, before = before)
+            page.turns.firstOrNull { it.turnId == turnId }?.let { return it }
+            before = page.before
+        } while (page.hasMore)
+        return null
+    }
+
+    suspend fun postCommitState(turnId: String): TurnPostCommitState? = null
+
+    suspend fun persistRelationshipEvaluation(
+        turnId: String,
+        evaluation: RelationshipEvaluation,
+    ): RelationshipEvaluation = error("Transcript store does not support durable relationship evaluation")
+
+    suspend fun markPostCommitStageCompleted(turnId: String, stage: TurnPostCommitStage) {
+        error("Transcript store does not support durable post-commit stages")
+    }
 
     /**
      * Returns the newest completed turns for one conversation session in chronological order.

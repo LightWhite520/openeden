@@ -24,6 +24,7 @@ import io.openeden.trace.TraceTag
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
@@ -37,7 +38,7 @@ class HeartbeatSchedulerTest {
     private val thirtyOneMinAgo = now - 31 * 60_000L
 
     @Test
-    fun `base heartbeat fires only after silence gate`() = runTest {
+    fun `recent activity in any conversation suppresses the shared incarnation heartbeat`() = runTest {
         val store = MutableSessionStateStore()
         store.write(neutral("QQ:silent").copy(lastUserActivityMs = sixMinAgo))
         store.write(neutral("QQ:recent").copy(lastUserActivityMs = oneMinAgo))
@@ -46,10 +47,7 @@ class HeartbeatSchedulerTest {
 
         scheduler.evaluateOnce(now)
 
-        assertEquals(1, delivery.calls.size)
-        val call = delivery.calls.single()
-        assertEquals("QQ:silent", call.sessionId)
-        assertTrue(!call.shock)
+        assertEquals(emptyList(), delivery.calls)
     }
 
     @Test
@@ -92,6 +90,7 @@ class HeartbeatSchedulerTest {
             store = store,
             writer = writer,
             delivery = delivery,
+            routeResolver = OwnerHeartbeatRouteResolver(HeartbeatOwner("QQ", "owner")),
             incarnationStore = incarnationStore,
             transcriptStore = transcript,
             clock = MutableRuntimeClock(now),
@@ -105,7 +104,7 @@ class HeartbeatSchedulerTest {
     }
 
     @Test
-    fun `user activity suppresses that scope while an idle scope advances the shared incarnation`() = runTest {
+    fun `owner activity in a group suppresses heartbeat while an unrelated scope is idle`() = runTest {
         val transcript = InMemoryTranscriptStore("incarnation-a")
         val store = MutableSessionStateStore(transcriptStore = transcript)
         val incarnationStore = MutableIncarnationStateStore(transcriptStore = transcript)
@@ -129,8 +128,8 @@ class HeartbeatSchedulerTest {
             DevelopmentMessageRequest(
                 turnId = "user-turn",
                 platform = "QQ",
-                scopeId = "active",
-                userId = "user",
+                scopeId = "group-42",
+                userId = "owner",
                 text = "hello",
                 emotionConfidence = 0.49f,
             ),
@@ -145,12 +144,77 @@ class HeartbeatSchedulerTest {
             incarnationStore = incarnationStore,
             transcriptStore = transcript,
             clock = clock,
+            routeResolver = OwnerHeartbeatRouteResolver(HeartbeatOwner("QQ", "owner")),
         )
 
         scheduler.evaluateOnce(now)
 
-        assertEquals(now, store.read("QQ:active").lastUserActivityMs)
-        assertEquals(listOf("WEB:idle"), delivery.calls.map { it.sessionId })
+        assertEquals(now, store.read("QQ:group-42").lastUserActivityMs)
+        assertEquals(emptyList(), delivery.calls)
+        assertEquals(1L, incarnationStore.read("incarnation-a").evolutionIndex)
+    }
+
+    @Test
+    fun `heartbeat keeps group conversation context while owner remains delivery metadata`() = runTest {
+        val transcript = InMemoryTranscriptStore("incarnation-a")
+        val store = MutableSessionStateStore(transcriptStore = transcript)
+        val incarnationStore = MutableIncarnationStateStore(transcriptStore = transcript)
+        incarnationStore.readOrCreate(
+            incarnationId = "incarnation-a",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        val writer = VectorWriteService(incarnationStore = incarnationStore)
+        val delivery = RecordingDelivery()
+        val router = OwnerHeartbeatRouteResolver(HeartbeatOwner("QQ", "owner"))
+        val clock = MutableRuntimeClock(sixMinAgo)
+        val prompts = mutableListOf<BuiltPrompt>()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = personaConfig(),
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    prompts += prompt
+                    return validLlm().complete(prompt)
+                }
+            },
+            store = store,
+            incarnationStateStore = incarnationStore,
+            vectorWriteService = writer,
+            transcriptStore = transcript,
+            clock = clock,
+        )
+        pipeline.handle(
+            DevelopmentMessageRequest(
+                turnId = "group-user-turn",
+                platform = "QQ",
+                scopeId = "group-42",
+                userId = "owner",
+                text = "group-context-message",
+                emotionConfidence = 0.49f,
+            ),
+        )
+        clock.currentMs = now
+        val scheduler = HeartbeatScheduler(
+            pipeline = pipeline,
+            store = store,
+            writer = writer,
+            delivery = delivery,
+            routeResolver = router,
+            incarnationStore = incarnationStore,
+            transcriptStore = transcript,
+            clock = clock,
+        )
+
+        scheduler.evaluateOnce(now)
+
+        assertEquals(listOf("QQ:group-42"), delivery.calls.map { it.sessionId })
+        assertEquals(listOf("owner"), delivery.calls.map { it.userId })
+        assertFalse("QQ:owner" in store.sessionIds())
+        assertTrue(
+            listOf(prompts.last().systemText, prompts.last().personaText, prompts.last().contextText, prompts.last().userText)
+                .joinToString("\n")
+                .contains("group-context-message"),
+        )
         assertEquals(2L, incarnationStore.read("incarnation-a").evolutionIndex)
     }
 
@@ -219,34 +283,33 @@ class HeartbeatSchedulerTest {
         scheduler.evaluateOnce(now)
 
         val after = store.read("QQ:silent")
-        assertEquals(1, after.evolutionIndex)
+        assertEquals(1L, scheduler.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
         assertEquals(sixMinAgo, after.lastUserActivityMs)
     }
 
     @Test
     fun `shock-extended heartbeat fires exactly once per activation`() = runTest {
         val store = MutableSessionStateStore()
-        store.write(
-            neutral("QQ:shock").copy(
-                lastUserActivityMs = thirtyOneMinAgo,
-                shockState = ShockState(
-                    active = true,
-                    intensity = 0.8f,
-                    description = "x",
-                    triggeredAt = Instant.fromEpochMilliseconds(thirtyOneMinAgo),
-                    decayLambda = 0.001f,
-                ),
-            ),
+        store.write(neutral("QQ:shock").copy(lastUserActivityMs = thirtyOneMinAgo))
+        val shock = ShockState(
+            active = true,
+            intensity = 0.8f,
+            description = "x",
+            triggeredAt = Instant.fromEpochMilliseconds(thirtyOneMinAgo),
+            decayLambda = 0.001f,
         )
         val delivery = RecordingDelivery()
         val scheduler = scheduler(store, delivery)
+        scheduler.incarnationStore.write(
+            scheduler.incarnationStore.read(TEST_INCARNATION_ID).copy(shockState = shock),
+        )
 
         scheduler.evaluateOnce(now) // shock
         scheduler.evaluateOnce(now) // flag latched -> falls through to base
 
         val shockCalls = delivery.calls.count { it.shock }
         assertEquals(1, shockCalls)
-        assertTrue(store.read("QQ:shock").shockState!!.shockHeartbeatFired)
+        assertTrue(scheduler.incarnationStore.read(TEST_INCARNATION_ID).shockState!!.shockHeartbeatFired)
         // The second pass still produced a base heartbeat (user remained silent).
         assertEquals(1, delivery.calls.count { !it.shock })
     }
@@ -283,10 +346,10 @@ class HeartbeatSchedulerTest {
         val delivery = RecordingDelivery()
         val router = OwnerHeartbeatRouteResolver(owner = null)
 
-        scheduler(store, delivery, routeResolver = router).evaluateOnce(now)
-
+        val scheduler = scheduler(store, delivery, routeResolver = router)
+        scheduler.evaluateOnce(now)
         assertEquals(emptyList(), delivery.calls)
-        assertEquals(1, store.read("QQ:shared").evolutionIndex)
+        assertEquals(1L, scheduler.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
     }
 
     @Test
@@ -295,30 +358,18 @@ class HeartbeatSchedulerTest {
         store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
         val delivery = RecordingDelivery(connected = false)
 
-        scheduler(store, delivery).evaluateOnce(now)
+        val scheduler = scheduler(store, delivery)
+        scheduler.evaluateOnce(now)
 
         assertEquals(1, delivery.connectionChecks)
         assertEquals(emptyList(), delivery.calls)
-        assertEquals(1, store.read("QQ:shared").evolutionIndex)
+        assertEquals(1L, scheduler.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
     }
 
     @Test
-    fun `ordinary send failure is dropped after state evolution and later sessions continue`() = runTest {
+    fun `ordinary send failure is dropped after shared incarnation state evolves`() = runTest {
         val store = MutableSessionStateStore()
-        store.write(
-            neutral("QQ:failing").copy(
-                lastUserActivityMs = thirtyOneMinAgo,
-                shockState = ShockState(
-                    active = true,
-                    intensity = 0.8f,
-                    description = "x",
-                    triggeredAt = Instant.fromEpochMilliseconds(thirtyOneMinAgo),
-                    decayLambda = 0.001f,
-                ),
-            ),
-        )
-        store.write(neutral("QQ:succeeding").copy(lastUserActivityMs = sixMinAgo))
-        val successfulSessions = mutableListOf<String>()
+        store.write(neutral("QQ:failing").copy(lastUserActivityMs = sixMinAgo))
         val delivery = object : HeartbeatDelivery {
             override fun isConnected(target: HeartbeatTarget): Boolean = true
 
@@ -328,17 +379,14 @@ class HeartbeatSchedulerTest {
                 shock: Boolean,
                 response: String?,
             ) {
-                if (sessionId == "QQ:failing") error("send failed")
-                successfulSessions += sessionId
+                error("send failed")
             }
         }
 
-        scheduler(store, delivery).evaluateOnce(now)
+        val scheduler = scheduler(store, delivery)
+        scheduler.evaluateOnce(now)
 
-        assertEquals(1, store.read("QQ:failing").evolutionIndex)
-        assertTrue(store.read("QQ:failing").shockState!!.shockHeartbeatFired)
-        assertEquals(1, store.read("QQ:succeeding").evolutionIndex)
-        assertEquals(listOf("QQ:succeeding"), successfulSessions)
+        assertEquals(1L, scheduler.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
     }
 
     @Test
@@ -365,9 +413,10 @@ class HeartbeatSchedulerTest {
             listOf(HeartbeatTarget("QQ", "failing"), HeartbeatTarget("QQ", "succeeding"))
         }
 
-        scheduler(store, delivery, routeResolver = router).evaluateOnce(now)
+        val scheduler = scheduler(store, delivery, routeResolver = router)
+        scheduler.evaluateOnce(now)
 
-        assertEquals(1, store.read("QQ:shared").evolutionIndex)
+        assertEquals(1L, scheduler.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
         assertEquals(listOf("succeeding"), deliveredUsers)
     }
 
@@ -481,36 +530,62 @@ class HeartbeatSchedulerTest {
             }
         }
 
-        assertFailsWith<CancellationException> {
-            scheduler(store, delivery).evaluateOnce(now)
-        }
-        assertEquals(1, store.read("QQ:shared").evolutionIndex)
+        val scheduler = scheduler(store, delivery)
+        assertFailsWith<CancellationException> { scheduler.evaluateOnce(now) }
+        assertEquals(1L, scheduler.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
     }
 
     private fun neutral(id: String) = SessionStateStore.neutral(id)
 
-    private fun scheduler(
+    private suspend fun scheduler(
         store: MutableSessionStateStore,
         delivery: HeartbeatDelivery,
-        routeResolver: HeartbeatRouteResolver = OwnerHeartbeatRouteResolver(HeartbeatOwner("QQ", "owner")),
+        routeResolver: HeartbeatRouteResolver = HeartbeatRouteResolver { _, _ ->
+            listOf(HeartbeatTarget("QQ", "owner"))
+        },
         clock: RuntimeClock = MutableRuntimeClock(now),
         onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
-    ): HeartbeatScheduler {
+    ): HeartbeatFixture {
+        val transcript = InMemoryTranscriptStore(TEST_INCARNATION_ID)
+        val incarnationStore = MutableIncarnationStateStore(transcriptStore = transcript)
+        incarnationStore.readOrCreate(
+            incarnationId = TEST_INCARNATION_ID,
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        val writer = VectorWriteService(incarnationStore = incarnationStore)
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = personaConfig(),
             llmClient = validLlm(),
             store = store,
+            incarnationStateStore = incarnationStore,
+            vectorWriteService = writer,
+            transcriptStore = transcript,
             clock = clock,
         )
-        return HeartbeatScheduler(
-            pipeline = pipeline,
-            store = store,
-            writer = VectorWriteService(store),
-            delivery = delivery,
-            routeResolver = routeResolver,
-            clock = clock,
-            onDeliveryDropped = onDeliveryDropped,
+        return HeartbeatFixture(
+            scheduler = HeartbeatScheduler(
+                pipeline = pipeline,
+                store = store,
+                writer = writer,
+                delivery = delivery,
+                routeResolver = routeResolver,
+                clock = clock,
+                onDeliveryDropped = onDeliveryDropped,
+                incarnationStore = incarnationStore,
+                transcriptStore = transcript,
+            ),
+            incarnationStore = incarnationStore,
         )
+    }
+
+    private class HeartbeatFixture(
+        private val scheduler: HeartbeatScheduler,
+        val incarnationStore: MutableIncarnationStateStore,
+    ) {
+        suspend fun evaluateOnce(now: Long? = null) {
+            if (now == null) scheduler.evaluateOnce() else scheduler.evaluateOnce(now)
+        }
     }
 
     private fun validLlm(): LlmClient = object : LlmClient {
@@ -537,6 +612,10 @@ class HeartbeatSchedulerTest {
             PromptSectionKeys.ShockHeartbeat to "shock",
         ),
     )
+
+    private companion object {
+        const val TEST_INCARNATION_ID = "incarnation-a"
+    }
 }
 
 private class RecordingDelivery(
