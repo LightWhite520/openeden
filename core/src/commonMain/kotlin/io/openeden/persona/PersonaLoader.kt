@@ -26,9 +26,14 @@ object MapPersonaLoader {
         "style.stage_examples.pre_command",
         "style.stage_examples.true_self",
         "style.stage_examples.awakened",
+        "output.public_voice.rules",
     )
 
-    fun load(values: Map<String, String>): PersonaConfig {
+    fun load(
+        values: Map<String, String>,
+        fewShots: List<PersonaFewShot> = emptyList(),
+        outputPolicy: PersonaOutputPolicy = PersonaOutputPolicy(),
+    ): PersonaConfig {
         val mode = when (val rawMode = values.required("mode").lowercase()) {
             "growth" -> PersonaMode.GROWTH
             "legacy" -> PersonaMode.LEGACY
@@ -50,7 +55,14 @@ object MapPersonaLoader {
                 values[key]?.takeIf { it.isNotBlank() }?.let { put(key, it) }
             }
         }
-        return PersonaConfig(mode = mode, startSubState = startSubState, promptSections = sections)
+        return PersonaConfig(
+            mode = mode,
+            startSubState = startSubState,
+            promptSections = sections,
+            coreSelf = values["core_self"].orEmpty().trim(),
+            fewShots = fewShots,
+            outputPolicy = outputPolicy,
+        )
     }
 
     private fun String.parseSubState(): PersonaSubState = when (lowercase()) {

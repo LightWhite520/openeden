@@ -17,7 +17,9 @@ import io.openeden.llm.LlmGenerationSettings
 import io.openeden.llm.LlmGroundingValidation
 import io.openeden.llm.LlmOutput
 import io.openeden.llm.LlmOutputValidator
+import io.openeden.llm.PersonaResponseRewriter
 import io.openeden.llm.LlmStreamEvent
+import io.openeden.llm.LlmValidationResult
 import io.openeden.llm.StreamingLlmClient
 import io.openeden.memory.*
 import io.openeden.persona.PersonaConfig
@@ -94,6 +96,7 @@ class DevelopmentMessagePipeline(
     private val lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
     private val incarnationStore: IncarnationStateStore = MutableIncarnationStateStore(),
     private val canonicalSubjectResolver: CanonicalSubjectResolver = CanonicalSubjectResolver(),
+    private val personaResponseRewriter: PersonaResponseRewriter? = null,
 ) {
     private val temporalContextProvider = TemporalContextProvider(clock)
 
@@ -121,6 +124,7 @@ class DevelopmentMessagePipeline(
         transcriptStore: TranscriptStore?,
         clock: RuntimeClock = SystemRuntimeClock,
         nowMs: (() -> Long)? = null,
+        personaResponseRewriter: PersonaResponseRewriter? = null,
     ) : this(
         personaConfig = personaConfig,
         store = store,
@@ -128,6 +132,7 @@ class DevelopmentMessagePipeline(
         memoryRetriever = memoryRetriever,
         promptBuilder = promptBuilder,
         llmClient = llmClient,
+        personaResponseRewriter = personaResponseRewriter,
         vectorWriteService = vectorWriteService,
         diaryQueue = diaryQueue,
         inferenceExecutor = inferenceExecutor,
@@ -381,10 +386,14 @@ class DevelopmentMessagePipeline(
         }
         emitEvent(DevelopmentMessageEvent.Stage(DevelopmentStage.GENERATING))
         val llmCacheMeasurements = mutableListOf<LlmCacheMetrics>()
-        val firstOutput = committedRetry?.let { committed ->
-            emitEvent(DevelopmentMessageEvent.ResponseDelta(committed.assistantText))
-            committed.toReplayOutput(inference.quantization.activeNodes.firstOrNull())
-        } ?: collectLlmOutput(prompt, inference.generationSettings, emitEvent)
+        val firstCompletion = committedRetry?.let { committed ->
+            CollectedLlmOutput(
+                output = committed.toReplayOutput(inference.quantization.activeNodes.firstOrNull()),
+                responseChunks = emptyList(),
+            )
+        } ?: collectLlmOutput(prompt, inference.generationSettings)
+        val firstOutput = firstCompletion.output
+        var responseChunkCandidates = firstCompletion.responseChunks
         if (committedRetry == null) {
             val firstCacheMetrics = firstOutput.cacheMetrics ?: LlmCacheMetrics.Unobservable
             llmCacheMeasurements += firstCacheMetrics
@@ -419,7 +428,9 @@ class DevelopmentMessagePipeline(
                         "Regenerate the complete JSON. In internal_logic, include one exact identifier from: " +
                         inference.quantization.activeNodes.joinToString(", ") + ".",
                 )
-                val repairedOutput = collectLlmOutput(repairPrompt, inference.generationSettings, emitEvent)
+                val repairedCompletion = collectLlmOutput(repairPrompt, inference.generationSettings)
+                val repairedOutput = repairedCompletion.output
+                responseChunkCandidates = repairedCompletion.responseChunks
                 val repairedCacheMetrics = repairedOutput.cacheMetrics ?: LlmCacheMetrics.Unobservable
                 llmCacheMeasurements += repairedCacheMetrics
                 trace(
@@ -455,6 +466,17 @@ class DevelopmentMessagePipeline(
                 }
             }
         }
+        if (validation.isValid) {
+            validation = applyPublicVoicePolicy(
+                output = requireNotNull(validation.output),
+                prompt = prompt,
+                generationSettings = inference.generationSettings,
+                recentAssistantResponses = recentTurns
+                    .filterNot { it.turnId == request.turnId }
+                    .map(ConversationTurn::assistantText),
+                llmCacheMeasurements = llmCacheMeasurements,
+            )
+        }
         trace(
             traceContext,
             "validation",
@@ -468,7 +490,7 @@ class DevelopmentMessagePipeline(
         } else {
             LlmCacheMetrics.aggregate(llmCacheMeasurements)
         }
-        if (committedRetry == null) {
+        if (llmCacheMeasurements.isNotEmpty()) {
             trace(
                 traceContext,
                 "llm_cache",
@@ -494,7 +516,8 @@ class DevelopmentMessagePipeline(
                 scopeId = request.scopeId,
                 userId = request.userId,
                 userText = request.text,
-                assistantText = validatedOutput.response,
+                // Replay policy repair is delivery-only; the committed transcript remains authoritative.
+                assistantText = committedRetry?.assistantText ?: validatedOutput.response,
                 completedAtMs = committedRetry?.completedAtMs ?: clock.nowMs(),
             )
         } else {
@@ -744,7 +767,7 @@ class DevelopmentMessagePipeline(
             attributes = mapOf("source" to request.source.name, "retrieval_mode" to retrievalResult.mode.name),
         )
 
-        return DevelopmentMessageResult(
+        val result = DevelopmentMessageResult(
             sessionId = sessionId,
             retrievalMode = retrievalResult.mode,
             traceTags = inference.quantization.traceTags +
@@ -768,34 +791,85 @@ class DevelopmentMessagePipeline(
             validationErrors = validation.errors,
             cacheMetrics = aggregatedCacheMetrics,
         )
+        if (validation.isValid) {
+            responseChunksForDelivery(
+                candidates = responseChunkCandidates,
+                approvedResponse = requireNotNull(validation.output).response,
+            ).forEach { chunk ->
+                emitEvent(DevelopmentMessageEvent.ResponseDelta(chunk))
+            }
+        }
+        return result
     }
+
+    private suspend fun applyPublicVoicePolicy(
+        output: LlmOutput,
+        prompt: BuiltPrompt,
+        generationSettings: LlmGenerationSettings,
+        recentAssistantResponses: List<String>,
+        llmCacheMeasurements: MutableList<LlmCacheMetrics>,
+    ): LlmValidationResult {
+        val schemaValidation = LlmOutputValidator.validate(output)
+        if (!schemaValidation.isValid) return schemaValidation
+
+        val policy = personaConfig.outputPolicy
+        val policyValidation = LlmOutputValidator.validate(output, policy, recentAssistantResponses)
+        if (policyValidation.isValid) return policyValidation
+
+        val rewriteInput = output.copy(cacheMetrics = null)
+        val rewritten = if (personaResponseRewriter != null) {
+            personaResponseRewriter.rewriteResponseOnly(rewriteInput, policy)
+        } else {
+            collectLlmOutput(
+                publicVoiceRewritePrompt(prompt, rewriteInput),
+                generationSettings,
+            ).output
+        }
+        llmCacheMeasurements += rewritten.cacheMetrics ?: LlmCacheMetrics.Unobservable
+        val responseOnly = output.copy(response = rewritten.response)
+        return LlmOutputValidator.validate(responseOnly, policy, recentAssistantResponses)
+    }
+
+    private fun publicVoiceRewritePrompt(prompt: BuiltPrompt, output: LlmOutput): BuiltPrompt = prompt.copy(
+        systemText = prompt.systemText +
+            "\n\n[Public Response Rewrite]\n" +
+            "The previous output is schema-valid but its public response violates the active persona output policy. " +
+            "Rewrite response exactly once and return the complete required JSON schema. " +
+            "Keep internal_logic and every vector_delta value exactly unchanged.",
+        contextText = prompt.contextText +
+            "\n\n[Previous Structured Output]\n" +
+            "internal_logic: ${output.internalLogic}\n" +
+            "vector_delta: ${output.vectorDelta}\n" +
+            "response: ${output.response}",
+    )
 
     private suspend fun collectLlmOutput(
         prompt: BuiltPrompt,
         generationSettings: LlmGenerationSettings,
-        emitEvent: suspend (DevelopmentMessageEvent) -> Unit,
-    ): LlmOutput {
+    ): CollectedLlmOutput {
         val streaming = llmClient as? StreamingLlmClient
         if (streaming == null || !streaming.supportsStrictStructuredStreaming) {
-            return llmClient.complete(prompt, generationSettings).also { output ->
-                if (LlmOutputValidator.validate(output).isValid) {
-                    emitEvent(DevelopmentMessageEvent.ResponseDelta(output.response))
-                }
-            }
+            return CollectedLlmOutput(
+                output = llmClient.complete(prompt, generationSettings),
+                responseChunks = emptyList(),
+            )
         }
 
         var completed: LlmOutput? = null
+        val responseChunks = mutableListOf<String>()
         streaming.stream(prompt, generationSettings).collect { event ->
             when (event) {
-                is LlmStreamEvent.ResponseDelta -> emitEvent(DevelopmentMessageEvent.ResponseDelta(event.text))
+                is LlmStreamEvent.ResponseDelta -> responseChunks += event.text
                 is LlmStreamEvent.Completed -> {
                     check(completed == null) { "LLM stream emitted more than one completion" }
                     completed = event.output
                 }
             }
         }
-        println("\n${completed?.internalLogic}\n${completed?.vectorDelta}\n${completed?.response}")
-        return checkNotNull(completed) { "LLM stream ended without a completed output" }
+        return CollectedLlmOutput(
+            output = checkNotNull(completed) { "LLM stream ended without a completed output" },
+            responseChunks = responseChunks,
+        )
     }
 
     private suspend fun trace(
@@ -914,6 +988,7 @@ class DevelopmentMessagePipeline(
             nowMs: (() -> Long)? = null,
             lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
             canonicalSubjectResolver: CanonicalSubjectResolver = CanonicalSubjectResolver(),
+            personaResponseRewriter: PersonaResponseRewriter? = null,
         ): DevelopmentMessagePipeline = create(
             personaConfig = personaConfig,
             llmClient = llmClient,
@@ -941,6 +1016,7 @@ class DevelopmentMessagePipeline(
             llmGenerationPolicyConfig = LlmGenerationPolicyConfig.Default,
             lifecycleGate = lifecycleGate,
             canonicalSubjectResolver = canonicalSubjectResolver,
+            personaResponseRewriter = personaResponseRewriter,
         )
 
         fun create(
@@ -970,6 +1046,7 @@ class DevelopmentMessagePipeline(
             llmGenerationPolicyConfig: LlmGenerationPolicyConfig,
             lifecycleGate: IncarnationLifecycleGate = IncarnationLifecycleGate(),
             canonicalSubjectResolver: CanonicalSubjectResolver = CanonicalSubjectResolver(),
+            personaResponseRewriter: PersonaResponseRewriter? = null,
         ): DevelopmentMessagePipeline {
             val effectiveStore = store ?: when (transcriptStore) {
                 null -> MutableSessionStateStore()
@@ -1024,6 +1101,7 @@ class DevelopmentMessagePipeline(
                 lifecycleGate = lifecycleGate,
                 incarnationStore = effectiveIncarnationStore,
                 canonicalSubjectResolver = canonicalSubjectResolver,
+                personaResponseRewriter = personaResponseRewriter,
             )
         }
     }
@@ -1055,6 +1133,23 @@ private fun ConversationTurn.toReplayOutput(activeNode: String?): LlmOutput = Ll
         "F" to 0.0f,
     ),
     response = assistantText,
+)
+
+private fun responseChunksForDelivery(
+    candidates: List<String>,
+    approvedResponse: String,
+): List<String> {
+    val nonEmptyCandidates = candidates.filter(String::isNotEmpty)
+    return if (nonEmptyCandidates.joinToString(separator = "") == approvedResponse) {
+        nonEmptyCandidates
+    } else {
+        listOf(approvedResponse)
+    }
+}
+
+private data class CollectedLlmOutput(
+    val output: LlmOutput,
+    val responseChunks: List<String>,
 )
 
 private fun LlmCacheMetrics.traceTags(): Set<String> = when (availability) {

@@ -5,6 +5,7 @@ import io.openeden.identity.CanonicalSubjectId
 import io.openeden.identity.CanonicalSubjectResolver
 import io.openeden.llm.LlmClient
 import io.openeden.llm.LlmOutput
+import io.openeden.llm.PersonaResponseRewriter
 import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.memory.MemoryContentFingerprint
 import io.openeden.memory.MemoryExclusionContext
@@ -17,6 +18,7 @@ import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaOutputPolicy
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.DefaultPromptBuilder
@@ -59,6 +61,136 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class MessagePipelineTranscriptTest {
+    @Test
+    fun `grounding repaired policy violation rewrites once before transcript memory and relationship effects`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val llmOutputs = ArrayDeque(
+            listOf(
+                validOutput(internalLogic = "missing active node", response = "draft response", lDelta = 0.0f),
+                validOutput(
+                    internalLogic = "repaired logic references HEURISTIC_FALLBACK",
+                    response = "收到，已记录。",
+                    lDelta = 0.2f,
+                ),
+            ),
+        )
+        var llmCalls = 0
+        var rewriteCalls = 0
+        var relationshipAssistantText: String? = null
+        val evaluator = object : RelationshipEventEvaluator {
+            override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
+                relationshipAssistantText = turn.assistantText
+                return RelationshipEvaluation(emptyList(), confidence = 0.0f)
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona().copy(outputPolicy = transactionalPolicy()),
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    llmCalls += 1
+                    return llmOutputs.removeFirst()
+                }
+            },
+            personaResponseRewriter = PersonaResponseRewriter { output, _ ->
+                rewriteCalls += 1
+                output.copy(
+                    internalLogic = "must not replace repaired private logic",
+                    vectorDelta = output.vectorDelta.mapValues { 0.0f },
+                    response = "我记住了，接下来会照这个做。",
+                )
+            },
+            transcriptStore = transcripts,
+            memoryStore = memories,
+            relationshipEventEvaluator = evaluator,
+        )
+
+        val result = pipeline.handle(request(turnId = "grounding-policy-rewrite"))
+
+        assertEquals(2, llmCalls)
+        assertEquals(1, rewriteCalls)
+        assertEquals("我记住了，接下来会照这个做。", result.response)
+        assertEquals("我记住了，接下来会照这个做。", transcripts.page(50).turns.single().assistantText)
+        assertEquals("我记住了，接下来会照这个做。", relationshipAssistantText)
+        val memory = memories.recent("CLI:local", 10).single()
+        assertContains(memory.content, "response=我记住了，接下来会照这个做。")
+        assertEquals(0.7f, result.updatedVector.l)
+        assertEquals(0.2f, memory.metadata.deltaVec.l)
+    }
+
+    @Test
+    fun `repeated recent assistant opening rewrites before persistence`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        transcripts.append(
+            ConversationTurn(
+                turnId = "previous-opening",
+                incarnationId = "incarnation-a",
+                sessionId = "CLI:local",
+                platform = "CLI",
+                scopeId = "local",
+                userId = "user-1",
+                userText = "上次呢",
+                assistantText = "好吧，上次是我算错了。",
+                completedAtMs = 1L,
+            ),
+        )
+        var rewriteCalls = 0
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona().copy(outputPolicy = PersonaOutputPolicy(maximumRepeatedOpening = 1)),
+            llmClient = ValidLlmClient(response = "好吧，这次我会先检查。"),
+            personaResponseRewriter = PersonaResponseRewriter { output, _ ->
+                rewriteCalls += 1
+                output.copy(response = "这次我会先检查。")
+            },
+            transcriptStore = transcripts,
+        )
+
+        val result = pipeline.handle(request(turnId = "repeated-opening"))
+
+        assertEquals(1, rewriteCalls)
+        assertEquals("这次我会先检查。", result.response)
+        assertEquals("这次我会先检查。", transcripts.page(50).turns.last().assistantText)
+    }
+
+    @Test
+    fun `committed replay rewrites delivery without changing transcript or incarnation state`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = transcripts,
+        )
+        val replayRequest = request(turnId = "policy-replay")
+        val initialPipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = stateStore,
+            incarnationStateStore = incarnationStore,
+            transcriptStore = transcripts,
+            llmClient = ValidLlmClient(response = "收到"),
+        )
+        initialPipeline.handle(replayRequest)
+        val committedState = incarnationStore.read("incarnation-a")
+        var rewriteCalls = 0
+        val replayPipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona().copy(outputPolicy = transactionalPolicy()),
+            store = stateStore,
+            incarnationStateStore = incarnationStore,
+            transcriptStore = transcripts,
+            llmClient = ValidLlmClient(response = "must not regenerate"),
+            personaResponseRewriter = PersonaResponseRewriter { output, _ ->
+                rewriteCalls += 1
+                output.copy(response = "我记得这件事。")
+            },
+        )
+
+        val replay = replayPipeline.handle(replayRequest)
+
+        assertEquals(1, rewriteCalls)
+        assertEquals("我记得这件事。", replay.response)
+        assertEquals("收到", transcripts.page(50).turns.single().assistantText)
+        assertEquals(committedState, incarnationStore.read("incarnation-a"))
+        assertContains(replay.traceTags, TraceTag.TranscriptRetry)
+    }
+
     @Test
     fun `direct memory follows canonical subject across platforms`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
@@ -793,6 +925,34 @@ class MessagePipelineTranscriptTest {
             PromptSectionKeys.Heartbeat to "heartbeat",
             PromptSectionKeys.ShockHeartbeat to "shock heartbeat",
         ),
+    )
+
+    private fun transactionalPolicy() = PersonaOutputPolicy(
+        prohibitedPublicPatterns = setOf(
+            "^收到[。！!\\s]*$",
+            "^收到[，,。.!！\\s]*.*(?:已记录|确认权限|库存|任务完成)",
+            "^(?:已记录|确认权限|库存|任务完成)[。.!！\\s]*$",
+        ),
+        maximumRepeatedOpening = 1,
+    )
+
+    private fun validOutput(
+        internalLogic: String,
+        response: String,
+        lDelta: Float,
+    ) = LlmOutput(
+        internalLogic = internalLogic,
+        vectorDelta = mapOf(
+            "L" to lDelta,
+            "P" to 0.0f,
+            "E" to 0.0f,
+            "S" to 0.0f,
+            "tau" to 0.0f,
+            "V" to 0.0f,
+            "M" to 0.0f,
+            "F" to 0.0f,
+        ),
+        response = response,
     )
 
     private class ValidLlmClient(

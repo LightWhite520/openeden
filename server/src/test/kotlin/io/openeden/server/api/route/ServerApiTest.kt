@@ -14,14 +14,17 @@ import io.openeden.prompt.BuiltPrompt
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
+import io.openeden.transcript.InMemoryTranscriptStore
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import io.ktor.utils.io.*
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -91,6 +94,8 @@ class ServerApiTest {
 
     @Test
     fun `chat stream emits only safe public events`() = testApplication {
+        val transcripts = InMemoryTranscriptStore("development")
+        val stateStore = MutableSessionStateStore(transcriptStore = transcripts)
         val output = LlmOutput(
             internalLogic = "logic references HEURISTIC_FALLBACK",
             vectorDelta = listOf("L", "P", "E", "S", "tau", "V", "M", "F").associateWith { 0.0f },
@@ -98,6 +103,8 @@ class ServerApiTest {
         )
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = loadDefaultPersonaConfig(),
+            store = stateStore,
+            transcriptStore = transcripts,
             llmClient = object : StreamingLlmClient {
                 override val supportsStrictStructuredStreaming: Boolean = true
                 override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = flowOf(
@@ -122,7 +129,16 @@ class ServerApiTest {
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        val text = response.bodyAsText()
+        val channel = response.bodyAsChannel()
+        val text = buildString {
+            while (!channel.isClosedForRead) {
+                val line = channel.readLine() ?: break
+                appendLine(line)
+                if (line.contains("\"text\":\"你\"")) {
+                    assertNotNull(transcripts.findByTurnId("client_1"))
+                }
+            }
+        }
         assertTrue(text.contains("event: accepted"))
         assertTrue(text.contains("event: response.delta"))
         assertTrue(text.contains("event: completed"))

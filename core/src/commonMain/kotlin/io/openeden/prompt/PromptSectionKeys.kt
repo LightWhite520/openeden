@@ -5,6 +5,7 @@ object PromptSectionKeys {
     const val PersonaBase = "persona.base"
     const val PersonaBehavior = "persona.behavior"
     const val OutputLayerRules = "output.layer.rules"
+    const val PublicVoiceRules = "output.public_voice.rules"
     const val PreCommandPatch = "persona.patch.pre_command"
     const val TrueSelfPatch = "persona.patch.true_self"
     const val AwakenedPatch = "persona.patch.awakened"

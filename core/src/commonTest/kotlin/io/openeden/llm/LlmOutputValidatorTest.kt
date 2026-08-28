@@ -1,6 +1,8 @@
 package io.openeden.llm
 
 import io.openeden.codebook.QuantizationResult
+import io.openeden.persona.PersonaOutputPolicy
+import kotlinx.coroutines.test.runTest
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -45,6 +47,89 @@ class LlmOutputValidatorTest {
     }
 
     @Test
+    fun `public response rejects leaked operational vocabulary`() {
+        val result = LlmOutputValidator.validate(
+            validOutput(response = "收到，已经登记进库存"),
+            atriPolicy(),
+        )
+
+        assertFalse(result.isValid)
+    }
+
+    @Test
+    fun `public response rejects matching persona pattern`() {
+        val policy = PersonaOutputPolicy(
+            prohibitedPublicPatterns = setOf("^收到[。！!\\s]*$"),
+            maximumRepeatedOpening = 1,
+        )
+
+        assertFalse(LlmOutputValidator.validate(validOutput("收到。"), policy).isValid)
+        assertTrue(LlmOutputValidator.validate(validOutput("我收到的是一段损坏的数据。"), policy).isValid)
+    }
+
+    @Test
+    fun `public response rejects opening repeated across recent assistant turns`() {
+        val policy = PersonaOutputPolicy(maximumRepeatedOpening = 1)
+
+        val result = LlmOutputValidator.validate(
+            output = validOutput("好吧，这次我来处理。"),
+            policy = policy,
+            recentAssistantResponses = listOf("好吧，上次是我算错了。", "先检查接线。"),
+        )
+
+        assertFalse(result.isValid)
+    }
+
+    @Test
+    fun `public response accepts a fresh opening after recent assistant turns`() {
+        val policy = PersonaOutputPolicy(maximumRepeatedOpening = 1)
+
+        val result = LlmOutputValidator.validate(
+            output = validOutput("这次我来处理。"),
+            policy = policy,
+            recentAssistantResponses = listOf("先检查接线。", "好吧，上次是我算错了。"),
+        )
+
+        assertTrue(result.isValid)
+    }
+
+    @Test
+    fun `response rewrite runs once only for schema valid policy violations`() = runTest {
+        var calls = 0
+        val rewriter = PersonaResponseRewriter { output, _ ->
+            calls += 1
+            output.copy(
+                internalLogic = "must not replace private logic",
+                vectorDelta = output.vectorDelta.mapValues { 1.0f },
+                response = "饭已经放好，趁热吃。",
+            )
+        }
+        val original = validOutput(response = "收到，已经登记进库存")
+
+        val rewritten = rewriter.rewriteIfNeeded(original, atriPolicy())
+
+        assertEquals(1, calls)
+        assertEquals(original.internalLogic, rewritten.internalLogic)
+        assertEquals(original.vectorDelta, rewritten.vectorDelta)
+        assertEquals("饭已经放好，趁热吃。", rewritten.response)
+    }
+
+    @Test
+    fun `response rewrite does not run for schema invalid output`() = runTest {
+        var calls = 0
+        val rewriter = PersonaResponseRewriter { output, _ ->
+            calls += 1
+            output.copy(response = "rewritten")
+        }
+        val invalid = validOutput(response = "收到，已经登记进库存").copy(internalLogic = "")
+
+        val unchanged = rewriter.rewriteIfNeeded(invalid, atriPolicy())
+
+        assertEquals(0, calls)
+        assertEquals(invalid, unchanged)
+    }
+
+    @Test
     fun `grounding accepts an exact active node and rejects missing nodes`() {
         val quantization = QuantizationResult(
             activeNodes = listOf("NODE_12", "NODE_45"),
@@ -85,5 +170,16 @@ class LlmOutputValidatorTest {
         "V" to 0.0f,
         "M" to 0.0f,
         "F" to 0.0f,
+    )
+
+    private fun validOutput(response: String): LlmOutput = LlmOutput(
+        internalLogic = "uses NODE_12",
+        vectorDelta = validDelta(),
+        response = response,
+    )
+
+    private fun atriPolicy(): PersonaOutputPolicy = PersonaOutputPolicy(
+        prohibitedPublicPhrases = setOf("登记进库存"),
+        maximumRepeatedOpening = 1,
     )
 }

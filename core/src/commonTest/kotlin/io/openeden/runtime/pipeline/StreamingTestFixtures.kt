@@ -6,6 +6,7 @@ import io.openeden.llm.LlmStreamEvent
 import io.openeden.llm.StreamingLlmClient
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaOutputPolicy
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
@@ -115,7 +116,9 @@ internal fun validStreamingOutput(response: String): LlmOutput = LlmOutput(
     response = response,
 )
 
-internal fun streamingTestPersona(): PersonaConfig = PersonaConfig(
+internal fun streamingTestPersona(
+    outputPolicy: PersonaOutputPolicy = PersonaOutputPolicy(),
+): PersonaConfig = PersonaConfig(
     mode = PersonaMode.GROWTH,
     startSubState = PersonaSubState.PRE_COMMAND,
     promptSections = mapOf(
@@ -127,4 +130,5 @@ internal fun streamingTestPersona(): PersonaConfig = PersonaConfig(
         PromptSectionKeys.Heartbeat to "hb",
         PromptSectionKeys.ShockHeartbeat to "shock",
     ),
+    outputPolicy = outputPolicy,
 )

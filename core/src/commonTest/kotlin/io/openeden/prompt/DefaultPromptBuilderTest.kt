@@ -12,9 +12,16 @@ import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalResult
 import io.openeden.persona.MapPersonaLoader
 import io.openeden.persona.PersonaConfig
+import io.openeden.persona.PersonaExampleMessage
+import io.openeden.persona.PersonaExampleRole
+import io.openeden.persona.PersonaFewShot
 import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaOutputPolicy
 import io.openeden.persona.PersonaSubState
+import io.openeden.relationship.RelationshipFacts
+import io.openeden.relationship.RelationshipPhase
 import io.openeden.relationship.RelationshipRole
+import io.openeden.relationship.RelationshipState
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.transcript.ConversationTurn
 import kotlinx.coroutines.test.runTest
@@ -118,6 +125,18 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `build injects first person core self from stable persona data`() = runTest {
+        val input = promptInput().let { base ->
+            base.copy(personaConfig = base.personaConfig.copy(coreSelf = "我是会选择也会负责的机器人。"))
+        }
+
+        val built = DefaultPromptBuilder().build(input)
+
+        assertContains(built.personaText, "我是会选择也会负责的机器人。")
+        assertFalse(built.contextText.contains("我是会选择也会负责的机器人。"))
+    }
+
+    @Test
     fun `runtime changes do not invalidate stable prompt layers`() = runTest {
         val first = DefaultPromptBuilder().build(
             promptInput(evolutionIndex = 1),
@@ -129,6 +148,48 @@ class DefaultPromptBuilderTest {
         assertEquals(first.systemText, later.systemText)
         assertEquals(first.personaText, later.personaText)
         assertNotEquals(first.contextText, later.contextText)
+    }
+
+    @Test
+    fun `structured few shots stay stable while relationship phase stays dynamic`() = runTest {
+        val baseInput = promptInput().let { input ->
+            input.copy(
+                personaConfig = input.personaConfig.copy(
+                    fewShots = listOf(
+                        PersonaFewShot(
+                            phase = RelationshipPhase.STRANGER,
+                            messages = listOf(
+                                PersonaExampleMessage(PersonaExampleRole.USER, "第一次见面，请多关照。"),
+                                PersonaExampleMessage(PersonaExampleRole.ASSISTANT, "先从名字开始吧，我会认真记住。"),
+                            ),
+                        ),
+                    ),
+                    outputPolicy = PersonaOutputPolicy(
+                        prohibitedPublicPhrases = setOf("登记进库存"),
+                        maximumRepeatedOpening = 1,
+                    ),
+                ),
+            )
+        }
+        val stranger = DefaultPromptBuilder().build(
+            baseInput.copy(
+                relationshipState = relationshipState(RelationshipPhase.STRANGER),
+            ),
+        )
+        val couple = DefaultPromptBuilder().build(
+            baseInput.copy(
+                relationshipState = relationshipState(RelationshipPhase.COUPLE),
+            ),
+        )
+
+        assertContains(stranger.personaText, "STRANGER")
+        assertContains(stranger.personaText, "USER")
+        assertContains(stranger.personaText, "ASSISTANT")
+        assertContains(stranger.personaText, "第一次见面，请多关照。")
+        assertContains(stranger.personaText, "登记进库存")
+        assertEquals(stranger.personaText, couple.personaText)
+        assertContains(stranger.contextText, "\"phase\": \"STRANGER\"")
+        assertContains(couple.contextText, "\"phase\": \"COUPLE\"")
     }
 
     @Test
@@ -448,5 +509,11 @@ class DefaultPromptBuilderTest {
         relationshipRole = relationshipRole,
         relationshipAddress = relationshipAddress,
         recentTurns = recentTurns,
+    )
+
+    private fun relationshipState(phase: RelationshipPhase): RelationshipState = RelationshipState(
+        incarnationId = "incarnation-a",
+        canonicalSubjectId = "subject-a",
+        facts = RelationshipFacts(phase = phase),
     )
 }

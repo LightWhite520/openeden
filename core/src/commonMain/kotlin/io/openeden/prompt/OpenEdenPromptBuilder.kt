@@ -65,6 +65,9 @@ object OpenEdenPromptDocumentFactory {
                 }
             }
             "persona" {
+                if (input.personaConfig.coreSelf.isNotBlank()) {
+                    "core_self" to input.personaConfig.coreSelf.trim()
+                }
                 personaSection("identity", input.personaConfig, PromptSectionKeys.Identity)
                 personaSection("base", input.personaConfig, PromptSectionKeys.PersonaBase)
                 personaSection("behavior", input.personaConfig, PromptSectionKeys.PersonaBehavior)
@@ -76,6 +79,9 @@ object OpenEdenPromptDocumentFactory {
                 )
                 styleSection(input.personaConfig, subState)
                 personaSection("output_layer_rules", input.personaConfig, PromptSectionKeys.OutputLayerRules)
+                personaSection("public_voice_rules", input.personaConfig, PromptSectionKeys.PublicVoiceRules)
+                structuredFewShots(input.personaConfig)
+                publicOutputPolicy(input.personaConfig)
             }
             "context" {
                 "bio_core_state" {
@@ -114,6 +120,35 @@ object OpenEdenPromptDocumentFactory {
         val value = config.promptSections[key]
         if (!value.isNullOrBlank()) {
             name to value.trim()
+        }
+    }
+
+    private fun PromptObjectBuilder.structuredFewShots(config: PersonaConfig) {
+        if (config.fewShots.isEmpty()) return
+        "relationship_few_shots" to array(
+            config.fewShots.map { shot ->
+                obj {
+                    "phase" to shot.phase.name
+                    "messages" to array(
+                        shot.messages.map { message ->
+                            obj {
+                                "role" to message.role.name
+                                "content" to message.content
+                            }
+                        },
+                    )
+                }
+            },
+        )
+    }
+
+    private fun PromptObjectBuilder.publicOutputPolicy(config: PersonaConfig) {
+        val policy = config.outputPolicy
+        if (policy.prohibitedPublicPhrases.isEmpty() && policy.prohibitedPublicPatterns.isEmpty()) return
+        "public_output_policy" {
+            "prohibited_phrases" to array(policy.prohibitedPublicPhrases.sorted())
+            "prohibited_patterns" to array(policy.prohibitedPublicPatterns.sorted())
+            "maximum_repeated_opening" to policy.maximumRepeatedOpening
         }
     }
 
@@ -189,6 +224,7 @@ object OpenEdenPromptDocumentFactory {
             value > 0.6f -> SemanticLevel.HIGH.name
             else -> SemanticLevel.MEDIUM.name
         }
+        "phase" to (state?.facts?.phase ?: io.openeden.relationship.RelationshipPhase.STRANGER).name
         "familiarity" to level(state?.familiarity ?: 0.0f)
         "trust" to level(state?.trust ?: 0.0f)
         "safety" to level(state?.safety ?: 0.0f)

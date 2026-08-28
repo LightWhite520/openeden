@@ -11,6 +11,7 @@ import io.openeden.memory.MemoryStore
 import io.openeden.memory.RetrievalResult
 import io.openeden.persona.PersonaConfig
 import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaOutputPolicy
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSectionKeys
@@ -23,6 +24,40 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
 class RuntimePipelineTest {
+    @Test
+    fun `local runtime rewrites a policy violating response once through create defaults`() = runTest {
+        var completions = 0
+        val pipeline = OpenEdenRuntimePipeline.local(
+            personaConfig = testPersonaConfig().copy(
+                outputPolicy = PersonaOutputPolicy(
+                    prohibitedPublicPatterns = setOf("^收到[。！!\\s]*$"),
+                ),
+            ),
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    completions += 1
+                    return LlmOutput(
+                        internalLogic = "runtime rewrite test references HEURISTIC_FALLBACK",
+                        vectorDelta = zeroDelta(),
+                        response = if (completions == 1) "收到" else "我会认真处理这件事。",
+                    )
+                }
+            },
+        )
+
+        val result = pipeline.handle(
+            LocalRuntimeRequest(
+                turnId = "runtime-rewrite-1",
+                userId = "owner",
+                text = "请帮我处理",
+            ),
+        )
+
+        assertEquals(2, completions)
+        assertEquals("我会认真处理这件事。", result.response)
+        assertEquals(1, result.evolutionIndex)
+    }
+
     @Test
     fun `local runtime request maps to CLI session and persists state`() = runTest {
         val store = MutableSessionStateStore()
@@ -76,7 +111,7 @@ class RuntimePipelineTest {
                     return LlmOutput(
                         internalLogic = "history test references HEURISTIC_FALLBACK",
                         vectorDelta = zeroDelta(),
-                        response = "first response",
+                        response = if (prompts.size == 1) "first response" else "second response",
                     )
                 }
             },

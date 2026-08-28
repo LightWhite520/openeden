@@ -1,6 +1,8 @@
 package io.openeden.persona
 
-
+import io.openeden.relationship.RelationshipPhase
+import io.openeden.llm.LlmOutput
+import io.openeden.llm.LlmOutputValidator
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -54,6 +56,69 @@ class AtriPersonaGuardTest {
             val value = config.promptSections[key]
             assertNotNull(value, "Missing persona section: $key")
             assertTrue(value.isNotBlank(), "Blank persona section: $key")
+        }
+    }
+
+    @Test
+    fun `atri persona covers all relationship phases with role messages`() {
+        val persona = PersonaFileLoader.load(atriYaml)
+
+        assertEquals(RelationshipPhase.entries.toSet(), persona.fewShots.map { it.phase }.toSet())
+        assertTrue(
+            persona.fewShots.all { shot ->
+                shot.messages.map { it.role }.containsAll(
+                    listOf(PersonaExampleRole.USER, PersonaExampleRole.ASSISTANT),
+                )
+            },
+        )
+    }
+
+    @Test
+    fun `atri persona owns public response vocabulary policy`() {
+        val policy = PersonaFileLoader.load(atriYaml).outputPolicy
+
+        assertTrue(policy.prohibitedPublicPhrases.isNotEmpty())
+        assertTrue(policy.prohibitedPublicPatterns.isNotEmpty())
+        assertEquals(1, policy.maximumRepeatedOpening)
+    }
+
+    @Test
+    fun `atri persona defines a first person core self`() {
+        val coreSelf = PersonaFileLoader.load(atriYaml).coreSelf
+
+        assertTrue(coreSelf.isNotBlank())
+        assertTrue("我" in coreSelf)
+        assertTrue("MUST " in coreSelf)
+    }
+
+    @Test
+    fun `atri public policy rejects transactional service voice but allows technical discussion`() {
+        val policy = PersonaFileLoader.load(atriYaml).outputPolicy
+        val rejected = listOf(
+            "收到",
+            "收到，已记录。",
+            "收到，确认权限后写入库存。",
+            "确认权限后写入库存，任务完成。",
+            "任务完成。",
+        )
+        val allowed = listOf(
+            "服务器的运行状态正常，刚才的超时来自客户端。",
+            "这个系统提示表示令牌已经过期，需要重新登录。",
+            "这个系统提示表示库存同步任务完成，不是让我回复用户的文案。",
+            "库存同步任务完成事件由 JobCompleted 消费。",
+        )
+
+        rejected.forEach { response ->
+            assertTrue(
+                !LlmOutputValidator.validate(validOutput(response), policy).isValid,
+                "Transactional public response was accepted: $response",
+            )
+        }
+        allowed.forEach { response ->
+            assertTrue(
+                LlmOutputValidator.validate(validOutput(response), policy).isValid,
+                "Technical discussion was rejected: $response",
+            )
         }
     }
 
@@ -244,6 +309,12 @@ class AtriPersonaGuardTest {
         }
         fail("Could not locate $relative by walking up from ${Paths.get("").toAbsolutePath()}")
     }
+
+    private fun validOutput(response: String): LlmOutput = LlmOutput(
+        internalLogic = "uses NODE_12",
+        vectorDelta = listOf("L", "P", "E", "S", "tau", "V", "M", "F").associateWith { 0.0f },
+        response = response,
+    )
 
     private data class PersonaExample(
         val number: String,
