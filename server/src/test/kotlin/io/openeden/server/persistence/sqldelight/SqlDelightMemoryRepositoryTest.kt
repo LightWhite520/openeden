@@ -72,6 +72,7 @@ class SqlDelightMemoryRepositoryTest {
                 sourceSessionId = "QQ:42",
                 canonicalSubjectId = "QQ:u1",
                 visibility = MemoryVisibility.ScopeShared("QQ:42"),
+                platform = "QQ",
             ),
             createdAtMs = 1_787_384_632_000L,
         )
@@ -322,7 +323,7 @@ class SqlDelightMemoryRepositoryTest {
             repository.write(wrongModel, modelId = "other-model")
 
             val result = repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
             )
 
             assertEquals(listOf(second.id, first.id), result.memories.map { it.id })
@@ -379,6 +380,97 @@ class SqlDelightMemoryRepositoryTest {
     }
 
     @Test
+    fun `same session retrieval normalizes one incarnation through index and hydration`() = runTest {
+        val first = memoryEntry("QQ:group:1000:raw", "QQ:group", "first").copy(
+            metadata = MemoryMetadata(
+                snapshot8D = BioVector.Neutral,
+                omegaState = 0.0f,
+                deltaVec = VectorDelta.Zero,
+                snapshotOrigin = BioVector.Neutral,
+                userId = "user",
+                incarnationId = "incarnation-1",
+                sourceSessionId = "QQ:group",
+                canonicalSubjectId = "QQ:user",
+                visibility = MemoryVisibility.IncarnationShared,
+            ),
+        )
+        val second = first.copy(
+            id = "QQ:group:2000:raw",
+            content = "second",
+            metadata = first.metadata.copy(incarnationId = "incarnation-2"),
+        )
+        val remoteIndex = FakeVectorIndex(
+            listOf(
+                VectorSearchHit(first.id, null, 1.0f, 1.0f),
+                VectorSearchHit(second.id, null, 1.0f, 1.0f),
+            ),
+        )
+
+        SqlDelightMemoryRepository.open(dbPath, index = remoteIndex).use { repository ->
+            repository.write(first)
+            repository.write(second)
+
+            val result = repository.retrieve(
+                RetrievalRequest(
+                    sessionId = "QQ:group",
+                    userId = "user",
+                    canonicalSubjectId = "QQ:user",
+                    incarnationId = " incarnation-1 ",
+                    userInput = "query",
+                    currentVector = BioVector.Neutral,
+                    origin = BioVector.Neutral,
+                    mode = RetrievalMode.CONGRUENT,
+                ),
+            )
+
+            assertEquals(listOf(first.id), result.memories.map { it.id })
+            assertTrue(remoteIndex.requests.all { it.incarnationId == "incarnation-1" })
+        }
+    }
+
+    @Test
+    fun `blank retrieval incarnation fails closed for non operator visibility`() = runTest {
+        val seed = memoryEntry("QQ:group:1000:raw", "QQ:group", "candidate").copy(
+            metadata = MemoryMetadata(
+                snapshot8D = BioVector.Neutral,
+                omegaState = 0.0f,
+                deltaVec = VectorDelta.Zero,
+                snapshotOrigin = BioVector.Neutral,
+                userId = "user",
+                incarnationId = "incarnation-1",
+                sourceSessionId = "QQ:group",
+                canonicalSubjectId = "QQ:user",
+                visibility = MemoryVisibility.PrivateSubject("QQ:user"),
+            ),
+        )
+        val entries = listOf(
+            seed,
+            seed.copy(id = "QQ:group:2000:raw", metadata = seed.metadata.copy(visibility = MemoryVisibility.ScopeShared("QQ:group"))),
+            seed.copy(id = "QQ:group:3000:raw", metadata = seed.metadata.copy(visibility = MemoryVisibility.IncarnationShared)),
+        )
+        val remoteIndex = FakeVectorIndex(entries.map { VectorSearchHit(it.id, null, 1.0f, 1.0f) })
+
+        SqlDelightMemoryRepository.open(dbPath, index = remoteIndex).use { repository ->
+            entries.forEach { repository.write(it) }
+
+            val result = repository.retrieve(
+                RetrievalRequest(
+                    sessionId = "QQ:group",
+                    userId = "user",
+                    canonicalSubjectId = "QQ:user",
+                    userInput = "query",
+                    currentVector = BioVector.Neutral,
+                    origin = BioVector.Neutral,
+                    mode = RetrievalMode.CONGRUENT,
+                ),
+            )
+
+            assertTrue(result.memories.isEmpty())
+            assertEquals(0, remoteIndex.searchCount)
+        }
+    }
+
+    @Test
     fun `sql delight uses explicit persisted lineage ranges without digest overlap`() = runTest {
         val sourceTurnIds = (1..300).map { "turn-$it" }
         val entry = memoryEntry("QQ:42:1000:raw", "QQ:42", "range candidate").copy(
@@ -403,6 +495,7 @@ class SqlDelightMemoryRepositoryTest {
                     BioVector.Neutral,
                     BioVector.Neutral,
                     RetrievalMode.CONGRUENT,
+                    incarnationId = "legacy-incarnation",
                     exclusionContext = io.openeden.memory.MemoryExclusionContext(
                         sourceTurnIds = setOf("turn-300"),
                     ),
@@ -421,7 +514,7 @@ class SqlDelightMemoryRepositoryTest {
         SqlDelightMemoryRepository.open(dbPath).use { repository ->
             repository.write(entry, modelId = "local-v1")
             val result = repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
             )
             assertEquals(listOf(entry.id), result.memories.map { it.id })
         }
@@ -438,7 +531,7 @@ class SqlDelightMemoryRepositoryTest {
         ).use { repository ->
             repository.write(entry, modelId = "local-v1")
             repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
             )
         }
 
@@ -454,7 +547,7 @@ class SqlDelightMemoryRepositoryTest {
             repository.write(old, modelId = "local-v1")
 
             val result = repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
             )
 
             assertEquals(listOf(active.id), result.memories.map { it.id })
@@ -468,13 +561,13 @@ class SqlDelightMemoryRepositoryTest {
         SqlDelightMemoryRepository.open(dbPath, activeModelId = "local-v2").use { repository ->
             repository.write(active, modelId = "local-v2")
             assertEquals(listOf(active.id), repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
             ).memories.map { it.id })
 
             repository.write(old, modelId = "local-v1")
 
             assertEquals(emptyList(), repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
             ).memories)
         }
     }
@@ -506,7 +599,7 @@ class SqlDelightMemoryRepositoryTest {
         SqlDelightMemoryRepository.open(dbPath, index = retrievalIndex).use { repository ->
             repository.write(entry.copy(content = "old"), modelId = "old-model")
             val result = repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
             )
             assertEquals(emptyList(), result.memories)
         }
@@ -575,7 +668,7 @@ class SqlDelightMemoryRepositoryTest {
             assertEquals(
                 listOf(first.id),
                 repository.retrieve(
-                    RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                    RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
                 ).memories.map { it.id },
             )
 
@@ -590,7 +683,7 @@ class SqlDelightMemoryRepositoryTest {
             assertEquals(
                 listOf(second.id, first.id),
                 repository.retrieve(
-                    RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                    RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
                 ).memories.map { it.id },
             )
         }
@@ -617,7 +710,7 @@ class SqlDelightMemoryRepositoryTest {
             repository.write(wrongModel, modelId = "other-model")
 
             val result = repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.CONGRUENT, incarnationId = "legacy-incarnation"),
             )
 
             assertTrue(remoteIndex.lastLimit >= 30)
@@ -645,7 +738,7 @@ class SqlDelightMemoryRepositoryTest {
             memories.forEach { repository.write(it, modelId = "local-v1") }
 
             val result = repository.retrieve(
-                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.MIXED),
+                RetrievalRequest("QQ:42", "query", BioVector.Neutral, BioVector.Neutral, RetrievalMode.MIXED, incarnationId = "legacy-incarnation"),
             )
 
             assertEquals(2, remoteIndex.searchCount)
@@ -685,6 +778,7 @@ class SqlDelightMemoryRepositoryTest {
                     BioVector.Neutral,
                     BioVector.Neutral,
                     RetrievalMode.CONGRUENT,
+                    incarnationId = "legacy-incarnation",
                     exclusionContext = MemoryExclusionContext(
                         sourceTurnIds = semanticOnly.mapTo(hashSetOf()) {
                             it.metadata.lineage.sourceTurnIds.single()
@@ -777,6 +871,7 @@ class SqlDelightMemoryRepositoryTest {
         var lastLimit = 0
         val limits = mutableListOf<Int>()
         val emotionalEmbeddings = mutableListOf<List<Float>?>()
+        val requests = mutableListOf<VectorSearchRequest>()
 
         override suspend fun insert(entry: MemoryEntry) = Unit
         override suspend fun remove(memoryId: String) = Unit
@@ -784,6 +879,7 @@ class SqlDelightMemoryRepositoryTest {
             rebuildCount += 1
         }
         override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
+            requests += request
             searchCount += 1
             lastLimit = request.limit
             limits += request.limit

@@ -47,6 +47,7 @@ class InMemoryMemoryPalace(
                                 sessionId = request.sessionId,
                                 incarnationId = request.incarnationId,
                                 canonicalSubjectId = request.canonicalSubjectId,
+                                operatorAuthorized = request.operatorAuthorized,
                                 semanticEmbedding = querySemantic,
                                 emotionalEmbedding = embeddingModel.embed(emotionalTarget),
                                 limit = overfetchLimit,

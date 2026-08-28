@@ -9,4 +9,5 @@ data class VectorSearchRequest(
     val limit: Int = 6,
     val incarnationId: String = "",
     val canonicalSubjectId: String = "",
+    val operatorAuthorized: Boolean = false,
 )

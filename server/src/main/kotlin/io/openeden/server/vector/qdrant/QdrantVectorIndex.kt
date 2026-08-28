@@ -83,34 +83,35 @@ class QdrantVectorIndex(
     }
 
     override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> {
+        val normalizedIncarnationId = request.incarnationId.trim()
+        if (normalizedIncarnationId.isBlank()) return emptyList()
+        val normalizedRequest = request.copy(incarnationId = normalizedIncarnationId)
         val limit = request.limit.coerceIn(0, maxSearchLimit)
         if (limit == 0) return emptyList()
-        validateVector(request.semanticEmbedding, "semantic", dimensions?.semantic)
-        val knownCollection = ensureSearchCollection(request.semanticEmbedding.size) ?: return emptyList()
-        request.emotionalEmbedding?.let { validateVector(it, EMOTIONAL, dimensions?.emotional) }
+        validateVector(normalizedRequest.semanticEmbedding, "semantic", dimensions?.semantic)
+        val knownCollection = ensureSearchCollection(normalizedRequest.semanticEmbedding.size) ?: return emptyList()
+        normalizedRequest.emotionalEmbedding?.let { validateVector(it, EMOTIONAL, dimensions?.emotional) }
         val filter = QdrantFilter(
             must = buildList {
-                request.incarnationId.takeIf { it.isNotBlank() }
-                    ?.let { add(QdrantFieldCondition("incarnation_id", it)) }
-                    ?: add(QdrantFieldCondition("session_id", request.sessionId))
-                request.room?.let { add(QdrantFieldCondition("room", it.name)) }
-                request.kind?.let { add(QdrantFieldCondition("kind", it.name)) }
+                add(QdrantFieldCondition("incarnation_id", normalizedRequest.incarnationId))
+                normalizedRequest.room?.let { add(QdrantFieldCondition("room", it.name)) }
+                normalizedRequest.kind?.let { add(QdrantFieldCondition("kind", it.name)) }
                 add(QdrantFieldCondition("model_id", modelId))
             },
-            should = request.authorizedVisibilityKeys(),
+            should = normalizedRequest.authorizedVisibilityKeys(),
         )
         return try {
             coroutineScope {
                 val semanticHits = async {
                     client.searchSemanticPoints(
                         knownCollection,
-                        request.semanticEmbedding.toFloatArray(),
+                        normalizedRequest.semanticEmbedding.toFloatArray(),
                         limit,
                         filter,
                         using = SEMANTIC,
                     )
                 }
-                val emotionalHits = request.emotionalEmbedding?.let { emotionalEmbedding ->
+                val emotionalHits = normalizedRequest.emotionalEmbedding?.let { emotionalEmbedding ->
                     async {
                         client.searchSemanticPoints(
                             knownCollection,
@@ -122,7 +123,7 @@ class QdrantVectorIndex(
                     }
                 }
                 val merged = linkedMapOf<String, VectorSearchHit>()
-                semanticHits.await().forEach { hit ->
+                semanticHits.await().filter { it.isAuthorizedFor(normalizedRequest) }.forEach { hit ->
                     val memoryId = hit.payload[MEMORY_ID]?.takeIf { it.isNotBlank() } ?: return@forEach
                     merged[memoryId] = VectorSearchHit(
                         memoryId,
@@ -131,7 +132,7 @@ class QdrantVectorIndex(
                         emotionalSimilarity = 0.0f,
                     )
                 }
-                emotionalHits?.await()?.forEach { hit ->
+                emotionalHits?.await()?.filter { it.isAuthorizedFor(normalizedRequest) }?.forEach { hit ->
                     val memoryId = hit.payload[MEMORY_ID]?.takeIf { it.isNotBlank() } ?: return@forEach
                     val existing = merged[memoryId]
                     merged[memoryId] = if (existing == null) {
@@ -376,7 +377,12 @@ private fun VectorSearchRequest.authorizedVisibilityKeys(): List<QdrantFieldCond
     incarnationId.takeIf { it.isNotBlank() }?.let { id ->
         add(QdrantFieldCondition("visibility_key", "incarnation:$id"))
     }
+    if (operatorAuthorized) add(QdrantFieldCondition("visibility_key", "operator"))
 }
+
+private fun QdrantSearchHit.isAuthorizedFor(request: VectorSearchRequest): Boolean =
+    payload["incarnation_id"] == request.incarnationId &&
+        payload["visibility_key"] in request.authorizedVisibilityKeys().map(QdrantFieldCondition::value)
 
 private fun io.openeden.memory.MemoryVisibility.accessKey(incarnationId: String): String = when (this) {
     is io.openeden.memory.MemoryVisibility.PrivateSubject -> "subject:$subjectId"

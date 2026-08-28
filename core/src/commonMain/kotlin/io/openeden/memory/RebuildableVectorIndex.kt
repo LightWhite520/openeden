@@ -53,11 +53,10 @@ class RebuildableInMemoryVectorIndex(
 
     override suspend fun search(request: VectorSearchRequest): List<VectorSearchHit> =
         inferenceExecutor.run {
+            if (request.incarnationId.isBlank()) return@run emptyList()
             val snapshot = mutex.withLock {
                 entries.values.filter { entry ->
-                    (request.incarnationId.takeIf { it.isNotBlank() }?.let { incarnationId ->
-                        entry.metadata.incarnationId == incarnationId
-                    } ?: (entry.sessionId == request.sessionId)) &&
+                    entry.metadata.incarnationId == request.incarnationId &&
                         entry.isVisibleTo(request) &&
                         (request.room == null || entry.room == request.room) &&
                         (request.kind == null || entry.kind == request.kind)

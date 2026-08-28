@@ -247,7 +247,7 @@ class QdrantVectorIndexTest {
             if (request.method.value == "GET") {
                 response("""{"result":{"config":{"params":{"vectors":{"semantic":{"size":2,"distance":"Cosine"},"emotional":{"size":3,"distance":"Cosine"}}}}}}""")
             } else {
-                response("""{"result":[{"id":"point-1","score":0.91,"payload":{"memory_id":"memory-1"}}]}""")
+                response("""{"result":[{"id":"point-1","score":0.91,"payload":{"memory_id":"memory-1","incarnation_id":"incarnation-1","visibility_key":"scope:QQ:42"}}]}""")
             }
         }
         val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
@@ -280,8 +280,8 @@ class QdrantVectorIndexTest {
             } else if (request.url.encodedPath.endsWith("/points/search")) {
                 val body = request.jsonBody()
                 when (body["vector"]!!.jsonObject["name"]!!.jsonPrimitive.content) {
-                    "semantic" -> response("""{"result":[{"id":"point-1","score":0.9,"payload":{"memory_id":"memory-1"}},{"id":"point-2","score":0.8,"payload":{"memory_id":"memory-2"}}]}""")
-                    "emotional" -> response("""{"result":[{"id":"point-1","score":0.7,"payload":{"memory_id":"memory-1"}},{"id":"point-3","score":0.6,"payload":{"memory_id":"memory-3"}}]}""")
+                    "semantic" -> response("""{"result":[{"id":"point-1","score":0.9,"payload":{"memory_id":"memory-1","incarnation_id":"incarnation-1","visibility_key":"scope:QQ:42"}},{"id":"point-2","score":0.8,"payload":{"memory_id":"memory-2","incarnation_id":"incarnation-1","visibility_key":"scope:QQ:42"}}]}""")
+                    "emotional" -> response("""{"result":[{"id":"point-1","score":0.7,"payload":{"memory_id":"memory-1","incarnation_id":"incarnation-1","visibility_key":"scope:QQ:42"}},{"id":"point-3","score":0.6,"payload":{"memory_id":"memory-3","incarnation_id":"incarnation-1","visibility_key":"scope:QQ:42"}}]}""")
                     else -> error("unexpected named vector")
                 }
             } else {
@@ -296,6 +296,7 @@ class QdrantVectorIndexTest {
                 semanticEmbedding = listOf(.1f, .2f),
                 emotionalEmbedding = listOf(.3f, .4f, .5f),
                 limit = 6,
+                incarnationId = "incarnation-1",
             ),
         )
 
@@ -307,6 +308,34 @@ class QdrantVectorIndexTest {
         assertEquals(0.0f, hits[1].emotionalSimilarity)
         assertEquals(0.0f, hits[2].semanticSimilarity)
         assertEquals(.6f, hits[2].emotionalSimilarity)
+        client.close()
+    }
+
+    @Test
+    fun `search rejects unauthorized results returned despite the qdrant filter`() = runTest {
+        val requests = mutableListOf<HttpRequestData>()
+        val client = clientFor(requests) { request ->
+            if (request.method.value == "GET") {
+                response("""{"result":{"config":{"params":{"vectors":{"semantic":{"size":2,"distance":"Cosine"},"emotional":{"size":3,"distance":"Cosine"}}}}}}""")
+            } else {
+                response("""{"result":[
+                    {"id":"allowed","score":0.9,"payload":{"memory_id":"allowed","incarnation_id":"incarnation-1","visibility_key":"operator"}},
+                    {"id":"wrong-incarnation","score":0.8,"payload":{"memory_id":"wrong-incarnation","incarnation_id":"incarnation-2","visibility_key":"operator"}},
+                    {"id":"wrong-visibility","score":0.7,"payload":{"memory_id":"wrong-visibility","incarnation_id":"incarnation-1","visibility_key":"scope:QQ:other"}}
+                ]}""")
+            }
+        }
+        val index = QdrantVectorIndex(client, QdrantCollectionNaming("eden"), "local-v1")
+
+        val request = VectorSearchRequest(
+                sessionId = "QQ:42",
+                semanticEmbedding = listOf(.1f, .2f),
+                incarnationId = "incarnation-1",
+            )
+        assertTrue(index.search(request).isEmpty())
+        val hits = index.search(request.copy(operatorAuthorized = true))
+
+        assertEquals(listOf("allowed"), hits.map { it.memoryId })
         client.close()
     }
 

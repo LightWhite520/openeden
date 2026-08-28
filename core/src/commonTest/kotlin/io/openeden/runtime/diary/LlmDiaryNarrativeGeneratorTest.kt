@@ -18,6 +18,7 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryContentFingerprint
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemorySnippet
+import io.openeden.memory.MemoryVisibility
 import io.openeden.persona.MapPersonaLoader
 import io.openeden.prompt.BuiltPrompt
 import kotlin.test.Test
@@ -145,6 +146,30 @@ class LlmDiaryNarrativeGeneratorTest {
 
         assertEquals(io.openeden.memory.MemoryLineage.Empty, entry.metadata.lineage)
         assertEquals(MemoryContentFingerprint.of("narrative"), entry.metadata.contentFingerprint)
+    }
+
+    @Test
+    fun `generated narrative preserves complete task identity metadata`() = runTest {
+        val task = DiaryTask(
+            id = "identity-task",
+            sessionId = "QQ:group-1",
+            sourceMemoryId = "raw-1",
+            reason = "vector_delta",
+            incarnationId = "incarnation-1",
+            sourceSessionId = "QQ:group-1",
+            platform = "QQ",
+            userId = "owner",
+            canonicalSubjectId = "identity:owner",
+            visibility = MemoryVisibility.PrivateSubject("identity:owner"),
+        )
+
+        val entry = fixture(SessionStateStore.neutral(task.sessionId), {}).generate(task).entry
+
+        assertEquals("QQ", entry.metadata.platform)
+        assertEquals(task.incarnationId, entry.metadata.incarnationId)
+        assertEquals(task.sourceSessionId, entry.metadata.sourceSessionId)
+        assertEquals(task.canonicalSubjectId, entry.metadata.canonicalSubjectId)
+        assertEquals(task.visibility, entry.metadata.visibility)
     }
 
     @Test

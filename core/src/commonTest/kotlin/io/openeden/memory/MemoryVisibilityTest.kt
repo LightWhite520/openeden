@@ -69,4 +69,63 @@ class MemoryVisibilityTest {
             ),
         ))
     }
+
+    @Test
+    fun `blank retrieval incarnation rejects every non operator visibility`() {
+        val request = RetrievalRequest(
+            sessionId = "QQ:group",
+            userId = "user",
+            canonicalSubjectId = "QQ:user",
+            userInput = "query",
+            currentVector = BioVector.Neutral,
+            origin = BioVector.Neutral,
+            mode = RetrievalMode.CONGRUENT,
+        )
+
+        listOf(
+            MemoryVisibility.PrivateSubject("QQ:user"),
+            MemoryVisibility.ScopeShared("QQ:group"),
+            MemoryVisibility.IncarnationShared,
+        ).forEachIndexed { index, visibility ->
+            assertFalse(entry("memory-$index", visibility).isVisibleTo(request))
+        }
+    }
+
+    @Test
+    fun `operator only memory requires explicit request authorization`() {
+        val entry = entry("operator", MemoryVisibility.OperatorOnly)
+        val request = RetrievalRequest(
+            sessionId = "QQ:group",
+            userId = "user",
+            canonicalSubjectId = "QQ:user",
+            incarnationId = "incarnation-1",
+            userInput = "query",
+            currentVector = BioVector.Neutral,
+            origin = BioVector.Neutral,
+            mode = RetrievalMode.CONGRUENT,
+        )
+
+        assertFalse(entry.isVisibleTo(request))
+        assertTrue(entry.isVisibleTo(request.copy(operatorAuthorized = true)))
+    }
+
+    private fun entry(id: String, visibility: MemoryVisibility) = MemoryEntry(
+        id = id,
+        sessionId = "QQ:group",
+        content = "content",
+        room = MemoryRoom.EVENT_ROOM,
+        kind = MemoryKind.RAW,
+        semanticEmbedding = listOf(1.0f),
+        emotionalEmbedding = listOf(1.0f),
+        metadata = MemoryMetadata(
+            snapshot8D = BioVector.Neutral,
+            omegaState = 0.0f,
+            deltaVec = VectorDelta.Zero,
+            snapshotOrigin = BioVector.Neutral,
+            userId = "user",
+            incarnationId = "incarnation-1",
+            canonicalSubjectId = "QQ:user",
+            visibility = visibility,
+        ),
+    )
 }

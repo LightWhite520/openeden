@@ -208,29 +208,39 @@ class SqlDelightMemoryRepository(
     }
 
     override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
-        val indexedIncarnationId = request.incarnationId.ifBlank { activeIncarnationId() }
-        ensureIndexed(indexedIncarnationId)
+        val normalizedIncarnationId = request.incarnationId.trim()
+        if (normalizedIncarnationId.isBlank()) {
+            return RetrievalResult(
+                mode = request.mode,
+                injectionLabel = io.openeden.memory.RetrievalModeSelector.injectionLabel(request.mode),
+                memories = emptyList(),
+                underfilled = true,
+            )
+        }
+        val normalizedRequest = request.copy(incarnationId = normalizedIncarnationId)
+        ensureIndexed(normalizedIncarnationId)
         return inferenceExecutor.run {
         val overfetchLimit = retrievalCandidateLimit()
-        val positiveSkew = request.currentVector.copy(
-            p = (request.currentVector.p + 0.3f).coerceAtMost(1.0f),
-            v = (request.currentVector.v + 0.2f).coerceAtMost(1.0f),
-        )
-        val contrastTarget = VectorMapping.centerSymmetricTarget(request.currentVector, request.origin)
-        val searchTargets = when (request.mode) {
-            RetrievalMode.CONGRUENT -> listOf(request.currentVector)
-            RetrievalMode.MIXED -> listOf(request.currentVector, positiveSkew)
+            val positiveSkew = normalizedRequest.currentVector.copy(
+                p = (normalizedRequest.currentVector.p + 0.3f).coerceAtMost(1.0f),
+                v = (normalizedRequest.currentVector.v + 0.2f).coerceAtMost(1.0f),
+            )
+        val contrastTarget = VectorMapping.centerSymmetricTarget(normalizedRequest.currentVector, normalizedRequest.origin)
+        val searchTargets = when (normalizedRequest.mode) {
+            RetrievalMode.CONGRUENT -> listOf(normalizedRequest.currentVector)
+            RetrievalMode.MIXED -> listOf(normalizedRequest.currentVector, positiveSkew)
             RetrievalMode.CONTRAST -> listOf(contrastTarget)
         }
-        val semanticEmbedding = embeddingModel.embed(request.userInput)
+        val semanticEmbedding = embeddingModel.embed(normalizedRequest.userInput)
         val remotePools = buildList {
             for (emotionalTarget in searchTargets) {
                 val targetEmbedding = embeddingModel.embed(emotionalTarget)
                 val hits = retrievalIndex.search(
                     VectorSearchRequest(
-                        sessionId = request.sessionId,
-                        incarnationId = request.incarnationId,
-                        canonicalSubjectId = request.canonicalSubjectId,
+                        sessionId = normalizedRequest.sessionId,
+                        incarnationId = normalizedRequest.incarnationId,
+                        canonicalSubjectId = normalizedRequest.canonicalSubjectId,
+                        operatorAuthorized = normalizedRequest.operatorAuthorized,
                         semanticEmbedding = semanticEmbedding,
                         emotionalEmbedding = targetEmbedding,
                         limit = overfetchLimit,
@@ -239,10 +249,10 @@ class SqlDelightMemoryRepository(
                 // Preserve that per-source capacity before hydrating; truncating at 3*K loses
                 // emotional-only candidates that occur after the semantic side.
                 ).take(remoteUnionLimit(overfetchLimit))
-                val hydrated = hydrateRemoteCandidates(request, hits)
+                val hydrated = hydrateRemoteCandidates(normalizedRequest, hits)
                 val rangeExcludedIds = hits.asSequence()
                     .map { it.memoryId }
-                    .filter { memoryId -> hydrated[memoryId]?.hasPersistedRangeOverlap(request) == true }
+                    .filter { memoryId -> hydrated[memoryId]?.hasPersistedRangeOverlap(normalizedRequest) == true }
                     .toSet()
                 add(
                     TargetMemoryPool(
@@ -270,7 +280,7 @@ class SqlDelightMemoryRepository(
             index = TargetPoolVectorIndex(targetPools),
         )
         candidates.forEach { palace.write(it) }
-        palace.retrieve(request).let { result ->
+        palace.retrieve(normalizedRequest).let { result ->
             if (persistedRangeExcludedCount == 0) result else result.copy(
                 lineageExcludedCount = result.lineageExcludedCount + persistedRangeExcludedCount,
             )
@@ -373,7 +383,7 @@ class SqlDelightMemoryRepository(
             id = entry.id,
             session_id = entry.sessionId,
             user_id = entry.metadata.userId,
-            platform = entry.sessionId.substringBefore(':', entry.sessionId),
+            platform = entry.metadata.platform,
             room = entry.room.name,
             kind = entry.kind.name,
             content = entry.content,
@@ -447,6 +457,7 @@ class SqlDelightMemoryRepository(
                     subjectId = visibilitySubjectId,
                     sessionId = visibilitySessionId,
                 ),
+                platform = platform,
             ),
             createdAtMs = createdAtMs,
         )
@@ -488,6 +499,7 @@ class SqlDelightMemoryRepository(
                 sourceSessionId = sourceSessionId,
                 canonicalSubjectId = subjectId,
                 visibility = visibility,
+                platform = entry.metadata.platform.ifBlank { entry.sessionId.substringBefore(':', entry.sessionId) },
             ),
         )
     }

@@ -48,11 +48,11 @@ class QdrantIntegrationTest {
             assertEquals(2, schema.vectors.getValue("semantic").size)
             assertEquals(8, schema.vectors.getValue("emotional").size)
             assertEquals(
-                setOf("session_id", "incarnation_id", "room", "kind", "model_id"),
+                setOf("session_id", "incarnation_id", "room", "kind", "model_id", "visibility_key"),
                 client.inspectPayloadIndexes(collection),
             )
 
-            val request = VectorSearchRequest("session-a", listOf(1.0f, 0.0f), limit = 10)
+            val request = VectorSearchRequest("session-a", listOf(1.0f, 0.0f), limit = 10, incarnationId = "incarnation-1")
             val filtered = index.search(request)
             assertEquals(setOf("memory-a-1", "memory-a-2"), filtered.map { it.memoryId }.toSet())
             assertTrue(filtered.all { it.entry == null }, "remote Qdrant hits must be candidate IDs")
@@ -110,6 +110,15 @@ class QdrantIntegrationTest {
         kind = MemoryKind.RAW,
         semanticEmbedding = semantic,
         emotionalEmbedding = List(8) { index -> if (index == 0) 1.0f else 0.0f },
-        metadata = MemoryMetadata(BioVector.Neutral, 0.0f, VectorDelta.Zero, BioVector.Neutral, "integration-user"),
+        metadata = MemoryMetadata(
+            BioVector.Neutral,
+            0.0f,
+            VectorDelta.Zero,
+            BioVector.Neutral,
+            "integration-user",
+            incarnationId = "incarnation-1",
+            sourceSessionId = sessionId,
+            visibility = io.openeden.memory.MemoryVisibility.ScopeShared(sessionId),
+        ),
     )
 }

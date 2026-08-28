@@ -221,6 +221,7 @@ class MemoryContextDeduplicationTest {
         currentVector = BioVector.Neutral,
         origin = BioVector.Neutral,
         mode = mode,
+        incarnationId = "incarnation-1",
     )
 
     private fun entry(
@@ -245,6 +246,9 @@ class MemoryContextDeduplicationTest {
             deltaVec = VectorDelta.Zero,
             snapshotOrigin = BioVector.Neutral,
             userId = "user-1",
+            incarnationId = "incarnation-1",
+            sourceSessionId = "CLI:u1",
+            visibility = MemoryVisibility.ScopeShared("CLI:u1"),
             lineage = MemoryLineage(sourceTurnIds = sourceTurnIds),
             contentFingerprint = contentFingerprint,
         ),

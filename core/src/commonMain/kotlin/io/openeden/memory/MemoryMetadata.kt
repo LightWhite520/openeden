@@ -17,4 +17,5 @@ data class MemoryMetadata(
     val sourceSessionId: String = "",
     val canonicalSubjectId: String = "",
     val visibility: MemoryVisibility = MemoryVisibility.ScopeShared(""),
+    val platform: String = "",
 )

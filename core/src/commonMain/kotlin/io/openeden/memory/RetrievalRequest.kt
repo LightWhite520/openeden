@@ -12,4 +12,5 @@ data class RetrievalRequest(
     val exclusionContext: MemoryExclusionContext = MemoryExclusionContext(),
     val incarnationId: String = "",
     val canonicalSubjectId: String = "",
+    val operatorAuthorized: Boolean = false,
 )

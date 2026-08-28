@@ -89,6 +89,39 @@ class RebuildableVectorIndexTest {
         assertEquals(listOf("scope-shared", "incarnation-shared"), ids(hits))
     }
 
+    @Test
+    fun `same session search never crosses incarnations`() = runTest {
+        val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
+        index.rebuild(
+            listOf(
+                entry("incarnation-one", "alpha", incarnationId = "incarnation-1"),
+                entry("incarnation-two", "alpha", incarnationId = "incarnation-2"),
+            ),
+        )
+
+        assertEquals(
+            listOf("incarnation-one"),
+            ids(index.search(query("alpha").copy(incarnationId = "incarnation-1"))),
+        )
+    }
+
+    @Test
+    fun `operator only search requires explicit request authorization`() = runTest {
+        val index = RebuildableInMemoryVectorIndex(DirectInferenceExecutor)
+        index.insert(
+            entry(
+                id = "operator",
+                content = "alpha",
+                incarnationId = "incarnation-1",
+                visibility = MemoryVisibility.OperatorOnly,
+            ),
+        )
+
+        val request = query("alpha").copy(incarnationId = "incarnation-1")
+        assertTrue(index.search(request).isEmpty())
+        assertEquals(listOf("operator"), ids(index.search(request.copy(operatorAuthorized = true))))
+    }
+
     private fun query(text: String): VectorSearchRequest = VectorSearchRequest(
         sessionId = "CLI:u1",
         semanticEmbedding = if (text == "alpha") listOf(1.0f, 0.0f) else listOf(0.0f, 1.0f),
@@ -96,6 +129,7 @@ class RebuildableVectorIndexTest {
         room = null,
         kind = null,
         limit = 1,
+        incarnationId = "incarnation-1",
     )
 
     private fun ids(hits: List<VectorSearchHit>): List<String> = hits.map { it.memoryId }
@@ -106,7 +140,7 @@ class RebuildableVectorIndexTest {
         sessionId: String = "CLI:u1",
         room: MemoryRoom = MemoryRoom.EVENT_ROOM,
         kind: MemoryKind = MemoryKind.RAW,
-        incarnationId: String = "",
+        incarnationId: String = "incarnation-1",
         visibility: MemoryVisibility = MemoryVisibility.ScopeShared(sessionId),
     ): MemoryEntry = MemoryEntry(
         id = id,

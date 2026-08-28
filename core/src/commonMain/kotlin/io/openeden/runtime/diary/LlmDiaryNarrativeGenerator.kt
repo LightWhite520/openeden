@@ -132,6 +132,7 @@ class LlmDiaryNarrativeGenerator private constructor(
                 sourceSessionId = task.sourceSessionId.ifBlank { task.sessionId },
                 canonicalSubjectId = task.canonicalSubjectId,
                 visibility = task.visibility,
+                platform = task.platform,
                 lineage = lineage,
                 contentFingerprint = MemoryContentFingerprint.of(response),
             ),

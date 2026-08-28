@@ -705,6 +705,7 @@ class DevelopmentMessagePipeline(
             sourceSessionId = sessionId,
             canonicalSubjectId = canonicalSubjectId,
             visibility = MemoryVisibility.ScopeShared(sessionId),
+            platform = request.platform,
             lineage = io.openeden.memory.MemoryLineage(sourceTurnIds = listOf(request.turnId)),
             contentFingerprint = io.openeden.memory.MemoryContentFingerprint.of(rawContent),
         )

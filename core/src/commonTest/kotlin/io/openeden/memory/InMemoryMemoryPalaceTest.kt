@@ -26,6 +26,7 @@ class InMemoryMemoryPalaceTest {
                 currentVector = BioVector.Neutral,
                 origin = BioVector.Neutral,
                 mode = RetrievalMode.CONGRUENT,
+                incarnationId = "incarnation-1",
             ),
         )
 
@@ -48,6 +49,7 @@ class InMemoryMemoryPalaceTest {
                 currentVector = BioVector.Neutral.copy(p = 0.1f, v = 0.1f),
                 origin = BioVector.Neutral,
                 mode = RetrievalMode.MIXED,
+                incarnationId = "incarnation-1",
             ),
         )
 
@@ -68,6 +70,7 @@ class InMemoryMemoryPalaceTest {
                 currentVector = BioVector.Neutral.copy(p = 0.1f, v = 0.1f),
                 origin = BioVector.Neutral,
                 mode = RetrievalMode.MIXED,
+                incarnationId = "incarnation-1",
             ),
         )
 
@@ -90,6 +93,7 @@ class InMemoryMemoryPalaceTest {
                 currentVector = BioVector.Neutral.copy(p = 0.1f, v = 0.1f),
                 origin = BioVector.Neutral,
                 mode = RetrievalMode.CONTRAST,
+                incarnationId = "incarnation-1",
             ),
         )
 
@@ -109,6 +113,7 @@ class InMemoryMemoryPalaceTest {
                 currentVector = BioVector.Neutral,
                 origin = BioVector.Neutral,
                 mode = RetrievalMode.CONGRUENT,
+                incarnationId = "incarnation-1",
             ),
         )
 
@@ -129,6 +134,9 @@ class InMemoryMemoryPalaceTest {
             deltaVec = delta,
             snapshotOrigin = BioVector.Neutral,
             userId = "user-1",
+            incarnationId = "incarnation-1",
+            sourceSessionId = "CLI:u1",
+            visibility = MemoryVisibility.ScopeShared("CLI:u1"),
         )
         return MemoryEntry(
             id = id,

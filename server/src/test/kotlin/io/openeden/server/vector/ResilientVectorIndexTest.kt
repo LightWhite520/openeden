@@ -30,7 +30,7 @@ class ResilientVectorIndexTest {
         val memory = entry("m1")
 
         resilient.insert(memory)
-        val hits = resilient.search(VectorSearchRequest("session", listOf(1f), limit = 1))
+        val hits = resilient.search(VectorSearchRequest("session", listOf(1f), limit = 1, incarnationId = "incarnation-1"))
 
         assertEquals(listOf("m1"), hits.map { it.memoryId })
         assertTrue(resilient.status().fallbackActive)
@@ -41,7 +41,7 @@ class ResilientVectorIndexTest {
     fun `cancellation from primary propagates and does not switch circuit`() = runTest {
         val primary = FakeIndex(cancelSearch = true)
         val resilient = ResilientVectorIndex(primary, RebuildableInMemoryVectorIndex(), QdrantCircuitBreaker(failureThreshold = 1))
-        assertFailsWith<CancellationException> { resilient.search(VectorSearchRequest("session", listOf(1f))) }
+        assertFailsWith<CancellationException> { resilient.search(VectorSearchRequest("session", listOf(1f), incarnationId = "incarnation-1")) }
         assertEquals(QdrantCircuitBreaker.State.CLOSED, resilient.status().circuit.state)
     }
 
@@ -62,11 +62,11 @@ class ResilientVectorIndexTest {
         val primary = FakeIndex(failSearch = true)
         val breaker = QdrantCircuitBreaker(failureThreshold = 1, probeIntervalMs = 10, nowMs = { now })
         val resilient = ResilientVectorIndex(primary, RebuildableInMemoryVectorIndex(), breaker)
-        resilient.search(VectorSearchRequest("session", listOf(1f)))
+        resilient.search(VectorSearchRequest("session", listOf(1f), incarnationId = "incarnation-1"))
         now = 10L
         primary.failSearch = false
 
-        resilient.search(VectorSearchRequest("session", listOf(1f)))
+        resilient.search(VectorSearchRequest("session", listOf(1f), incarnationId = "incarnation-1"))
 
         assertEquals(ResilientVectorIndex.TRACE_RECOVERED, resilient.status().lastTraceTag)
     }
@@ -108,7 +108,16 @@ class ResilientVectorIndexTest {
     private fun entry(id: String) = MemoryEntry(
         id = id, sessionId = "session", content = id, room = MemoryRoom.EVENT_ROOM, kind = MemoryKind.RAW,
         semanticEmbedding = listOf(1f), emotionalEmbedding = listOf(1f),
-        metadata = MemoryMetadata(BioVector.Neutral, 0f, VectorDelta.Zero, BioVector.Neutral, "user"),
+        metadata = MemoryMetadata(
+            BioVector.Neutral,
+            0f,
+            VectorDelta.Zero,
+            BioVector.Neutral,
+            "user",
+            incarnationId = "incarnation-1",
+            sourceSessionId = "session",
+            visibility = io.openeden.memory.MemoryVisibility.ScopeShared("session"),
+        ),
     )
 
     private class FakeIndex(
