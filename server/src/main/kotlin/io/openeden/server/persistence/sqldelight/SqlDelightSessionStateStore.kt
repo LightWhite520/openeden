@@ -15,7 +15,7 @@ import io.openeden.transcript.TurnCommitOutcome
 import io.openeden.persona.PersonaSubState
 import io.openeden.persona.PersonaMode
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
@@ -38,7 +38,7 @@ class SqlDelightSessionStateStore(
     private val defaultPersonaMode: PersonaMode = PersonaMode.GROWTH,
     private val defaultStartSubState: PersonaSubState = PersonaSubState.PRE_COMMAND,
     private val json: Json = Json,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-session-state-sqlite"),
     private val committedTranscriptStore: TranscriptStore? = null,
 ) : SessionStateStore, AtomicTurnCommitStore {
     private val queries get() = database.sessionStateQueries
@@ -173,7 +173,11 @@ class SqlDelightSessionStateStore(
         queries.selectAllIds().executeAsList().toSet()
     }
 
-    fun close() = driver.close()
+    suspend fun close() = withContext(ioDispatcher) {
+        if (driver is JdbcSqliteDriver) driver.closeCurrentThreadConnection()
+        driver.close()
+        (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
+    }
 
     @Suppress("LongParameterList")
     private fun toSessionState(
@@ -270,6 +274,7 @@ class SqlDelightSessionStateStore(
         ): SqlDelightSessionStateStore {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)
+            driver.closeCurrentThreadConnection()
             return SqlDelightSessionStateStore(
                 Database(driver),
                 driver,
@@ -277,6 +282,10 @@ class SqlDelightSessionStateStore(
                 defaultStartSubState,
                 committedTranscriptStore = committedTranscriptStore,
             )
+        }
+
+        private fun JdbcSqliteDriver.closeCurrentThreadConnection() {
+            closeConnection(getConnection())
         }
     }
 }

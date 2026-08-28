@@ -5,7 +5,7 @@ import io.openeden.runtime.lifecycle.IncarnationLifecycle
 import io.openeden.runtime.lifecycle.IncarnationLifecycleStore
 import io.openeden.server.db.Database
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
@@ -15,7 +15,7 @@ import java.util.UUID
 class SqlDelightIncarnationLifecycleStore(
     private val database: Database,
     private val driver: JdbcSqliteDriver,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
+    private val ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-lifecycle-store-sqlite"),
 ) : IncarnationLifecycleStore {
     private val queries get() = database.incarnationQueries
 
@@ -62,6 +62,7 @@ class SqlDelightIncarnationLifecycleStore(
     suspend fun close() = withContext(ioDispatcher) {
         driver.closeCurrentThreadConnection()
         driver.close()
+        (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
     }
 
     private suspend fun transition(
@@ -111,7 +112,7 @@ class SqlDelightIncarnationLifecycleStore(
     companion object {
         fun open(
             dbPath: Path,
-            ioDispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(1),
+            ioDispatcher: CoroutineDispatcher = newSqliteDispatcher("openeden-lifecycle-store-sqlite"),
         ): SqlDelightIncarnationLifecycleStore {
             dbPath.parent?.let { Files.createDirectories(it) }
             val driver = JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}", Properties(), Database.Schema)

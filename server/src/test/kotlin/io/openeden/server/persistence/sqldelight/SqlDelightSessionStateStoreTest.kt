@@ -201,7 +201,9 @@ class SqlDelightSessionStateStoreTest {
         emotionConfidence = 0.49f,
     )
 
-    private inline fun SqlDelightSessionStateStore.use(block: (SqlDelightSessionStateStore) -> Unit) {
+    private suspend inline fun SqlDelightSessionStateStore.use(
+        block: suspend (SqlDelightSessionStateStore) -> Unit,
+    ) {
         try {
             block(this)
         } finally {
