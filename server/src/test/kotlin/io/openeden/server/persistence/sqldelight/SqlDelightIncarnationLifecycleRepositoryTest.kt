@@ -6,6 +6,8 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
+import io.openeden.relationship.RelationshipEvent
+import io.openeden.relationship.RelationshipEventType
 import io.openeden.runtime.lifecycle.IncarnationLifecycle
 import io.openeden.runtime.lifecycle.TerminationReason
 import io.openeden.transcript.ConversationTurn
@@ -40,6 +42,23 @@ class SqlDelightIncarnationLifecycleRepositoryTest {
     @Test
     fun `termination leaves only immutable diary archive`() = runTest {
         val incarnationId = seedIncarnation()
+        val relationshipStore = SqlDelightRelationshipStateStore.open(dbPath)
+        try {
+            relationshipStore.append(
+                RelationshipEvent(
+                    eventId = "relationship-event",
+                    incarnationId = incarnationId,
+                    canonicalSubjectId = "QQ:u1",
+                    sourceTurnId = "turn-1",
+                    type = RelationshipEventType.USER_CONFESSION,
+                    confidence = 1.0f,
+                    evidenceDigest = "confession",
+                    createdAtMs = 1_000L,
+                ),
+            )
+        } finally {
+            relationshipStore.close()
+        }
         val repo = openRepository()
 
         assertEquals(IncarnationLifecycle.CRITICAL, repo.markCritical())
@@ -50,6 +69,8 @@ class SqlDelightIncarnationLifecycleRepositoryTest {
         assertEquals(listOf("diary text"), repo.page(incarnationId, 50, null).entries.map { it.content })
         assertEquals(0, count("conversation_turns"))
         assertEquals(0, count("memory_entries"))
+        assertEquals(0, count("relationship_state"))
+        assertEquals(0, count("relationship_events"))
 
         val freshId = repo.createFresh("fresh-request", 1_000L)
         assertEquals(IncarnationLifecycle.ACTIVE, repo.read())

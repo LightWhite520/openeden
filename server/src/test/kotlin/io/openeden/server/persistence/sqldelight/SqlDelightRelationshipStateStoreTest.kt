@@ -16,6 +16,29 @@ import kotlin.test.assertNull
 
 class SqlDelightRelationshipStateStoreTest {
     @Test
+    fun `first append reduces and survives reopen without a prior snapshot`() = runTest {
+        val dbPath = Files.createTempFile("openeden-relationship-first-append", ".db")
+        val store = SqlDelightRelationshipStateStore.open(dbPath)
+        val appended = try {
+            store.append(userConfession("first-confession"))
+        } finally {
+            store.close()
+        }
+
+        assertNotNull(appended.facts.userConfessedAtMs)
+        assertEquals(10L, appended.facts.userConfessedAtMs)
+
+        val reopened = SqlDelightRelationshipStateStore.open(dbPath)
+        try {
+            val persisted = reopened.readOrCreate("inc-1", "host")
+            assertEquals(10L, persisted.facts.userConfessedAtMs)
+            assertEquals(RelationshipPhase.FAMILIAR, persisted.facts.phase)
+        } finally {
+            reopened.close()
+        }
+    }
+
+    @Test
     fun `relationship state survives restart and remains isolated by incarnation and subject`() = runTest {
         val directory = Files.createTempDirectory("openeden-relationship")
         val dbPath = directory.resolve("runtime.db")

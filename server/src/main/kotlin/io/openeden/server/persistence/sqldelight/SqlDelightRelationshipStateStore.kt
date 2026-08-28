@@ -47,8 +47,11 @@ class SqlDelightRelationshipStateStore private constructor(
     override suspend fun append(event: RelationshipEvent): RelationshipState = withContext(ioDispatcher) {
         database.transactionWithResult {
             insertEvent(event)
-            val current = read(event.incarnationId, event.canonicalSubjectId)
-                ?: RelationshipState.neutral(event.incarnationId, event.canonicalSubjectId, event.createdAtMs)
+            val current = stateForReplay(
+                incarnationId = event.incarnationId,
+                canonicalSubjectId = event.canonicalSubjectId,
+                nowMs = event.createdAtMs,
+            )
             val reduced = RelationshipReducer.reduce(current, emptyList())
             writeSnapshot(reduced)
             reduced
@@ -85,8 +88,18 @@ class SqlDelightRelationshipStateStore private constructor(
     private fun read(incarnationId: String, canonicalSubjectId: String): RelationshipState? {
         val state = queries.selectByIdentity(incarnationId, canonicalSubjectId, ::toState).executeAsOneOrNull()
             ?: return null
+        return RelationshipReducer.reduce(stateForReplay(incarnationId, canonicalSubjectId), emptyList())
+    }
+
+    private fun stateForReplay(
+        incarnationId: String,
+        canonicalSubjectId: String,
+        nowMs: Long = 0L,
+    ): RelationshipState {
+        val state = queries.selectByIdentity(incarnationId, canonicalSubjectId, ::toState).executeAsOneOrNull()
+            ?: RelationshipState.neutral(incarnationId, canonicalSubjectId, nowMs)
         val events = queries.selectEvents(incarnationId, canonicalSubjectId, ::toEvent).executeAsList()
-        return RelationshipReducer.reduce(state.copy(events = events), emptyList())
+        return state.copy(events = events)
     }
 
     private fun insertEvent(event: RelationshipEvent) {

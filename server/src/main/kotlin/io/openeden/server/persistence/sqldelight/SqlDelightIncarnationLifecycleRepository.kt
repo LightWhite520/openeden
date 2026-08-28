@@ -92,6 +92,7 @@ class SqlDelightIncarnationLifecycleRepository(
             database.memoryQueries.deleteAllDiaryCheckpoints()
             database.memoryQueries.deleteAllTraceSpans()
             database.sessionStateQueries.deleteAllSessionStates()
+            database.relationshipQueries.deleteAllRelationshipEvents()
             database.relationshipQueries.deleteAllRelationships()
             database.transcriptQueries.deleteAllConversationTurns()
             database.incarnationQueries.updateLifecycle(

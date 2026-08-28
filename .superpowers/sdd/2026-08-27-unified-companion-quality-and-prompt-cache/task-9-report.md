@@ -50,3 +50,40 @@ No test passed or failed at the test level because the known loopback failure pr
 ## Concern
 
 The Task 9 brief allocated migration `14.sqm`, but Task 8 already owns that committed migration. Task 9 therefore uses `15.sqm` to preserve existing work and maintain monotonic SQLDelight schema versioning.
+
+## Fix Round 1
+
+### Findings Addressed
+
+- `SqlDelightRelationshipStateStore.append` now builds its reducer input from the complete persisted event ledger even when no relationship snapshot exists yet. The first append therefore writes and returns facts derived from its newly inserted event.
+- Lifecycle `archiveAndPurge` now deletes `relationship_events` and `relationship_state` in its existing SQLite transaction. Incarnation teardown is deliberately destructive for both the derived snapshot and append-only ledger, so a fresh incarnation cannot replay stale relationship history.
+
+### Tests Added
+
+- Added a fresh-identity append test that asserts the immediate USER_CONFESSION facts and the same facts after close/reopen.
+- Extended lifecycle purge coverage to seed a relationship ledger event and assert both `relationship_state` and `relationship_events` are empty after termination.
+
+### Test Command And Result
+
+```powershell
+.\gradlew.bat --stop
+.\gradlew.bat :server:test --tests "*SqlDelightRelationshipStateStoreTest" --tests "*SqlDelightIncarnationLifecycleRepositoryTest"
+```
+
+Result: Gradle again failed during daemon/configuration startup before Kotlin compilation or test discovery:
+
+```text
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+java.io.IOException: Unable to establish loopback connection
+```
+
+No test-level result is available because the configuration-stage loopback failure prevented execution. Static checks run after the fix:
+
+```powershell
+git diff --check
+git diff -- server/src/main/kotlin/io/openeden/server/persistence/sqldelight/SqlDelightRelationshipStateStore.kt server/src/main/sqldelight/io/openeden/server/db/Relationship.sq server/src/main/kotlin/io/openeden/server/persistence/sqldelight/SqlDelightIncarnationLifecycleRepository.kt server/src/test/kotlin/io/openeden/server/persistence/sqldelight/SqlDelightRelationshipStateStoreTest.kt server/src/test/kotlin/io/openeden/server/persistence/sqldelight/SqlDelightIncarnationLifecycleRepositoryTest.kt
+```
+
+`git diff --check` completed without whitespace errors. The source scan confirmed the ledger replay helper and lifecycle ledger delete call are present.

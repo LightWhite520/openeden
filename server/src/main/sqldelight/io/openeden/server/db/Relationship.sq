@@ -77,3 +77,6 @@ INSERT OR IGNORE INTO relationship_events(
 
 deleteAllRelationships:
 DELETE FROM relationship_state;
+
+deleteAllRelationshipEvents:
+DELETE FROM relationship_events;
