@@ -8,30 +8,11 @@ class PromptHistorySerializer(
         require(serializerVersion > 0) { "serializerVersion must be positive" }
     }
 
-    fun serialize(
-        sessionId: String,
-        cacheEpoch: Long,
-        turns: List<ConversationTurn>,
-    ): String = buildString {
-        append("[OPENEDEN_PROMPT_HISTORY v")
-        append(serializerVersion)
-        append("]\n")
-        appendField("session_id", sessionId)
-        appendField("cache_epoch", cacheEpoch.toString())
-        appendField("turn_count", turns.size.toString())
+    fun createItems(turns: List<ConversationTurn>): List<PromptHistoryItem> = buildList(turns.size * 2) {
         turns.forEach { turn ->
-            append("[TURN]\n")
-            appendField("turn_id", turn.turnId)
-            appendField("incarnation_id", turn.incarnationId)
-            appendField("platform", turn.platform)
-            appendField("scope_id", turn.scopeId)
-            appendField("user_id", turn.userId)
-            appendField("user_text", turn.userText)
-            appendField("assistant_text", turn.assistantText)
-            appendField("completed_at_ms", turn.completedAtMs.toString())
-            append("[/TURN]\n")
+            add(createItem(USER_ROLE, turn.userText, turn.turnId))
+            add(createItem(ASSISTANT_ROLE, turn.assistantText, turn.turnId))
         }
-        append("[/OPENEDEN_PROMPT_HISTORY]")
     }
 
     fun createChunk(
@@ -43,44 +24,111 @@ class PromptHistorySerializer(
         require(turns.all { it.sessionId == sessionId }) {
             "Prompt history chunk contains a turn from another session"
         }
-        val serializedText = serialize(sessionId, cacheEpoch, turns)
+        val items = createItems(turns)
         return PromptHistoryChunk(
             sessionId = sessionId,
             cacheEpoch = cacheEpoch,
-            firstTurnId = turns.first().turnId,
-            lastTurnId = turns.last().turnId,
-            turnIds = turns.map(ConversationTurn::turnId),
-            serializedText = serializedText,
-            tokenCount = tokenEstimator(serializedText).coerceAtLeast(0),
-            fingerprint = fingerprint(serializedText),
+            items = items,
+            tokenCount = items.sumOf { item ->
+                tokenEstimator(item.role).coerceAtLeast(0) + tokenEstimator(item.text).coerceAtLeast(0)
+            },
             serializerVersion = serializerVersion,
         )
     }
 
     fun fingerprint(serializedText: String): String = sha256Hex(serializedText.encodeToByteArray())
 
-    private fun StringBuilder.appendField(name: String, value: String) {
-        append(name)
-        append('=')
-        append(escape(value))
-        append('\n')
-    }
-
-    private fun escape(value: String): String = buildString(value.length) {
-        value.forEach { character ->
-            when (character) {
-                '\\' -> append("\\\\")
-                '\n' -> append("\\n")
-                '\r' -> append("\\r")
-                '\t' -> append("\\t")
-                '=' -> append("\\=")
-                else -> append(character)
+    fun deserializeLegacy(serializedText: String): List<PromptHistoryItem> {
+        require(serializedText.startsWith("[OPENEDEN_PROMPT_HISTORY v")) {
+            "Unsupported legacy prompt history payload"
+        }
+        val lines = serializedText.lines()
+        val items = buildList {
+            var index = 0
+            while (index < lines.size) {
+                if (lines[index] != "[TURN]") {
+                    index += 1
+                    continue
+                }
+                val fields = mutableMapOf<String, String>()
+                index += 1
+                while (index < lines.size && lines[index] != "[/TURN]") {
+                    val separator = lines[index].indexOf('=')
+                    require(separator > 0) { "Malformed legacy prompt history field" }
+                    fields[lines[index].substring(0, separator)] = unescape(lines[index].substring(separator + 1))
+                    index += 1
+                }
+                require(index < lines.size) { "Unterminated legacy prompt history turn" }
+                val turnId = requireNotNull(fields["turn_id"]) { "Legacy prompt history turn_id is missing" }
+                add(createItem(USER_ROLE, requireNotNull(fields["user_text"]), turnId))
+                add(createItem(ASSISTANT_ROLE, requireNotNull(fields["assistant_text"]), turnId))
+                index += 1
             }
         }
+        require(items.isNotEmpty()) { "Legacy prompt history contains no turns" }
+        return items
     }
 
-    private companion object {
-        const val CURRENT_SERIALIZER_VERSION = 1
+    fun isValid(item: PromptHistoryItem): Boolean =
+        item.fingerprint == fingerprintItem(item.role, item.text, item.turnId)
+
+    private fun createItem(role: String, text: String, turnId: String): PromptHistoryItem = PromptHistoryItem(
+        role = role,
+        text = text,
+        turnId = turnId,
+        fingerprint = fingerprintItem(role, text, turnId),
+    )
+
+    private fun unescape(value: String): String = buildString(value.length) {
+        var escaped = false
+        value.forEach { character ->
+            if (!escaped && character == '\\') {
+                escaped = true
+            } else if (escaped) {
+                append(
+                    when (character) {
+                        'n' -> '\n'
+                        'r' -> '\r'
+                        't' -> '\t'
+                        else -> character
+                    },
+                )
+                escaped = false
+            } else {
+                append(character)
+            }
+        }
+        if (escaped) append('\\')
+    }
+
+    internal companion object {
+        private const val USER_ROLE = "user"
+        private const val ASSISTANT_ROLE = "assistant"
+        private const val CURRENT_SERIALIZER_VERSION = 2
+
+        internal fun fingerprintItem(role: String, text: String, turnId: String): String = sha256Hex(
+            canonicalRecord(role, text, turnId).encodeToByteArray(),
+        )
+
+        internal fun fingerprintText(text: String): String = sha256Hex(text.encodeToByteArray())
+
+        internal fun fingerprintItems(items: List<PromptHistoryItem>): String = sha256Hex(
+            buildString(items.size * 68) {
+                items.forEach { item -> appendRecord(item.fingerprint) }
+            }.encodeToByteArray(),
+        )
+
+        private fun canonicalRecord(role: String, text: String, turnId: String): String = buildString {
+            appendRecord(role)
+            appendRecord(text)
+            appendRecord(turnId)
+        }
+
+        private fun StringBuilder.appendRecord(value: String) {
+            append(value.encodeToByteArray().size)
+            append(':')
+            append(value)
+        }
 
         fun stableTokenEstimate(text: String): Int =
             if (text.isEmpty()) 0 else (text.encodeToByteArray().size + 3) / 4

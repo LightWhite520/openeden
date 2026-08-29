@@ -138,12 +138,15 @@ class SqlDelightRelationshipStateStoreTest {
     }
 
     @Test
-    fun `version 17 relationship state migrates deterministically to version 18`() = runTest {
+    fun `version 17 relationship state migrates deterministically through version 19`() = runTest {
         val dbPath = Files.createTempFile("openeden-relationship-v17", ".db")
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
             connection.createStatement().use { statement ->
                 statement.executeUpdate(VERSION_17_RELATIONSHIP_STATE_SQL)
                 statement.executeUpdate(VERSION_17_RELATIONSHIP_EVENTS_SQL)
+                statement.executeUpdate(LEGACY_PROMPT_HISTORY_STATE_SQL)
+                statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_SQL)
+                statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_INDEX_SQL)
                 statement.executeUpdate(
                     """
                     INSERT INTO relationship_state VALUES (
@@ -206,7 +209,7 @@ class SqlDelightRelationshipStateStoreTest {
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
             connection.createStatement().use { statement ->
                 statement.executeQuery("PRAGMA user_version").use { result ->
-                    assertEquals(18L, result.getLong(1))
+                    assertEquals(19L, result.getLong(1))
                     assertEquals(Database.Schema.version, result.getLong(1))
                 }
             }
@@ -262,6 +265,9 @@ class SqlDelightRelationshipStateStoreTest {
                     INSERT INTO relationship_state VALUES ('QQ:group', 'host', 0.9, 0.9, 0.9, 0.0, 0.0, 8, 99)
                     """.trimIndent(),
                 )
+                statement.executeUpdate(LEGACY_PROMPT_HISTORY_STATE_SQL)
+                statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_SQL)
+                statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_INDEX_SQL)
                 statement.execute("PRAGMA user_version = 14")
             }
         }
@@ -338,6 +344,38 @@ class SqlDelightRelationshipStateStoreTest {
                 preferred_address TEXT,
                 UNIQUE(source_turn_id, event_type, incarnation_id, canonical_subject_id)
             )
+            """.trimIndent()
+
+        val LEGACY_PROMPT_HISTORY_CHUNKS_SQL =
+            """
+            CREATE TABLE prompt_history_chunks (
+                chunk_id TEXT NOT NULL PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                cache_epoch INTEGER NOT NULL,
+                first_turn_id TEXT NOT NULL,
+                last_turn_id TEXT NOT NULL,
+                turn_ids_json TEXT NOT NULL,
+                serialized_text TEXT NOT NULL,
+                token_count INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL,
+                serializer_version INTEGER NOT NULL
+            )
+            """.trimIndent()
+
+        val LEGACY_PROMPT_HISTORY_STATE_SQL =
+            """
+            CREATE TABLE prompt_history_state (
+                session_id TEXT NOT NULL PRIMARY KEY,
+                cache_epoch INTEGER NOT NULL,
+                serializer_version INTEGER NOT NULL,
+                updated_at_ms INTEGER NOT NULL
+            )
+            """.trimIndent()
+
+        val LEGACY_PROMPT_HISTORY_CHUNKS_INDEX_SQL =
+            """
+            CREATE INDEX prompt_history_chunks_session_epoch
+            ON prompt_history_chunks(session_id, cache_epoch, first_turn_id, last_turn_id, chunk_id)
             """.trimIndent()
     }
 }

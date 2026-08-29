@@ -60,6 +60,17 @@ interface TranscriptStore {
         tokenBudget = tokenBudget,
     )
 
+    suspend fun compactPromptHistory(
+        sessionId: String,
+        requestId: String,
+        requiredTailTurns: Int,
+        tokenBudget: Int,
+        compactor: PromptHistoryCompactor,
+    ): PromptHistorySnapshot = compactor.compact(
+        requestId = requestId,
+        snapshot = promptHistory(sessionId, requiredTailTurns, tokenBudget),
+    )
+
     suspend fun page(
         limit: Int,
         before: HistoryCursor? = null,

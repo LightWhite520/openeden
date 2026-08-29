@@ -5,6 +5,7 @@ import app.cash.sqldelight.db.SqlCursor
 import app.cash.sqldelight.db.SqlDriver
 import app.cash.sqldelight.db.SqlSchema
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import io.openeden.hash.Sha256
 import io.openeden.server.db.Database
 import io.openeden.transcript.ActiveIncarnation
 import io.openeden.transcript.ConversationHistoryPage
@@ -13,7 +14,10 @@ import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InvalidHistoryCursorException
 import io.openeden.transcript.PromptHistoryAssembler
 import io.openeden.transcript.PromptHistoryChunk
+import io.openeden.transcript.PromptHistoryCompactor
+import io.openeden.transcript.PromptHistorySerializer
 import io.openeden.transcript.PromptHistorySnapshot
+import io.openeden.transcript.PromptHistorySummary
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnPostCommitPlan
 import io.openeden.transcript.TurnPostCommitStage
@@ -24,6 +28,7 @@ import io.openeden.runtime.time.SystemRuntimeClock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
@@ -44,6 +49,7 @@ class SqlDelightTranscriptStore private constructor(
     private val clock: RuntimeClock,
 ) : TranscriptStore {
     private val queries get() = database.transcriptQueries
+    private val promptHistoryCompactionMutex = Mutex()
 
     override suspend fun activeIncarnation(): ActiveIncarnation = withContext(ioDispatcher) {
         queries.selectActiveIncarnation(::ActiveIncarnation).executeAsOne()
@@ -173,6 +179,7 @@ class SqlDelightTranscriptStore private constructor(
             requiredTailTurns = requiredTailTurns,
             tokenBudget = tokenBudget,
             existingStableChunks = stableChunks,
+            existingSummary = persistedState?.summary,
             cacheEpoch = cacheEpoch,
             storedSerializerVersion = persistedState?.serializerVersion
                 ?: promptHistoryAssembler.serializer.serializerVersion,
@@ -185,6 +192,13 @@ class SqlDelightTranscriptStore private constructor(
                 serializer_version = promptHistoryAssembler.serializer.serializerVersion.toLong(),
                 updated_at_ms = clock.nowMs(),
             )
+            queries.updatePromptHistoryStateMetadata(
+                cacheEpoch = snapshot.cacheEpoch,
+                serializerVersion = promptHistoryAssembler.serializer.serializerVersion.toLong(),
+                updatedAtMs = clock.nowMs(),
+                sessionId = sessionId,
+                expectedCacheEpoch = cacheEpoch,
+            )
             snapshot.stableChunks.forEach { chunk ->
                 queries.insertPromptHistoryChunk(
                     chunk_id = chunkId(chunk),
@@ -193,7 +207,8 @@ class SqlDelightTranscriptStore private constructor(
                     first_turn_id = chunk.firstTurnId,
                     last_turn_id = chunk.lastTurnId,
                     turn_ids_json = json.encodeToString(chunk.turnIds),
-                    serialized_text = chunk.serializedText,
+                    items_json = json.encodeToString(chunk.items),
+                    serialized_text = null,
                     token_count = chunk.tokenCount.toLong(),
                     fingerprint = chunk.fingerprint,
                     serializer_version = chunk.serializerVersion.toLong(),
@@ -201,6 +216,35 @@ class SqlDelightTranscriptStore private constructor(
             }
         }
         snapshot
+    }
+
+    override suspend fun compactPromptHistory(
+        sessionId: String,
+        requestId: String,
+        requiredTailTurns: Int,
+        tokenBudget: Int,
+        compactor: PromptHistoryCompactor,
+    ): PromptHistorySnapshot = promptHistoryCompactionMutex.withLock {
+        require(requestId.isNotBlank()) { "requestId must not be blank" }
+        completedCompaction(requestId, sessionId)?.let { return@withLock it }
+
+        val source = promptHistory(sessionId, requiredTailTurns, tokenBudget)
+        completedCompaction(requestId, sessionId)?.let { return@withLock it }
+        val proposed = try {
+            compactor.compact(requestId, source)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            source
+        }.takeIf { candidate -> candidate.isValidSuccessorOf(source) } ?: source
+
+        try {
+            persistCompaction(requestId, sessionId, source, proposed)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            source
+        }
     }
 
     override suspend fun page(
@@ -243,6 +287,86 @@ class SqlDelightTranscriptStore private constructor(
         completedAtMs = completedAtMs,
         turnId = turnId,
     )
+
+    private suspend fun completedCompaction(
+        requestId: String,
+        sessionId: String,
+    ): PromptHistorySnapshot? = withContext(ioDispatcher) {
+        queries.selectPromptHistoryCompaction(requestId, ::mapPromptHistoryCompaction)
+            .executeAsOneOrNull()
+            ?.completedSnapshot(sessionId)
+    }
+
+    private suspend fun persistCompaction(
+        requestId: String,
+        sessionId: String,
+        source: PromptHistorySnapshot,
+        proposed: PromptHistorySnapshot,
+    ): PromptHistorySnapshot = withContext(ioDispatcher) {
+        val sourceJson = json.encodeToString(source)
+        val sourceFingerprint = Sha256.hex(sourceJson.encodeToByteArray())
+        var persisted = source
+        database.transaction {
+            val existing = queries.selectPromptHistoryCompaction(requestId, ::mapPromptHistoryCompaction)
+                .executeAsOneOrNull()
+            if (existing != null) {
+                existing.completedSnapshot(sessionId)?.let { completed ->
+                    persisted = completed
+                    return@transaction
+                }
+                require(existing.sessionId == sessionId && existing.sourceFingerprint == sourceFingerprint) {
+                    "requestId was already used for another prompt history compaction"
+                }
+            } else {
+                queries.insertPromptHistoryCompactionIfAbsent(
+                    request_id = requestId,
+                    session_id = sessionId,
+                    source_fingerprint = sourceFingerprint,
+                    created_at_ms = clock.nowMs(),
+                )
+            }
+
+            persisted = proposed
+            if (proposed != source) {
+                val summary = checkNotNull(proposed.summary)
+                queries.activatePromptHistorySummary(
+                    newCacheEpoch = proposed.cacheEpoch,
+                    summaryText = summary.text,
+                    summarySourceTurnIdsJson = json.encodeToString(summary.sourceTurnIds),
+                    summaryFingerprint = summary.fingerprint,
+                    summarySerializerVersion = summary.serializerVersion.toLong(),
+                    updatedAtMs = clock.nowMs(),
+                    sessionId = sessionId,
+                    expectedCacheEpoch = source.cacheEpoch,
+                )
+                if (queries.selectChanges().executeAsOne() != 1L) persisted = source
+            }
+
+            val resultJson = json.encodeToString(persisted)
+            queries.completePromptHistoryCompaction(
+                resultFingerprint = Sha256.hex(resultJson.encodeToByteArray()),
+                resultSnapshotJson = resultJson,
+                resultCacheEpoch = persisted.cacheEpoch,
+                completedAtMs = clock.nowMs(),
+                requestId = requestId,
+                sessionId = sessionId,
+                sourceFingerprint = sourceFingerprint,
+            )
+            check(queries.selectChanges().executeAsOne() == 1L) {
+                "Prompt history compaction request was not completed"
+            }
+        }
+        persisted
+    }
+
+    private fun PromptHistorySnapshot.isValidSuccessorOf(source: PromptHistorySnapshot): Boolean =
+        this == source ||
+            source.cacheEpoch < Long.MAX_VALUE &&
+            cacheEpoch == source.cacheEpoch + 1L &&
+            stableChunks.isEmpty() &&
+            summary != null &&
+            mutableTail == source.mutableTail &&
+            sourceTurnIds == source.sourceTurnIds
 
     companion object {
         private const val MIN_PAGE_SIZE = 1
@@ -363,7 +487,52 @@ class SqlDelightTranscriptStore private constructor(
             cacheEpoch: Long,
             serializerVersion: Long,
             updatedAtMs: Long,
-        ) = PromptHistoryState(sessionId, cacheEpoch, serializerVersion.toInt(), updatedAtMs)
+            summaryText: String?,
+            summarySourceTurnIdsJson: String?,
+            summaryFingerprint: String?,
+            summarySerializerVersion: Long?,
+        ): PromptHistoryState {
+            val summaryValues = listOf(
+                summaryText,
+                summarySourceTurnIdsJson,
+                summaryFingerprint,
+                summarySerializerVersion,
+            )
+            require(summaryValues.all { it == null } || summaryValues.none { it == null }) {
+                "Prompt history summary columns must be either all null or all present"
+            }
+            val summary = summaryText?.let { text ->
+                PromptHistorySummary(
+                    text = text,
+                    sourceTurnIds = json.decodeFromString(checkNotNull(summarySourceTurnIdsJson)),
+                    fingerprint = checkNotNull(summaryFingerprint),
+                    serializerVersion = checkNotNull(summarySerializerVersion).toInt(),
+                )
+            }
+            return PromptHistoryState(sessionId, cacheEpoch, serializerVersion.toInt(), updatedAtMs, summary)
+        }
+
+        private fun mapPromptHistoryCompaction(
+            requestId: String,
+            sessionId: String,
+            sourceFingerprint: String,
+            status: String,
+            resultFingerprint: String?,
+            resultSnapshotJson: String?,
+            resultCacheEpoch: Long?,
+            createdAtMs: Long,
+            completedAtMs: Long?,
+        ) = PromptHistoryCompactionRow(
+            requestId = requestId,
+            sessionId = sessionId,
+            sourceFingerprint = sourceFingerprint,
+            status = status,
+            resultFingerprint = resultFingerprint,
+            resultSnapshotJson = resultSnapshotJson,
+            resultCacheEpoch = resultCacheEpoch,
+            createdAtMs = createdAtMs,
+            completedAtMs = completedAtMs,
+        )
 
         private fun mapPromptHistoryChunk(
             chunkId: String,
@@ -372,27 +541,74 @@ class SqlDelightTranscriptStore private constructor(
             firstTurnId: String,
             lastTurnId: String,
             turnIdsJson: String,
-            serializedText: String,
+            itemsJson: String?,
+            serializedText: String?,
             tokenCount: Long,
             fingerprint: String,
             serializerVersion: Long,
-        ) = PromptHistoryChunk(
-            sessionId = sessionId,
-            cacheEpoch = cacheEpoch,
-            firstTurnId = firstTurnId,
-            lastTurnId = lastTurnId,
-            turnIds = json.decodeFromString(turnIdsJson),
-            serializedText = serializedText,
-            tokenCount = tokenCount.toInt(),
-            fingerprint = fingerprint,
-            serializerVersion = serializerVersion.toInt(),
-        )
+        ): PromptHistoryChunk {
+            val version = serializerVersion.toInt()
+            val serializer = PromptHistorySerializer(serializerVersion = version)
+            val items = when {
+                !itemsJson.isNullOrBlank() -> json.decodeFromString(itemsJson)
+                serializedText != null -> serializer.deserializeLegacy(serializedText)
+                else -> error("Prompt history chunk '$chunkId' has no recoverable items")
+            }
+            val chunk = PromptHistoryChunk(
+                sessionId = sessionId,
+                cacheEpoch = cacheEpoch,
+                items = items,
+                tokenCount = tokenCount.toInt(),
+                serializerVersion = version,
+            )
+            require(chunk.firstTurnId == firstTurnId && chunk.lastTurnId == lastTurnId) {
+                "Prompt history chunk '$chunkId' boundaries do not match its items"
+            }
+            require(chunk.turnIds == json.decodeFromString<List<String>>(turnIdsJson)) {
+                "Prompt history chunk '$chunkId' lineage does not match its items"
+            }
+            if (itemsJson != null) {
+                require(chunk.fingerprint == fingerprint) {
+                    "Prompt history chunk '$chunkId' fingerprint does not match its items"
+                }
+            }
+            return chunk
+        }
 
         private data class PromptHistoryState(
             val sessionId: String,
             val cacheEpoch: Long,
             val serializerVersion: Int,
             val updatedAtMs: Long,
+            val summary: PromptHistorySummary?,
         )
+
+        private data class PromptHistoryCompactionRow(
+            val requestId: String,
+            val sessionId: String,
+            val sourceFingerprint: String,
+            val status: String,
+            val resultFingerprint: String?,
+            val resultSnapshotJson: String?,
+            val resultCacheEpoch: Long?,
+            val createdAtMs: Long,
+            val completedAtMs: Long?,
+        ) {
+            fun completedSnapshot(expectedSessionId: String): PromptHistorySnapshot? {
+                require(sessionId == expectedSessionId) {
+                    "requestId was already used for another prompt history session"
+                }
+                if (status != "COMPLETED") return null
+                val snapshotJson = checkNotNull(resultSnapshotJson)
+                require(Sha256.hex(snapshotJson.encodeToByteArray()) == resultFingerprint) {
+                    "Persisted prompt history compaction fingerprint does not match its result"
+                }
+                val snapshot = json.decodeFromString<PromptHistorySnapshot>(snapshotJson)
+                require(snapshot.cacheEpoch == resultCacheEpoch) {
+                    "Persisted prompt history compaction epoch does not match its result"
+                }
+                return snapshot
+            }
+        }
     }
 }

@@ -95,6 +95,7 @@ class SqlDelightIncarnationLifecycleRepository(
             database.relationshipQueries.deleteAllRelationshipEvents()
             database.relationshipQueries.deleteAllRelationships()
             database.transcriptQueries.deleteAllPromptHistoryChunks()
+            database.transcriptQueries.deleteAllPromptHistoryCompactions()
             database.transcriptQueries.deleteAllPromptHistoryState()
             database.transcriptQueries.deleteAllTurnPostCommit()
             database.transcriptQueries.deleteAllConversationTurns()

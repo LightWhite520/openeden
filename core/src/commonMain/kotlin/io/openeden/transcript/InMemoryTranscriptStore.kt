@@ -16,6 +16,7 @@ class InMemoryTranscriptStore(
     private val promptHistoryEpochs = mutableMapOf<String, Long>()
     private val promptHistorySerializerVersions = mutableMapOf<String, Int>()
     private val promptHistoryChunks = mutableMapOf<String, MutableList<PromptHistoryChunk>>()
+    private val promptHistorySummaries = mutableMapOf<String, PromptHistorySummary>()
 
     override suspend fun activeIncarnation(): ActiveIncarnation = atomicMutex.withLock {
         activeIncarnationLocked()
@@ -85,6 +86,7 @@ class InMemoryTranscriptStore(
             requiredTailTurns = requiredTailTurns,
             tokenBudget = tokenBudget,
             existingStableChunks = promptHistoryChunks[promptHistoryKey(sessionId, epoch)].orEmpty(),
+            existingSummary = promptHistorySummaries[sessionId],
             cacheEpoch = epoch,
             storedSerializerVersion = promptHistorySerializerVersions[sessionId]
                 ?: promptHistoryAssembler.serializer.serializerVersion,

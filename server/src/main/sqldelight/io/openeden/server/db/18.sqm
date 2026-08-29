@@ -1,0 +1,59 @@
+ALTER TABLE prompt_history_state ADD COLUMN summary_text TEXT;
+ALTER TABLE prompt_history_state ADD COLUMN summary_source_turn_ids_json TEXT;
+ALTER TABLE prompt_history_state ADD COLUMN summary_fingerprint TEXT;
+ALTER TABLE prompt_history_state ADD COLUMN summary_serializer_version INTEGER;
+
+ALTER TABLE prompt_history_chunks RENAME TO prompt_history_chunks_legacy;
+
+DROP INDEX prompt_history_chunks_session_epoch;
+
+CREATE TABLE prompt_history_chunks (
+    chunk_id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    cache_epoch INTEGER NOT NULL,
+    first_turn_id TEXT NOT NULL,
+    last_turn_id TEXT NOT NULL,
+    turn_ids_json TEXT NOT NULL,
+    items_json TEXT,
+    serialized_text TEXT,
+    token_count INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    serializer_version INTEGER NOT NULL,
+    CHECK (items_json IS NOT NULL OR serialized_text IS NOT NULL)
+);
+
+INSERT INTO prompt_history_chunks(
+    chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+    turn_ids_json, items_json, serialized_text, token_count, fingerprint, serializer_version
+)
+SELECT
+    chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+    turn_ids_json, NULL, serialized_text, token_count, fingerprint, serializer_version
+FROM prompt_history_chunks_legacy;
+
+DROP TABLE prompt_history_chunks_legacy;
+
+CREATE INDEX prompt_history_chunks_session_epoch
+ON prompt_history_chunks(session_id, cache_epoch, first_turn_id, last_turn_id, chunk_id);
+
+CREATE TABLE prompt_history_compactions (
+    request_id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    source_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'COMPLETED')),
+    result_fingerprint TEXT,
+    result_snapshot_json TEXT,
+    result_cache_epoch INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER,
+    CHECK (
+        (status = 'PENDING' AND result_fingerprint IS NULL AND result_snapshot_json IS NULL AND
+            result_cache_epoch IS NULL AND completed_at_ms IS NULL)
+        OR
+        (status = 'COMPLETED' AND result_fingerprint IS NOT NULL AND result_snapshot_json IS NOT NULL AND
+            result_cache_epoch IS NOT NULL AND completed_at_ms IS NOT NULL)
+    )
+);
+
+CREATE INDEX prompt_history_compactions_session_created
+ON prompt_history_compactions(session_id, created_at_ms, request_id);

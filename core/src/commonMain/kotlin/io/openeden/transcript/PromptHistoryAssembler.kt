@@ -21,6 +21,7 @@ class PromptHistoryAssembler(
         requiredTailTurns: Int,
         tokenBudget: Int,
         existingStableChunks: List<PromptHistoryChunk> = emptyList(),
+        existingSummary: PromptHistorySummary? = null,
         cacheEpoch: Long = 0L,
         storedSerializerVersion: Int = serializer.serializerVersion,
     ): PromptHistorySnapshot = withContext(computationDispatcher) {
@@ -35,30 +36,39 @@ class PromptHistoryAssembler(
             "Prompt history chunks must belong to the requested session"
         }
 
-        val chronologicalTurns = turns.sortedWith(turnComparator)
+        val summarizedTurnIds = existingSummary?.sourceTurnIds.orEmpty()
+        val chronologicalTurns = turns
+            .asSequence()
+            .filterNot { it.turnId in summarizedTurnIds }
+            .sortedWith(turnComparator)
+            .toList()
         var activeEpoch = cacheEpoch
         var stableChunks = existingStableChunks
+            .filter { chunk ->
+                chunk.cacheEpoch == cacheEpoch &&
+                    chunk.items.all(serializer::isValid)
+            }
             .sortedWith(compareBy<PromptHistoryChunk> { chunk ->
                 chronologicalTurns.indexOfFirst { it.turnId == chunk.firstTurnId }.let { index ->
                     if (index < 0) Int.MAX_VALUE else index
                 }
             })
         val serializerChanged = storedSerializerVersion != serializer.serializerVersion ||
-            stableChunks.any { it.serializerVersion != serializer.serializerVersion || it.cacheEpoch != cacheEpoch }
+            stableChunks.any { it.serializerVersion != serializer.serializerVersion }
         if (serializerChanged) {
+            require(activeEpoch < Long.MAX_VALUE) { "cacheEpoch cannot be advanced for serializer migration" }
             activeEpoch += 1L
             stableChunks = emptyList()
         }
 
         val reservedTailSize = maxOf(requiredTailTurns, minimumMutableTailTurns)
         val reservedTail = chronologicalTurns.takeLast(reservedTailSize)
-        val reservedTailIds = reservedTail.mapTo(mutableSetOf(), ConversationTurn::turnId)
-        if (stableChunks.any { chunk -> chunk.turnIds.any(reservedTailIds::contains) }) {
-            activeEpoch += 1L
-            stableChunks = emptyList()
-        }
-
         val stableTurnIds = stableChunks.flatMapTo(mutableSetOf(), PromptHistoryChunk::turnIds)
+        val reservedTailIds = reservedTail
+            .asSequence()
+            .map(ConversationTurn::turnId)
+            .filterNot(stableTurnIds::contains)
+            .toMutableSet()
         val eligibleTurns = chronologicalTurns.filter { turn ->
             turn.turnId !in stableTurnIds && turn.turnId !in reservedTailIds
         }
@@ -86,11 +96,17 @@ class PromptHistoryAssembler(
         val allStableChunks = (stableChunks + newlySealed).distinctBy { chunk ->
             chunk.sessionId to chunk.cacheEpoch to chunk.firstTurnId
         }
-        val mutableTail = candidate + reservedTail
+        val mutableTailTurns = candidate + reservedTail.filterNot { it.turnId in stableTurnIds }
+        val mutableTail = serializer.createItems(mutableTailTurns)
         PromptHistorySnapshot(
             stableChunks = allStableChunks,
+            summary = existingSummary,
             mutableTail = mutableTail,
-            sourceTurnIds = (allStableChunks.flatMap { it.turnIds } + mutableTail.map { it.turnId }).toSet(),
+            sourceTurnIds = (
+                summarizedTurnIds +
+                    allStableChunks.flatMap { it.turnIds } +
+                    mutableTail.map(PromptHistoryItem::turnId)
+                ).toSet(),
             cacheEpoch = activeEpoch,
         )
     }
