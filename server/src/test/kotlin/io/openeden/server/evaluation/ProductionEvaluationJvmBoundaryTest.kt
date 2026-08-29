@@ -115,6 +115,17 @@ class ProductionEvaluationJvmBoundaryTest {
         assertTrue(untrusted.output.contains("not configured as trusted"), untrusted.output)
     }
 
+    @Test
+    fun `production report authority collections are JVM unmodifiable`() = runTest {
+        val input = TestOnlyTask5ExportFixture.exportInput(Files.createTempDirectory("immutable-process-gate"))
+        val descriptor = writeProcessDescriptor(input)
+
+        val result = runGateProcess(descriptor, TRUSTED_TEST_SIGNER_FINGERPRINT, "assert-authority-immutable")
+
+        assertEquals(0, result.exitCode, result.output)
+        assertTrue(result.output.contains("\"releaseDecision\":\"PASS\""), result.output)
+    }
+
     private fun evaluationClasses(): List<Class<*>> {
         val packagePath = ProductionEvaluationReport::class.java.packageName.replace('.', '/')
         val roots = javaClass.classLoader.getResources(packagePath).toList()
@@ -229,7 +240,11 @@ private fun ProductionEvaluationEvidence.Task5RunExportPaths.asLines(): List<Str
     runtimeTrace,
 ).map(Path::absolutePathString)
 
-private fun runGateProcess(descriptor: Path, trustedFingerprint: String): GateProcessResult {
+private fun runGateProcess(
+    descriptor: Path,
+    trustedFingerprint: String,
+    vararg options: String,
+): GateProcessResult {
     val java = Path.of(System.getProperty("java.home"), "bin", "java.exe")
     val process = ProcessBuilder(
         java.absolutePathString(),
@@ -237,6 +252,7 @@ private fun runGateProcess(descriptor: Path, trustedFingerprint: String): GatePr
         System.getProperty("java.class.path"),
         ProductionEvaluationProcessMain::class.java.name,
         descriptor.absolutePathString(),
+        *options,
     ).redirectErrorStream(true).apply {
         environment()["OPENEDEN_EVALUATION_TRUSTED_SIGNER_FINGERPRINTS"] = trustedFingerprint
     }.start()
@@ -247,8 +263,25 @@ private fun runGateProcess(descriptor: Path, trustedFingerprint: String): GatePr
 object ProductionEvaluationProcessMain {
     @JvmStatic
     fun main(args: Array<String>) {
-        val input = readProcessDescriptor(Path.of(args.single()))
+        require(args.size in 1..2)
+        val input = readProcessDescriptor(Path.of(args[0]))
         val report = kotlinx.coroutines.runBlocking { ProductionEvaluationReport.evaluate(input) }
+        if (args.getOrNull(1) == "assert-authority-immutable") {
+            val mutations = listOf(
+                "decisions" to { ProductionEvaluationJavaMutationProbe.replaceFirstDecision(report) },
+                "dimensionWinners" to { ProductionEvaluationJavaMutationProbe.replaceDimensionWinner(report) },
+                "provenance" to { ProductionEvaluationJavaMutationProbe.clearManifestFingerprints(report) },
+                "metricValue" to { ProductionEvaluationJavaMutationProbe.clearPositivePathDimensions(report) },
+                "metricEvidence" to { ProductionEvaluationJavaMutationProbe.clearMetricEvidenceFingerprints(report) },
+            )
+            mutations.forEach { (label, mutation) ->
+                val failure = runCatching(mutation).exceptionOrNull()
+                check(failure is UnsupportedOperationException) {
+                    "$label must reject JVM mutation, got ${failure?.javaClass?.name ?: "success"}"
+                }
+            }
+            check(report.releaseDecision() == PairwiseEvaluation.ReleaseDecision.PASS)
+        }
         println(ProductionEvaluationEvidence.json.encodeToString(report.persisted()))
     }
 }

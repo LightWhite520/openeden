@@ -8,6 +8,9 @@ import java.security.MessageDigest
 import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
+import java.util.Collections
+import java.util.LinkedHashMap
+import java.util.LinkedHashSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -27,12 +30,13 @@ data class PairwiseDecisionArtifactPaths(
 
 class ProductionEvaluationReport private constructor(
     private val evidence: ProductionEvaluationEvidence.AuthenticatedABEvidence,
-    val pairwiseEvaluation: PairwiseEvaluation,
+    pairwiseEvaluation: PairwiseEvaluation,
     pairwiseManifestFingerprints: Set<String>,
 ) {
     val evidenceKind: PairwiseEvaluation.EvidenceKind = PairwiseEvaluation.EvidenceKind.PRODUCTION
     val scenarioFingerprint: String = evidence.scenarioFingerprint
-    val metrics: CompanionQualityMetrics = evidence.deriveMetrics(pairwiseEvaluation.candidateWinRate)
+    val pairwiseEvaluation: PairwiseEvaluation = pairwiseEvaluation.authoritySnapshot()
+    val metrics: CompanionQualityMetrics = evidence.deriveMetrics(this.pairwiseEvaluation.candidateWinRate).authoritySnapshot()
     val productionProvenance: PairwiseEvaluation.ProductionProvenance
 
     private val pairwiseAuditable: Boolean
@@ -44,7 +48,7 @@ class ProductionEvaluationReport private constructor(
             pairwiseManifestFingerprints = pairwiseManifestFingerprints,
             runIds = evidence.pairs.flatMap { listOf(it.baseline.header.runId, it.candidate.header.runId) }.toSet(),
             signerKeyFingerprint = evidence.signerKeyFingerprint,
-        )
+        ).authoritySnapshot()
         pairwiseAuditable = isPairwiseAuditable()
     }
 
@@ -96,6 +100,99 @@ class ProductionEvaluationReport private constructor(
             decision.leftArtifactFingerprint == expectedLeft && decision.rightArtifactFingerprint == expectedRight
         }
     }
+
+    private fun PairwiseEvaluation.authoritySnapshot(): PairwiseEvaluation = PairwiseEvaluation(
+        metadata = metadata,
+        decisions = immutableList(decisions.map { decision ->
+            decision.copy(dimensionWinners = immutableMap(decision.dimensionWinners))
+        }),
+    )
+
+    private fun PairwiseEvaluation.ProductionProvenance.authoritySnapshot(): PairwiseEvaluation.ProductionProvenance = copy(
+        manifestFingerprints = immutableSet(manifestFingerprints),
+        pairwiseManifestFingerprints = immutableSet(pairwiseManifestFingerprints),
+        runIds = immutableSet(runIds),
+    )
+
+    private fun CompanionQualityMetrics.authoritySnapshot(): CompanionQualityMetrics = copy(
+        relationship = relationship.copy(
+            boundaryFalsePositives = relationship.boundaryFalsePositives.authoritySnapshot(),
+            confessionAcceptanceContinuityThroughUnrelatedTurns =
+                relationship.confessionAcceptanceContinuityThroughUnrelatedTurns.authoritySnapshot(),
+            confessionAcceptanceContinuityThroughRestart =
+                relationship.confessionAcceptanceContinuityThroughRestart.authoritySnapshot(),
+            confessionAcceptanceContinuityThroughScopeRestore =
+                relationship.confessionAcceptanceContinuityThroughScopeRestore.authoritySnapshot(),
+            coupleContinuityThroughUnrelatedTurns = relationship.coupleContinuityThroughUnrelatedTurns.authoritySnapshot(),
+            coupleContinuityThroughRestart = relationship.coupleContinuityThroughRestart.authoritySnapshot(),
+            coupleContinuityThroughScopeRestore = relationship.coupleContinuityThroughScopeRestore.authoritySnapshot(),
+            romanticReciprocityRate = relationship.romanticReciprocityRate.authoritySnapshot(),
+            hotRomanceReciprocityRate = relationship.hotRomanceReciprocityRate.authoritySnapshot(),
+            proceduralReplyRate = relationship.proceduralReplyRate.authoritySnapshot(),
+            pairwiseWinRate = relationship.pairwiseWinRate.authoritySnapshot(),
+            factualRegression = relationship.factualRegression.authoritySnapshot(),
+        ),
+        memory = memory.copy(
+            sourceTurnLineageOverlap = memory.sourceTurnLineageOverlap.authoritySnapshot(),
+            ragUniqueCandidateCapacityRegression = memory.ragUniqueCandidateCapacityRegression.authoritySnapshot(),
+            mixedRetrievalSemanticsPreserved = memory.mixedRetrievalSemanticsPreserved.authoritySnapshot(),
+            contrastRetrievalSemanticsPreserved = memory.contrastRetrievalSemanticsPreserved.authoritySnapshot(),
+            compactionPeopleFidelity = memory.compactionPeopleFidelity.authoritySnapshot(),
+            compactionCommitmentFidelity = memory.compactionCommitmentFidelity.authoritySnapshot(),
+            compactionUnresolvedIssueFidelity = memory.compactionUnresolvedIssueFidelity.authoritySnapshot(),
+            compactionRelationshipFactFidelity = memory.compactionRelationshipFactFidelity.authoritySnapshot(),
+            compactionEventOrderFidelity = memory.compactionEventOrderFidelity.authoritySnapshot(),
+        ),
+        bio = bio.copy(
+            neutralMedianAbsEffectiveDelta = bio.neutralMedianAbsEffectiveDelta.authoritySnapshot(),
+            saturationViolations = bio.saturationViolations.authoritySnapshot(),
+            positivePathDimensions = bio.positivePathDimensions.authoritySnapshot(::immutableSet),
+            zeroPathDimensions = bio.zeroPathDimensions.authoritySnapshot(::immutableSet),
+            negativePathDimensions = bio.negativePathDimensions.authoritySnapshot(::immutableSet),
+            reliefPathDimensions = bio.reliefPathDimensions.authoritySnapshot(::immutableSet),
+            vqVaeRegression = bio.vqVaeRegression.authoritySnapshot(),
+            heuristicFallbackRegression = bio.heuristicFallbackRegression.authoritySnapshot(),
+            derivedDRegression = bio.derivedDRegression.authoritySnapshot(),
+            omegaRegression = bio.omegaRegression.authoritySnapshot(),
+        ),
+        cache = cache.copy(
+            warmCacheReadRate = cache.warmCacheReadRate.authoritySnapshot(),
+            localByteIdenticalPrefixRate = cache.localByteIdenticalPrefixRate.authoritySnapshot(),
+            sealedChunksByteStable = cache.sealedChunksByteStable.authoritySnapshot(),
+            ordinaryTurnsAppendOnly = cache.ordinaryTurnsAppendOnly.authoritySnapshot(),
+            compactionEpochMissCount = cache.compactionEpochMissCount.authoritySnapshot(),
+            compactionRecoveryTurns = cache.compactionRecoveryTurns.authoritySnapshot(),
+            preservedCapabilities = cache.preservedCapabilities.authoritySnapshot(::immutableSet),
+        ),
+        temporalRuntime = temporalRuntime.copy(
+            allTimeSourcesVirtual = temporalRuntime.allTimeSourcesVirtual.authoritySnapshot(),
+            needlessTimestampChurnCount = temporalRuntime.needlessTimestampChurnCount.authoritySnapshot(),
+            heartbeatDeterministic = temporalRuntime.heartbeatDeterministic.authoritySnapshot(),
+            silenceWindowDeterministic = temporalRuntime.silenceWindowDeterministic.authoritySnapshot(),
+            memoryTimestampDeterministic = temporalRuntime.memoryTimestampDeterministic.authoritySnapshot(),
+            nonBlockingRuntime = temporalRuntime.nonBlockingRuntime.authoritySnapshot(),
+            silentResponseFailures = temporalRuntime.silentResponseFailures.authoritySnapshot(),
+        ),
+    )
+
+    private fun <T> CompanionQualityMetrics.Measurement<T>.authoritySnapshot(
+        snapshotValue: (T) -> T = { it },
+    ): CompanionQualityMetrics.Measurement<T> = copy(
+        value = value?.let(snapshotValue),
+        evidence = evidence.copy(
+            manifestFingerprints = immutableSet(evidence.manifestFingerprints),
+            artifactKinds = immutableSet(evidence.artifactKinds),
+        ),
+    )
+
+    private fun <T> immutableList(values: Collection<T>): List<T> =
+        Collections.unmodifiableList(ArrayList(values))
+
+    private fun <T> immutableSet(values: Collection<T>): Set<T> =
+        Collections.unmodifiableSet(LinkedHashSet(values))
+
+    private fun <K, V> immutableMap(values: Map<K, V>): Map<K, V> =
+        Collections.unmodifiableMap(LinkedHashMap(values))
 
     companion object {
         suspend fun evaluate(paths: ProductionEvaluationInputPaths): ProductionEvaluationReport {
