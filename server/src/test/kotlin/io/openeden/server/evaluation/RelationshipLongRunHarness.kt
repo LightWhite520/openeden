@@ -9,7 +9,11 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
+@Serializable
 enum class EvaluationVariant { A, B }
 
 data class EvaluationRequest(
@@ -69,6 +73,7 @@ data class PromptCacheManifestEntry(
 )
 
 data class LongRunResult(
+    val scenarioFingerprint: String,
     val observations: List<EvaluationObservation>,
     val turns: List<EvaluatedTurn>,
     val bioSnapshots: List<BioVector>,
@@ -76,8 +81,27 @@ data class LongRunResult(
     val relationshipEvents: List<RelationshipEvent>,
     val promptCacheManifest: List<PromptCacheManifestEntry>,
 ) {
-    suspend fun exportTo(outputDirectory: Path): ExportedArtifacts = withContext(Dispatchers.IO) {
+    suspend fun exportTo(
+        outputDirectory: Path,
+        releaseReport: PairwiseEvaluation.ReleaseReport = PairwiseEvaluation.ReleaseReport.synthetic(scenarioFingerprint),
+    ): ExportedArtifacts = withContext(Dispatchers.IO) {
+        require(
+            releaseReport.evidenceKind == PairwiseEvaluation.EvidenceKind.SYNTHETIC_FIXTURE &&
+                releaseReport.releaseDecision() == PairwiseEvaluation.ReleaseDecision.SYNTHETIC_ONLY &&
+                releaseReport.productionProvenance == null &&
+                releaseReport.syntheticFixture?.nonProduction == true &&
+                releaseReport.syntheticFixture.personaFree,
+        ) { "RelationshipLongRunHarness exports synthetic evidence only" }
+        require(
+            cacheReadRate == null &&
+                observations.all { it.cacheMetrics.availability == io.openeden.llm.CacheMetricAvailability.UNOBSERVABLE } &&
+                promptCacheManifest.all { it.metrics.availability == io.openeden.llm.CacheMetricAvailability.UNOBSERVABLE },
+        ) { "Synthetic relationship evaluation cannot export provider cache evidence" }
+        require(releaseReport.scenarioFingerprint == scenarioFingerprint) {
+            "Release report scenario fingerprint must match the exported run"
+        }
         Files.createDirectories(outputDirectory)
+        val persistedReleaseReport = releaseReport.persisted()
         val files = listOf(
             outputDirectory.resolve("transcript.jsonl") to observations.joinToString("\n") { observation ->
                 val turn = observation.transcript
@@ -120,10 +144,13 @@ data class LongRunResult(
             outputDirectory.resolve("evaluation-report.md") to buildString {
                 appendLine("# Relationship Evaluation")
                 appendLine()
+                appendLine("- Evidence kind: ${persistedReleaseReport.evidenceKind}")
+                appendLine("- Release decision: ${persistedReleaseReport.releaseDecision}")
                 appendLine("- Turns: ${turns.size}")
                 appendLine("- Cache read rate: ${cacheReadRate ?: "unobservable"}")
                 appendLine("- Relationship events: ${relationshipEvents.count { it.events.isNotEmpty() }}")
             }.trimEnd(),
+            outputDirectory.resolve("release-gate-report.json") to releaseReportJson.encodeToString(persistedReleaseReport),
         )
         files.forEach { (path, content) -> Files.writeString(path, "$content\n", StandardCharsets.UTF_8) }
         ExportedArtifacts(files.map { it.first }, files.associate { (path, _) -> path.fileName.toString() to path.sha256() })
@@ -146,6 +173,7 @@ class RelationshipLongRunHarness(
         }
         val metrics = observations.map(EvaluationObservation::cacheMetrics)
         return LongRunResult(
+            scenarioFingerprint = scenario.fingerprint(),
             observations = observations,
             turns = observations.map(EvaluationObservation::transcript),
             bioSnapshots = observations.map(EvaluationObservation::bio),
@@ -286,3 +314,7 @@ private fun String.csvField(): String = if (any { it == ',' || it == '"' || it =
 private fun Path.sha256(): String = MessageDigest.getInstance("SHA-256")
     .digest(Files.readAllBytes(this))
     .joinToString("") { "%02x".format(it) }
+
+private val releaseReportJson = Json {
+    prettyPrint = true
+}

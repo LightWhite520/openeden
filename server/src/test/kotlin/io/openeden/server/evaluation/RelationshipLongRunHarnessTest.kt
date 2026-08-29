@@ -4,11 +4,13 @@ import java.nio.file.Files
 import io.openeden.llm.CacheMetricAvailability
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class RelationshipLongRunHarnessTest {
     @Test
@@ -121,6 +123,7 @@ class RelationshipLongRunHarnessTest {
                 "relationship-events.jsonl",
                 "prompt-cache-manifest.jsonl",
                 "evaluation-report.md",
+                "release-gate-report.json",
             ),
             firstArtifacts.files.map { it.fileName.toString() }.toSet(),
         )
@@ -130,6 +133,9 @@ class RelationshipLongRunHarnessTest {
         val bio = firstArtifacts.file("bio.csv").csvRecords()
         val relationshipEvents = firstArtifacts.file("relationship-events.jsonl").jsonLines()
         val cacheManifest = firstArtifacts.file("prompt-cache-manifest.jsonl").jsonLines()
+        val releaseReport = Json.parseToJsonElement(
+            Files.readString(firstArtifacts.file("release-gate-report.json")),
+        ).jsonObject
 
         assertEquals(first.turns.size, transcript.size)
         assertEquals(first.turns.size, bio.size)
@@ -147,6 +153,38 @@ class RelationshipLongRunHarnessTest {
         assertTrue(transcript.all { it.getValue("diagnostics").jsonObject.isNotEmpty() })
         assertTrue(relationshipEvents.all { it.keys.containsAll(setOf("turn", "now_ms", "events", "relationship_state", "evolution_index", "omega")) })
         assertTrue(cacheManifest.all { it.keys.containsAll(setOf("turn", "now_ms", "trace_id", "trace_stage", "input_tokens", "cached_input_tokens", "cache_read_rate")) })
+        assertEquals("SYNTHETIC_FIXTURE", releaseReport.getValue("evidenceKind").toString().trim('"'))
+        assertEquals("SYNTHETIC_ONLY", releaseReport.getValue("releaseDecision").toString().trim('"'))
+        assertEquals("null", releaseReport.getValue("pairwiseEvaluation").toString())
+        val syntheticFixture = releaseReport.getValue("syntheticFixture").jsonObject
+        assertEquals("true", syntheticFixture.getValue("nonProduction").jsonPrimitive.content)
+        assertEquals("true", syntheticFixture.getValue("personaFree").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `synthetic release report exposes no production factory`() {
+        assertTrue(
+            PairwiseEvaluation.ReleaseReport.Companion::class.java.declaredMethods.none { method ->
+                java.lang.reflect.Modifier.isPublic(method.modifiers) &&
+                    method.name.contains("production", ignoreCase = true)
+            },
+        )
+    }
+
+    @Test
+    fun `synthetic harness rejects caller supplied provider cache evidence`() = runTest {
+        val synthetic = RelationshipLongRunHarness.fake().run(RelationshipScenario.canonical())
+        val forgedMetrics = io.openeden.llm.LlmCacheMetrics(inputTokens = 100, cachedInputTokens = 90)
+        val forged = synthetic.copy(
+            cacheReadRate = 0.90,
+            promptCacheManifest = synthetic.promptCacheManifest.map { entry -> entry.copy(metrics = forgedMetrics) },
+        )
+
+        assertIs<IllegalArgumentException>(
+            runCatching {
+                forged.exportTo(Files.createTempDirectory("synthetic-reject-provider-cache"))
+            }.exceptionOrNull(),
+        )
     }
 
     @Test

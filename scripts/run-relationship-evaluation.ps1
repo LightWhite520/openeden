@@ -4,11 +4,16 @@ param(
     [ValidateRange(1, 100)]
     [int]$Runs = 3,
     [string]$OutputDirectory = (Join-Path $PSScriptRoot "..\build\relationship-evaluation"),
+    [switch]$ProviderSeedControlAvailable,
     [switch]$AllowSyntheticFixture
 )
 
 if (-not $AllowSyntheticFixture) {
     throw "This runner exports synthetic fixtures only. Pass -AllowSyntheticFixture for format tests; it is not a production A/B evaluation."
+}
+
+if ($Variant -eq "B" -and -not $ProviderSeedControlAvailable -and $Runs -lt 3) {
+    throw "Candidate evaluation requires at least 3 repetitions when provider seed control is unavailable."
 }
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -19,6 +24,8 @@ for ($run = 1; $run -le $Runs; $run++) {
     New-Item -ItemType Directory -Force -Path $runDirectory | Out-Null
     $env:OPENEDEN_EVALUATION_OUTPUT_DIRECTORY = $runDirectory
     $env:OPENEDEN_EVALUATION_VARIANT = $Variant
+    $env:OPENEDEN_EVALUATION_REPETITION = $run
+    $env:OPENEDEN_EVALUATION_PROVIDER_SEED_CONTROL = if ($ProviderSeedControlAvailable) { "AVAILABLE" } else { "UNAVAILABLE" }
     & (Join-Path $projectRoot "gradlew.bat") :server:test --tests "io.openeden.server.evaluation.RelationshipLongRunHarnessTest"
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
