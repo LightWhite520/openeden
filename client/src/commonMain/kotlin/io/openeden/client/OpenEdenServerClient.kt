@@ -16,7 +16,7 @@ import io.ktor.http.contentType
 import io.ktor.http.encodeURLParameter
 import io.ktor.http.formUrlEncode
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 
 class OpenEdenServerClient(
     baseUrl: String,
@@ -36,13 +36,13 @@ class OpenEdenServerClient(
             setBody(ChatRequest(userId = userId, text = text))
         }.decodeSuccess()
 
-    override fun chatStream(userId: String, text: String, clientRequestId: String): Flow<ChatStreamEvent> = flow {
+    override fun chatStream(userId: String, text: String, clientRequestId: String): Flow<ChatStreamEvent> = channelFlow {
         httpClient.preparePost("$baseUrl/api/v1/chat/stream") {
             contentType(ContentType.Application.Json)
             setBody(ChatStreamRequest(userId = userId, text = text, clientRequestId = clientRequestId))
         }.execute { response ->
             response.requireSuccess()
-            SseEventParser().parse(response.bodyAsChannel()).collect(::emit)
+            SseEventParser().parse(response.bodyAsChannel()).collect { send(it) }
         }
     }
 
