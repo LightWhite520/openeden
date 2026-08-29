@@ -548,6 +548,7 @@ class DefaultPromptBuilderTest {
                 PromptSectionKeys.AwakenedStyleExamples to "AWAKE_EXAMPLE",
             ),
         ),
+        conversationCacheIdentity = ConversationCacheIdentity.fromAuthoritativeSessionId("TEST:prompt-builder"),
         evolutionIndex = evolutionIndex,
         vectorSnapshot = BioVector.Neutral,
         derivedDissonance = 0.25f,

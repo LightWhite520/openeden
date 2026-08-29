@@ -5,6 +5,8 @@ import io.openeden.transcript.PromptHistorySnapshot
 internal fun testBuiltPrompt(
     vararg content: Pair<PromptSegmentKind, String>,
     promptHistory: PromptHistorySnapshot = PromptHistorySnapshot(),
+    conversationCacheIdentity: ConversationCacheIdentity =
+        ConversationCacheIdentity.fromAuthoritativeSessionId("TEST:test-conversation"),
 ): BuiltPrompt {
     val textByKind = content.toMap()
     require(textByKind.size == content.size) { "Prompt fixture contains duplicate segment kinds" }
@@ -32,6 +34,7 @@ internal fun testBuiltPrompt(
                 )
             }
         },
+        conversationCacheIdentity = conversationCacheIdentity,
         cacheEpoch = promptHistory.cacheEpoch,
     )
 }

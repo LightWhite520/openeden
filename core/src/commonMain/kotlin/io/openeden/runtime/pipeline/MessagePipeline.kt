@@ -24,6 +24,7 @@ import io.openeden.llm.StreamingLlmClient
 import io.openeden.memory.*
 import io.openeden.persona.PersonaConfig
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.ConversationCacheIdentity
 import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
@@ -343,6 +344,7 @@ class DevelopmentMessagePipeline(
                     mode = current.personaMode,
                     startSubState = current.personaStartSubState,
                 ),
+                conversationCacheIdentity = ConversationCacheIdentity.fromAuthoritativeSessionId(sessionId),
                 evolutionIndex = current.evolutionIndex,
                 vectorSnapshot = preTick.preTicked,
                 derivedDissonance = inference.dissonance,

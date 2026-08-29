@@ -49,7 +49,8 @@ import io.openeden.memory.RebuildableInMemoryVectorIndex
 import io.openeden.bio.BioVector
 import io.openeden.llm.LlmGenerationPolicyConfig
 import io.openeden.llm.OpenAiResponsesLlmClient
-import io.openeden.llm.OpenAiPromptCachingMode
+import io.openeden.llm.OpenAiCacheKeyContext
+import io.openeden.llm.OpenAiCachePolicy
 import io.openeden.llm.OpenAiCapabilityProbe
 import io.openeden.llm.OpenAiCapabilityCache
 import io.openeden.llm.CachedOpenAiCapabilityProvider
@@ -250,25 +251,7 @@ private suspend fun Application.startRuntime(
         )
     }
     startupClosers.addFirst { memoryStore.close() }
-    val llmClient = OpenAiResponsesLlmClient(
-        apiKey = serverConfig.apiKey, model = serverConfig.model,
-        reasoningEffort = serverConfig.reasoningEffort, baseUrl = serverConfig.baseUrl,
-        promptCachingMode = serverConfig.promptCachingMode,
-        defaultGenerationSettings = staticGenerationSettings,
-    )
-    startupClosers.addFirst { llmClient.close() }
-    val relationshipEvaluatorClient = relationshipEvaluatorHttpClient()
-    startupClosers.addFirst { relationshipEvaluatorClient.close() }
-    val relationshipEventEvaluator = FallbackRelationshipEventEvaluator(
-        primary = OpenAiRelationshipEventEvaluator(
-            apiKey = serverConfig.apiKey,
-            model = serverConfig.model,
-            baseUrl = serverConfig.baseUrl,
-            httpClient = relationshipEvaluatorClient,
-        ),
-        fallback = DeterministicRelationshipEventEvaluator(),
-    )
-    val capabilityProvider: OpenAiCapabilityProvider = if (serverConfig.capabilityProbeEnabled) {
+    val capabilityProvider: OpenAiCapabilityProvider = if (serverConfig.openAiCache.capabilityProbeEnabled) {
         val capabilityCache = OpenAiCapabilityCache()
         val capabilityProbe = OpenAiCapabilityProbe(
             apiKey = serverConfig.apiKey,
@@ -283,7 +266,34 @@ private suspend fun Application.startRuntime(
         OpenAiCapabilityProvider { OpenAiProviderCapabilities.unavailable(System.currentTimeMillis()) }
     }
     attributes.put(OpenAiCapabilityProviderKey, capabilityProvider)
-    if (serverConfig.capabilityProbeEnabled) capabilityProvider.capabilities()
+    if (serverConfig.openAiCache.capabilityProbeEnabled) capabilityProvider.capabilities()
+    val llmClient = OpenAiResponsesLlmClient(
+        apiKey = serverConfig.apiKey,
+        model = serverConfig.model,
+        reasoningEffort = serverConfig.reasoningEffort,
+        baseUrl = serverConfig.baseUrl,
+        cachePolicy = serverConfig.openAiCache.policy,
+        capabilityProvider = capabilityProvider,
+        cacheKeyContext = OpenAiCacheKeyContext(
+            providerPolicyRevision = serverConfig.cacheProviderPolicyRevision,
+            systemSchemaRevision = serverConfig.cacheSystemSchemaRevision,
+            personaRevision = "${serverConfig.cachePersonaRevision}:${persona.startSubState.name}",
+            dialogueNamespace = serverConfig.cacheDialogueNamespace,
+        ),
+        defaultGenerationSettings = staticGenerationSettings,
+    )
+    startupClosers.addFirst { llmClient.close() }
+    val relationshipEvaluatorClient = relationshipEvaluatorHttpClient()
+    startupClosers.addFirst { relationshipEvaluatorClient.close() }
+    val relationshipEventEvaluator = FallbackRelationshipEventEvaluator(
+        primary = OpenAiRelationshipEventEvaluator(
+            apiKey = serverConfig.apiKey,
+            model = serverConfig.model,
+            baseUrl = serverConfig.baseUrl,
+            httpClient = relationshipEvaluatorClient,
+        ),
+        fallback = DeterministicRelationshipEventEvaluator(),
+    )
     val diaryCoordinator = DiaryTriggerCoordinator(
         diaryTaskStore, diaryTaskStore, memoryStore,
         DiaryTriggerConfig(serverConfig.diaryDeltaThreshold, serverConfig.diaryElapsedHours * 60L * 60L * 1000L),
@@ -577,8 +587,11 @@ private data class ServerRuntimeConfig(
     val model: String,
     val reasoningEffort: ReasoningEffort,
     val baseUrl: String,
-    val promptCachingMode: OpenAiPromptCachingMode,
-    val capabilityProbeEnabled: Boolean,
+    val openAiCache: OpenAiCacheBootstrapConfig,
+    val cacheProviderPolicyRevision: String,
+    val cacheSystemSchemaRevision: String,
+    val cachePersonaRevision: String,
+    val cacheDialogueNamespace: String,
     val capabilityProbeRoutingFingerprint: String,
     val capabilityProbeTtlSeconds: Long,
     val llmGenerationPolicy: LlmGenerationPolicyConfig,
@@ -604,6 +617,15 @@ private data class ServerRuntimeConfig(
     val oneBot: OneBotConfig,
 )
 
+internal fun loadOpenAiCachePolicy(
+    config: io.ktor.server.config.ApplicationConfig,
+): OpenAiCachePolicy = OpenAiCachePolicy.parse(
+    config.propertyOrNull("openeden.llm.promptCachingPolicy")
+        ?.getString()
+        ?.takeIf { it.isNotBlank() }
+        ?: "relay_append_only",
+)
+
 private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationConfig): ServerRuntimeConfig {
     fun required(path: String): String = config.property(path).getString()
     fun optional(path: String, default: String): String =
@@ -617,14 +639,17 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
     val oneBot = loadOneBotConfig(config)
     val heartbeatOwner = loadHeartbeatOwner(config)
     validateOneBotHeartbeatOwner(oneBot.enabled, heartbeatOwner)
+    val openAiCache = loadOpenAiCacheBootstrapConfig(config)
     return ServerRuntimeConfig(
         apiKey = required("openeden.llm.apiKey"),
         model = required("openeden.llm.model"),
         reasoningEffort = ReasoningEffort.parse(optional("openeden.llm.reasoningEffort", "medium")),
         baseUrl = required("openeden.llm.baseUrl"),
-        promptCachingMode = OpenAiPromptCachingMode.parse(optional("openeden.llm.promptCachingMode", "auto")),
-        capabilityProbeEnabled = optional("openeden.llm.capabilityProbe.enabled", "false")
-            .equals("true", ignoreCase = true),
+        openAiCache = openAiCache,
+        cacheProviderPolicyRevision = optional("openeden.llm.cache.providerPolicyRevision", "responses-v1"),
+        cacheSystemSchemaRevision = optional("openeden.llm.cache.systemSchemaRevision", "openeden-output-schema-v1"),
+        cachePersonaRevision = optional("openeden.llm.cache.personaRevision", "persona-v1"),
+        cacheDialogueNamespace = optional("openeden.llm.cache.dialogueNamespace", "openeden-dialogue-v1"),
         capabilityProbeRoutingFingerprint = optional("openeden.llm.capabilityProbe.routingFingerprint", "default"),
         capabilityProbeTtlSeconds = optional("openeden.llm.capabilityProbe.ttlSeconds", "900")
             .toLong().coerceAtLeast(0L),

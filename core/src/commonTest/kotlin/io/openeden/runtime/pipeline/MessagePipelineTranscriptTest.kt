@@ -21,6 +21,7 @@ import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaOutputPolicy
 import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.ConversationCacheIdentity
 import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
@@ -64,6 +65,33 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class MessagePipelineTranscriptTest {
+    @Test
+    fun `pipeline derives opaque cache identity from authoritative conversation scope`() = runTest {
+        val capturedInputs = mutableListOf<PromptInput>()
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            promptBuilder = object : PromptBuilder {
+                override suspend fun build(input: PromptInput): BuiltPrompt {
+                    capturedInputs += input
+                    return DefaultPromptBuilder().build(input)
+                }
+            },
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        pipeline.handle(request("scope-a-turn").copy(platform = "QQ", scopeId = "group-a"))
+        pipeline.handle(request("scope-b-turn").copy(platform = "QQ", scopeId = "group-b"))
+
+        assertEquals(
+            listOf(
+                ConversationCacheIdentity.fromAuthoritativeSessionId("QQ:group-a"),
+                ConversationCacheIdentity.fromAuthoritativeSessionId("QQ:group-b"),
+            ),
+            capturedInputs.map(PromptInput::conversationCacheIdentity),
+        )
+    }
+
     @Test
     fun `pipeline injects prompt history wire items and excludes the same lineage from rag`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")

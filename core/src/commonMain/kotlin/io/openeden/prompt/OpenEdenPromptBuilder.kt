@@ -74,6 +74,7 @@ class DefaultPromptBuilder(
         )
         return BuiltPrompt.create(
             segments = segments,
+            conversationCacheIdentity = input.conversationCacheIdentity,
             cacheEpoch = input.promptHistory.cacheEpoch,
         )
     }

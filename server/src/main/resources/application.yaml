@@ -15,7 +15,15 @@ openeden:
     apiKey: "$OPENEDEN_OPENAI_API_KEY:replace-with-your-api-key"
     model: "$OPENEDEN_OPENAI_MODEL:gpt-5.6-luna"
     baseUrl: "$OPENEDEN_OPENAI_BASE_URL:https://api.openai.com/v1"
-    promptCachingMode: "$OPENEDEN_OPENAI_PROMPT_CACHING_MODE:auto"
+    # OFFICIAL_EXPLICIT requires capability probing and positive provider evidence before fields are sent.
+    # Set OPENEDEN_OPENAI_PROMPT_CACHING_POLICY=official_explicit together with
+    # OPENEDEN_OPENAI_CAPABILITY_PROBE_ENABLED=true. Probe enablement alone never assumes support.
+    promptCachingPolicy: "$OPENEDEN_OPENAI_PROMPT_CACHING_POLICY:relay_append_only"
+    cache:
+      providerPolicyRevision: "$OPENEDEN_OPENAI_PROVIDER_POLICY_REVISION:responses-v1"
+      systemSchemaRevision: "$OPENEDEN_SYSTEM_SCHEMA_REVISION:openeden-output-schema-v1"
+      personaRevision: "$OPENEDEN_PERSONA_REVISION:persona-v1"
+      dialogueNamespace: "$OPENEDEN_DIALOGUE_NAMESPACE:openeden-dialogue-v1"
     capabilityProbe:
       enabled: "$OPENEDEN_OPENAI_CAPABILITY_PROBE_ENABLED:false"
       routingFingerprint: "$OPENEDEN_OPENAI_ROUTING_FINGERPRINT:default"

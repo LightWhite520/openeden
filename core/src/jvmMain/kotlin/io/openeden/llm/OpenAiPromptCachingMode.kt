@@ -1,55 +1,55 @@
 package io.openeden.llm
 
-import java.net.URI
-
-private val gptModelPattern = Regex("^gpt-(\\d+)(?:\\.(\\d+))?", RegexOption.IGNORE_CASE)
-
 enum class OpenAiPromptCachingMode {
-    AUTO,
-    EXPLICIT,
-    DISABLED,
+    OFFICIAL_EXPLICIT,
+    RELAY_APPEND_ONLY,
+    OBSERVE_ONLY,
+    CACHE_DISABLED,
     ;
 
     companion object {
         fun parse(raw: String): OpenAiPromptCachingMode = when (raw.trim().lowercase()) {
-            "auto" -> AUTO
-            "explicit" -> EXPLICIT
-            "disabled", "off" -> DISABLED
-            else -> throw IllegalArgumentException("Unsupported OpenAI prompt caching mode: $raw")
+            "official_explicit" -> OFFICIAL_EXPLICIT
+            "relay_append_only" -> RELAY_APPEND_ONLY
+            "observe_only" -> OBSERVE_ONLY
+            "cache_disabled", "disabled", "off" -> CACHE_DISABLED
+            else -> throw IllegalArgumentException("Unsupported OpenAI cache policy: $raw")
         }
     }
 }
 
-fun OpenAiPromptCachingMode.usesCache(): Boolean = this != OpenAiPromptCachingMode.DISABLED
+typealias OpenAiCachePolicy = OpenAiPromptCachingMode
 
-fun OpenAiPromptCachingMode.usesExplicitCacheOptions(model: String): Boolean = when (this) {
-    OpenAiPromptCachingMode.DISABLED -> false
-    OpenAiPromptCachingMode.EXPLICIT -> true
-    OpenAiPromptCachingMode.AUTO -> supportsExplicitPromptCaching(model)
-}
+internal data class OpenAiRequestCacheMetadata(
+    val cacheKey: Boolean,
+    val cacheOptions: Boolean,
+    val breakpoint: Boolean,
+) {
+    val isPresent: Boolean get() = cacheKey || cacheOptions || breakpoint
 
-fun OpenAiPromptCachingMode.usesExplicitBreakpoint(model: String): Boolean =
-    usesExplicitBreakpoint(model, defaultOpenAiBaseUrl)
-
-fun OpenAiPromptCachingMode.usesExplicitBreakpoint(model: String, baseUrl: String): Boolean = when (this) {
-    OpenAiPromptCachingMode.DISABLED -> false
-    OpenAiPromptCachingMode.EXPLICIT -> true
-    OpenAiPromptCachingMode.AUTO -> supportsExplicitPromptCaching(model) && isOfficialOpenAiBaseUrl(baseUrl)
-}
-
-private fun isOfficialOpenAiBaseUrl(baseUrl: String): Boolean =
-    runCatching {
-        val uri = URI(baseUrl.trim())
-        uri.scheme.equals("https", ignoreCase = true) && uri.host.equals("api.openai.com", ignoreCase = true)
+    companion object {
+        val None = OpenAiRequestCacheMetadata(false, false, false)
     }
-        .getOrDefault(false)
-
-private const val defaultOpenAiBaseUrl = "https://api.openai.com/v1"
-
-fun supportsExplicitPromptCaching(model: String): Boolean {
-    val version = gptModelPattern.find(model.trim())
-        ?: return false
-    val major = version.groupValues[1].toIntOrNull() ?: return false
-    val minor = version.groupValues[2].takeIf { it.isNotEmpty() }?.toIntOrNull() ?: 0
-    return major > 5 || (major == 5 && minor >= 6)
 }
+
+internal fun OpenAiCachePolicy.requestMetadata(
+    capabilities: OpenAiProviderCapabilities,
+): OpenAiRequestCacheMetadata = when (this) {
+    OpenAiCachePolicy.OFFICIAL_EXPLICIT -> OpenAiRequestCacheMetadata(
+        cacheKey = capabilities.cacheKeyAccepted,
+        cacheOptions = capabilities.cacheOptionsAccepted,
+        breakpoint = capabilities.explicitBreakpointAccepted,
+    )
+
+    OpenAiCachePolicy.RELAY_APPEND_ONLY -> OpenAiRequestCacheMetadata(
+        cacheKey = capabilities.cacheKeyAccepted,
+        cacheOptions = false,
+        breakpoint = false,
+    )
+
+    OpenAiCachePolicy.OBSERVE_ONLY,
+    OpenAiCachePolicy.CACHE_DISABLED,
+    -> OpenAiRequestCacheMetadata.None
+}
+
+internal fun OpenAiCachePolicy.observesUsage(): Boolean = this != OpenAiCachePolicy.CACHE_DISABLED

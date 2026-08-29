@@ -6,6 +6,7 @@ import io.openeden.hash.Sha256
 data class BuiltPrompt internal constructor(
     val segments: List<PromptSegment>,
     val cacheIdentity: String,
+    val conversationCacheIdentity: ConversationCacheIdentity,
 ) {
     init {
         require(segments.map(PromptSegment::kind) == REQUIRED_ORDER) {
@@ -63,7 +64,11 @@ data class BuiltPrompt internal constructor(
             PromptSegmentKind.USER,
         )
 
-        fun create(segments: List<PromptSegment>, cacheEpoch: Long = 0L): BuiltPrompt {
+        fun create(
+            segments: List<PromptSegment>,
+            conversationCacheIdentity: ConversationCacheIdentity,
+            cacheEpoch: Long = 0L,
+        ): BuiltPrompt {
             require(cacheEpoch >= 0L) { "cacheEpoch must not be negative" }
             val cachePrefix = segments.take(CACHE_PREFIX_SIZE)
             val cacheIdentity = Sha256.hex(
@@ -78,7 +83,11 @@ data class BuiltPrompt internal constructor(
                     }
                 }.encodeToByteArray(),
             )
-            return BuiltPrompt(segments = segments, cacheIdentity = cacheIdentity)
+            return BuiltPrompt(
+                segments = segments,
+                cacheIdentity = cacheIdentity,
+                conversationCacheIdentity = conversationCacheIdentity,
+            )
         }
     }
 }

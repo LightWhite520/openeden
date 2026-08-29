@@ -1,6 +1,7 @@
 package io.openeden.llm
 
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.ConversationCacheIdentity
 import io.openeden.prompt.PromptSegmentKind
 import io.openeden.prompt.testBuiltPrompt
 import io.openeden.transcript.ConversationTurn
@@ -8,6 +9,7 @@ import io.openeden.transcript.PromptHistorySerializer
 import io.openeden.transcript.PromptHistorySnapshot
 import io.openeden.transcript.PromptHistorySummary
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.engine.mock.toByteArray
@@ -29,7 +31,10 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OpenAiResponsesLlmClientTest {
@@ -58,22 +63,38 @@ class OpenAiResponsesLlmClientTest {
     }
 
     @Test
-    fun `parses prompt caching modes and detects supported model families`() {
-        assertEquals(OpenAiPromptCachingMode.AUTO, OpenAiPromptCachingMode.parse("auto"))
-        assertEquals(OpenAiPromptCachingMode.EXPLICIT, OpenAiPromptCachingMode.parse("EXPLICIT"))
-        assertEquals(OpenAiPromptCachingMode.DISABLED, OpenAiPromptCachingMode.parse("off"))
-        assertTrue(supportsExplicitPromptCaching("gpt-5.6-luna"))
-        assertTrue(supportsExplicitPromptCaching("gpt-6"))
-        assertTrue(!supportsExplicitPromptCaching("gpt-5.5"))
+    fun `parses explicit cache policies without model heuristics`() {
+        assertEquals(OpenAiCachePolicy.OFFICIAL_EXPLICIT, OpenAiCachePolicy.parse("official_explicit"))
+        assertEquals(OpenAiCachePolicy.RELAY_APPEND_ONLY, OpenAiCachePolicy.parse("RELAY_APPEND_ONLY"))
+        assertEquals(OpenAiCachePolicy.OBSERVE_ONLY, OpenAiCachePolicy.parse("observe_only"))
+        assertEquals(OpenAiCachePolicy.CACHE_DISABLED, OpenAiCachePolicy.parse("cache_disabled"))
         assertFailsWith<IllegalArgumentException> { OpenAiPromptCachingMode.parse("invalid") }
     }
 
     @Test
-    fun `retains model-only breakpoint compatibility for the official default endpoint`() {
-        assertTrue(OpenAiPromptCachingMode.AUTO.usesExplicitBreakpoint("gpt-5.6-luna"))
-        assertTrue(!OpenAiPromptCachingMode.AUTO.usesExplicitBreakpoint("gpt-5.5"))
-        assertTrue(OpenAiPromptCachingMode.EXPLICIT.usesExplicitBreakpoint("gpt-5.5"))
-        assertTrue(!OpenAiPromptCachingMode.DISABLED.usesExplicitBreakpoint("gpt-5.6-luna"))
+    fun `official explicit requires positive capability evidence`() = runTest {
+        val withoutEvidence = captureCachingRequest(
+            baseUrl = "https://api.openai.com/v1",
+            policy = OpenAiCachePolicy.OFFICIAL_EXPLICIT,
+            capabilities = unavailableCapabilities(),
+        ).body
+        assertCacheMetadataAbsent(withoutEvidence)
+
+        val withEvidence = captureCachingRequest(
+            baseUrl = "https://api.openai.com/v1",
+            policy = OpenAiCachePolicy.OFFICIAL_EXPLICIT,
+            capabilities = explicitCapabilities(),
+        ).body
+        assertTrue(withEvidence.getValue("prompt_cache_key").jsonPrimitive.content.isNotBlank())
+        assertEquals(
+            "explicit",
+            withEvidence.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
+        )
+        val anchor = withEvidence.getValue("input").jsonArray[2].jsonObject.getValue("content").jsonArray[0].jsonObject
+        assertEquals(
+            "explicit",
+            anchor.getValue("prompt_cache_breakpoint").jsonObject.getValue("mode").jsonPrimitive.content,
+        )
     }
 
     @Test
@@ -295,7 +316,7 @@ class OpenAiResponsesLlmClientTest {
     }
 
     @Test
-    fun `uses explicit stable incarnation breakpoint for gpt 5 6 and keeps dynamic context after it`() = runTest {
+    fun `official explicit keeps dynamic context after the capability gated breakpoint`() = runTest {
         var requestBody = ""
         val engine = MockEngine { request ->
             requestBody = request.body.toByteArray().decodeToString()
@@ -310,6 +331,9 @@ class OpenAiResponsesLlmClientTest {
             apiKey = "sk-test",
             model = "gpt-5.6-luna",
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+            cachePolicy = OpenAiCachePolicy.OFFICIAL_EXPLICIT,
+            capabilityProvider = capabilityProvider(explicitCapabilities()),
+            cacheKeyContext = cacheKeyContext(),
         )
 
         client.complete(
@@ -338,110 +362,36 @@ class OpenAiResponsesLlmClientTest {
     }
 
     @Test
-    fun `uses relay compatible cache options without a breakpoint for custom provider in auto mode`() = runTest {
-        val body = captureCachingRequest(
+    fun `relay append mode preserves exact wire order and omits unsupported cache metadata`() = runTest {
+        val captured = captureCachingRequest(
             baseUrl = "https://relay.example.com/v1",
-            mode = OpenAiPromptCachingMode.AUTO,
+            policy = OpenAiCachePolicy.RELAY_APPEND_ONLY,
+            capabilities = unavailableCapabilities(),
         )
-
-        val key = assertIs<JsonPrimitive>(body.getValue("prompt_cache_key"))
-        assertTrue(key.isString)
-        assertTrue(key.content.isNotBlank())
+        val body = captured.body
+        assertCacheMetadataAbsent(body)
+        val input = body.getValue("input").jsonArray
         assertEquals(
-            "explicit",
-            body.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
+            listOf("system", "developer", "developer", "developer", "user", "assistant", "developer", "user"),
+            input.map { it.jsonObject.getValue("role").jsonPrimitive.content },
         )
         assertEquals(
-            "stable incarnation",
-            assertIs<JsonPrimitive>(body.getValue("input").jsonArray[2].jsonObject.getValue("content")).content,
+            listOf(
+                "stable system", "stable persona", "stable incarnation", "history summary", "history user",
+                "history assistant", "dynamic state", "current user",
+            ),
+            input.map { it.jsonObject.getValue("content").jsonPrimitive.content },
         )
     }
 
     @Test
-    fun `uses breakpoint only for the exact OpenAI endpoint in auto mode`() = runTest {
-        val exactOpenAiBody = captureCachingRequest(
-            baseUrl = "https://api.openai.com/v1",
-            mode = OpenAiPromptCachingMode.AUTO,
-        )
-        val uppercaseOpenAiBody = captureCachingRequest(
-            baseUrl = "HTTPS://API.OPENAI.COM/v1",
-            mode = OpenAiPromptCachingMode.AUTO,
-        )
-        val insecureOpenAiBody = captureCachingRequest(
-            baseUrl = "http://api.openai.com/v1",
-            mode = OpenAiPromptCachingMode.AUTO,
-        )
-        val lookalikeBody = captureCachingRequest(
-            baseUrl = "https://api.openai.com.example.org/v1",
-            mode = OpenAiPromptCachingMode.AUTO,
-        )
+    fun `observe only reports provider usage while cache disabled suppresses cache metrics`() = runTest {
+        val observed = captureCachingRequest(policy = OpenAiCachePolicy.OBSERVE_ONLY).output
+        val disabled = captureCachingRequest(policy = OpenAiCachePolicy.CACHE_DISABLED).output
 
-        val exactAnchorContent = exactOpenAiBody.getValue("input").jsonArray[2].jsonObject
-            .getValue("content").jsonArray
-        assertEquals("input_text", exactAnchorContent[0].jsonObject.getValue("type").jsonPrimitive.content)
-        assertEquals(
-            "explicit",
-            exactAnchorContent[0].jsonObject.getValue("prompt_cache_breakpoint")
-                .jsonObject.getValue("mode").jsonPrimitive.content,
-        )
-        val uppercaseAnchorContent = uppercaseOpenAiBody.getValue("input").jsonArray[2].jsonObject
-            .getValue("content").jsonArray
-        assertEquals("input_text", uppercaseAnchorContent[0].jsonObject.getValue("type").jsonPrimitive.content)
-        assertEquals(
-            "explicit",
-            uppercaseAnchorContent[0].jsonObject.getValue("prompt_cache_breakpoint")
-                .jsonObject.getValue("mode").jsonPrimitive.content,
-        )
-        val insecureAnchorContent = insecureOpenAiBody.getValue("input").jsonArray[2].jsonObject
-            .getValue("content")
-        assertIs<JsonPrimitive>(insecureAnchorContent)
-        assertEquals("stable incarnation", insecureAnchorContent.content)
-        val lookalikeKey = assertIs<JsonPrimitive>(lookalikeBody.getValue("prompt_cache_key"))
-        assertTrue(lookalikeKey.isString)
-        assertTrue(lookalikeKey.content.isNotBlank())
-        assertEquals(
-            "explicit",
-            lookalikeBody.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
-        )
-        assertEquals(
-            "stable incarnation",
-            assertIs<JsonPrimitive>(
-                lookalikeBody.getValue("input").jsonArray[2].jsonObject.getValue("content"),
-            ).content,
-        )
-    }
-
-    @Test
-    fun `sends breakpoint for custom provider in explicit mode`() = runTest {
-        val body = captureCachingRequest(
-            baseUrl = "https://relay.example.com/v1",
-            mode = OpenAiPromptCachingMode.EXPLICIT,
-        )
-
-        val anchorContent = body.getValue("input").jsonArray[2].jsonObject.getValue("content").jsonArray
-        assertEquals(
-            "explicit",
-            anchorContent[0].jsonObject.getValue("prompt_cache_breakpoint")
-                .jsonObject.getValue("mode").jsonPrimitive.content,
-        )
-    }
-
-    @Test
-    fun `omits caching controls and keeps persona content as a string when disabled`() = runTest {
-        val body = captureCachingRequest(
-            baseUrl = "https://relay.example.com/v1",
-            mode = OpenAiPromptCachingMode.DISABLED,
-        )
-
-        assertTrue("prompt_cache_key" !in body)
-        assertTrue("prompt_cache_options" !in body)
-        body.getValue("input").jsonArray.forEach { message ->
-            assertIs<JsonPrimitive>(message.jsonObject.getValue("content"))
-        }
-        assertEquals(
-            "stable persona",
-            assertIs<JsonPrimitive>(body.getValue("input").jsonArray[1].jsonObject.getValue("content")).content,
-        )
+        assertEquals(CacheMetricAvailability.REPORTED, observed.cacheMetrics?.availability)
+        assertEquals(90L, observed.cacheMetrics?.cachedInputTokens)
+        assertNull(disabled.cacheMetrics)
     }
 
     @Test
@@ -460,6 +410,9 @@ class OpenAiResponsesLlmClientTest {
             apiKey = "sk-test",
             model = "gpt-5.6-luna",
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+            cachePolicy = OpenAiCachePolicy.RELAY_APPEND_ONLY,
+            capabilityProvider = capabilityProvider(cacheKeyCapabilities()),
+            cacheKeyContext = cacheKeyContext(),
         )
 
         client.complete(
@@ -484,6 +437,185 @@ class OpenAiResponsesLlmClientTest {
         val first = Json.parseToJsonElement(requestBodies[0]).jsonObject
         val second = Json.parseToJsonElement(requestBodies[1]).jsonObject
         assertEquals(first.getValue("prompt_cache_key"), second.getValue("prompt_cache_key"))
+    }
+
+    @Test
+    fun `same prompt and epoch use different cache keys for different conversation scopes`() = runTest {
+        suspend fun key(sessionId: String): String = captureCachingRequest(
+            policy = OpenAiCachePolicy.RELAY_APPEND_ONLY,
+            capabilities = cacheKeyCapabilities(),
+            prompt = cachingPrompt(
+                conversationCacheIdentity = ConversationCacheIdentity.fromAuthoritativeSessionId(sessionId),
+            ),
+        ).body.getValue("prompt_cache_key").jsonPrimitive.content
+
+        assertNotEquals(key("QQ:group-alpha"), key("QQ:group-beta"))
+    }
+
+    @Test
+    fun `raw conversation and user identities are absent from request and opaque cache key`() = runTest {
+        val rawScopeId = "private-sensitive-scope"
+        val rawSessionId = "QQ:$rawScopeId"
+        val rawUserId = "sensitive-user-identity"
+        val history = PromptHistorySnapshot(
+            mutableTail = PromptHistorySerializer().createItems(
+                listOf(
+                    ConversationTurn(
+                        turnId = "opaque-metadata-turn",
+                        incarnationId = "incarnation-a",
+                        sessionId = rawSessionId,
+                        platform = "QQ",
+                        scopeId = rawScopeId,
+                        userId = rawUserId,
+                        userText = "ordinary prior message",
+                        assistantText = "ordinary prior response",
+                        completedAtMs = 1L,
+                    ),
+                ),
+            ),
+        )
+        val captured = captureCachingRequest(
+            policy = OpenAiCachePolicy.RELAY_APPEND_ONLY,
+            capabilities = cacheKeyCapabilities(),
+            prompt = cachingPrompt(
+                user = "ordinary message",
+                conversationCacheIdentity = ConversationCacheIdentity.fromAuthoritativeSessionId(rawSessionId),
+                promptHistory = history,
+            ),
+        )
+        val requestText = captured.body.toString()
+        val cacheKey = captured.body.getValue("prompt_cache_key").jsonPrimitive.content
+
+        assertFalse(rawSessionId in requestText)
+        assertFalse(rawUserId in requestText)
+        assertFalse(rawSessionId in cacheKey)
+        assertFalse(rawUserId in cacheKey)
+        assertTrue(cacheKey.matches(Regex("[0-9a-f]{64}")))
+    }
+
+    @Test
+    fun `cache key rotates only on stable revisions identity namespace model or provider policy`() = runTest {
+        suspend fun key(
+            prompt: BuiltPrompt = cachingPrompt(),
+            model: String = "model-a",
+            context: OpenAiCacheKeyContext = cacheKeyContext(),
+        ): String = captureCachingRequest(
+            policy = OpenAiCachePolicy.RELAY_APPEND_ONLY,
+            capabilities = cacheKeyCapabilities(),
+            model = model,
+            prompt = prompt,
+            cacheKeyContext = context,
+        ).body.getValue("prompt_cache_key").jsonPrimitive.content
+
+        val baseline = key()
+        assertEquals(
+            baseline,
+            key(
+                prompt = cachingPrompt(
+                    bio = "changed bio",
+                    relationship = "changed relationship",
+                    rag = "changed rag",
+                    temporal = "changed exact time and request id",
+                    user = "changed user",
+                ),
+            ),
+        )
+        assertNotEquals(baseline, key(prompt = cachingPrompt(system = "system revision 2")))
+        assertNotEquals(baseline, key(prompt = cachingPrompt(cacheEpoch = 2L)))
+        assertNotEquals(baseline, key(context = cacheKeyContext(personaRevision = "persona-v2")))
+        assertNotEquals(baseline, key(context = cacheKeyContext(systemSchemaRevision = "schema-v2")))
+        assertNotEquals(baseline, key(context = cacheKeyContext(dialogueNamespace = "dialogue-v2")))
+        assertNotEquals(baseline, key(context = cacheKeyContext(providerPolicyRevision = "provider-v2")))
+        assertNotEquals(baseline, key(model = "model-b"))
+    }
+
+    @Test
+    fun `unknown 502 is not retried`() = runTest {
+        var requests = 0
+        val engine = MockEngine {
+            requests += 1
+            if (requests == 1) respondError(HttpStatusCode.BadGateway, "upstream failure") else successResponse()
+        }
+        val client = officialClient(engine)
+
+        assertFailsWith<IllegalStateException> { client.complete(simplePrompt()) }
+
+        assertEquals(1, requests)
+    }
+
+    @Test
+    fun `recognized unsupported cache field 4xx retries once without metadata`() = runTest {
+        val bodies = mutableListOf<JsonObject>()
+        val engine = MockEngine { request ->
+            bodies += Json.parseToJsonElement(request.body.toByteArray().decodeToString()).jsonObject
+            if (bodies.size == 1) {
+                respondError(HttpStatusCode.BadRequest, "{\"error\":{\"message\":\"Unsupported field prompt_cache_options\"}}")
+            } else {
+                successResponse()
+            }
+        }
+        val client = officialClient(engine)
+
+        assertEquals("ok", client.complete(simplePrompt()).response)
+
+        assertEquals(2, bodies.size)
+        assertTrue("prompt_cache_options" in bodies[0])
+        assertCacheMetadataAbsent(bodies[1])
+    }
+
+    @Test
+    fun `does not retry after SSE response bytes start`() = runTest {
+        var requests = 0
+        val engine = MockEngine {
+            requests += 1
+            if (requests == 1) {
+                respond(
+                    content = "data: {\"type\":\"error\",\"error\":{\"message\":\"unsupported prompt_cache_options\"}}\n\n",
+                    headers = headersOf(HttpHeaders.ContentType, ContentType.Text.EventStream.toString()),
+                )
+            } else successResponse()
+        }
+        val client = officialClient(engine)
+
+        assertFailsWith<IllegalStateException> { client.stream(simplePrompt()).toList() }
+
+        assertEquals(1, requests)
+    }
+
+    @Test
+    fun `buffered and SSE usage parsing are identical and malformed usage is tolerated`() = runTest {
+        val usage = "\"usage\":{\"input_tokens\":100,\"input_tokens_details\":{\"cached_tokens\":90,\"cache_write_tokens\":10}}"
+        val bufferedEngine = MockEngine { successResponse(extraRootFields = usage) }
+        val sseEngine = MockEngine {
+            respond(
+                content = buildString {
+                    append("data: {\"type\":\"response.output_text.delta\",\"delta\":")
+                    append(Json.encodeToString(structuredOutput()))
+                    append("}\n\n")
+                    append("data: {\"type\":\"response.completed\",\"response\":{$usage}}\n\n")
+                },
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Text.EventStream.toString()),
+            )
+        }
+        val buffered = observeClient(bufferedEngine).complete(simplePrompt())
+        val streamed = assertIs<LlmStreamEvent.Completed>(observeClient(sseEngine).stream(simplePrompt()).toList().last()).output
+        assertEquals(buffered.cacheMetrics, streamed.cacheMetrics)
+
+        val malformedBuffered = MockEngine { successResponse(extraRootFields = "\"usage\":{\"input_tokens\":\"bad\"}") }
+        val malformedBufferedOutput = observeClient(malformedBuffered).complete(simplePrompt())
+        assertEquals("ok", malformedBufferedOutput.response)
+        assertNull(malformedBufferedOutput.cacheMetrics)
+        val malformedSse = MockEngine {
+            respond(
+                content = "data: {\"type\":\"response.output_text.delta\",\"delta\":${Json.encodeToString(structuredOutput())}}\n\n" +
+                    "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":\"bad\"}}}\n\n",
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Text.EventStream.toString()),
+            )
+        }
+        val malformedStreamedOutput =
+            assertIs<LlmStreamEvent.Completed>(observeClient(malformedSse).stream(simplePrompt()).toList().last()).output
+        assertEquals("ok", malformedStreamedOutput.response)
+        assertNull(malformedStreamedOutput.cacheMetrics)
     }
 
     @Test
@@ -582,44 +714,170 @@ class OpenAiResponsesLlmClientTest {
     }
 
     private suspend fun captureCachingRequest(
-        baseUrl: String,
-        mode: OpenAiPromptCachingMode,
-    ): JsonObject {
+        baseUrl: String = "https://relay.example.com/v1",
+        policy: OpenAiCachePolicy,
+        capabilities: OpenAiProviderCapabilities = unavailableCapabilities(),
+        model: String = "gpt-5.6-luna",
+        prompt: BuiltPrompt = relayPrompt(),
+        cacheKeyContext: OpenAiCacheKeyContext = cacheKeyContext(),
+    ): CapturedRequest {
         var requestBody = ""
         val engine = MockEngine { request ->
             requestBody = request.body.toByteArray().decodeToString()
-            respond(
-                content = """
-                    {"output_text":"{\"internal_logic\":\"logic\",\"vector_delta\":{\"L\":0.0,\"P\":0.0,\"E\":0.0,\"S\":0.0,\"tau\":0.0,\"V\":0.0,\"M\":0.0,\"F\":0.0},\"response\":\"ok\"}"}
-                """.trimIndent(),
-                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            successResponse(
+                extraRootFields = "\"usage\":{\"input_tokens\":100,\"input_tokens_details\":{\"cached_tokens\":90,\"cache_write_tokens\":10}}",
             )
         }
         val client = OpenAiResponsesLlmClient(
             apiKey = "sk-test",
-            model = "gpt-5.6-luna",
+            model = model,
             baseUrl = baseUrl,
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
-            promptCachingMode = mode,
+            cachePolicy = policy,
+            capabilityProvider = capabilityProvider(capabilities),
+            cacheKeyContext = cacheKeyContext,
             defaultGenerationSettings = LlmGenerationSettings.Default,
         )
 
-        try {
-            client.complete(
-                testBuiltPrompt(
-                    PromptSegmentKind.SYSTEM_CONTRACT to "stable system",
-                    PromptSegmentKind.PERSONA to "stable persona",
-                    PromptSegmentKind.INCARNATION_ANCHOR to "stable incarnation",
-                    PromptSegmentKind.BIO to "dynamic state",
-                    PromptSegmentKind.USER to "current user",
-                ),
-            )
+        val output = try {
+            client.complete(prompt)
         } finally {
             client.close()
         }
 
-        return Json.parseToJsonElement(requestBody).jsonObject
+        return CapturedRequest(Json.parseToJsonElement(requestBody).jsonObject, output)
     }
+
+    private fun officialClient(engine: MockEngine) = OpenAiResponsesLlmClient(
+        apiKey = "sk-test",
+        model = "gpt-5.6-luna",
+        baseUrl = "https://api.openai.com/v1",
+        httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        cachePolicy = OpenAiCachePolicy.OFFICIAL_EXPLICIT,
+        capabilityProvider = capabilityProvider(explicitCapabilities()),
+        cacheKeyContext = cacheKeyContext(),
+        defaultGenerationSettings = LlmGenerationSettings.Default,
+    )
+
+    private fun observeClient(engine: MockEngine) = OpenAiResponsesLlmClient(
+        apiKey = "sk-test",
+        model = "model-a",
+        baseUrl = "https://relay.example.com/v1",
+        httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        cachePolicy = OpenAiCachePolicy.OBSERVE_ONLY,
+        capabilityProvider = capabilityProvider(unavailableCapabilities()),
+        cacheKeyContext = cacheKeyContext(),
+        defaultGenerationSettings = LlmGenerationSettings.Default,
+    )
+
+    private fun capabilityProvider(capabilities: OpenAiProviderCapabilities) =
+        OpenAiCapabilityProvider { capabilities }
+
+    private fun unavailableCapabilities() = OpenAiProviderCapabilities.unavailable(0L)
+
+    private fun cacheKeyCapabilities() = unavailableCapabilities().copy(cacheKeyAccepted = true)
+
+    private fun explicitCapabilities() = OpenAiProviderCapabilities(
+        basicResponses = true,
+        cacheKeyAccepted = true,
+        cacheOptionsAccepted = true,
+        explicitBreakpointAccepted = true,
+        previousResponseAccepted = false,
+        metricAvailability = CacheMetricAvailability.REPORTED,
+        expiresAtMs = Long.MAX_VALUE,
+    )
+
+    private fun cacheKeyContext(
+        providerPolicyRevision: String = "provider-v1",
+        systemSchemaRevision: String = "schema-v1",
+        personaRevision: String = "persona-v1:PRE_COMMAND",
+        dialogueNamespace: String = "dialogue-v1",
+    ) = OpenAiCacheKeyContext(
+        providerPolicyRevision = providerPolicyRevision,
+        systemSchemaRevision = systemSchemaRevision,
+        personaRevision = personaRevision,
+        dialogueNamespace = dialogueNamespace,
+    )
+
+    private fun assertCacheMetadataAbsent(body: JsonObject) {
+        assertFalse("prompt_cache_key" in body)
+        assertFalse("prompt_cache_options" in body)
+        body.getValue("input").jsonArray.forEach { message ->
+            val content = message.jsonObject.getValue("content")
+            assertIs<JsonPrimitive>(content)
+        }
+    }
+
+    private fun cachingPrompt(
+        system: String = "stable system",
+        bio: String = "dynamic state",
+        relationship: String = "relationship",
+        rag: String = "rag",
+        temporal: String = "temporal",
+        user: String = "current user",
+        cacheEpoch: Long = 0L,
+        conversationCacheIdentity: ConversationCacheIdentity =
+            ConversationCacheIdentity.fromAuthoritativeSessionId("CLI:local"),
+        promptHistory: PromptHistorySnapshot = PromptHistorySnapshot(cacheEpoch = cacheEpoch),
+    ) = testBuiltPrompt(
+        PromptSegmentKind.SYSTEM_CONTRACT to system,
+        PromptSegmentKind.PERSONA to "stable persona",
+        PromptSegmentKind.INCARNATION_ANCHOR to "stable incarnation",
+        PromptSegmentKind.BIO to bio,
+        PromptSegmentKind.RELATIONSHIP to relationship,
+        PromptSegmentKind.RAG to rag,
+        PromptSegmentKind.TEMPORAL to temporal,
+        PromptSegmentKind.USER to user,
+        promptHistory = promptHistory,
+        conversationCacheIdentity = conversationCacheIdentity,
+    )
+
+    private fun relayPrompt(): BuiltPrompt {
+        val turn = ConversationTurn(
+            turnId = "history-turn",
+            incarnationId = "incarnation-a",
+            sessionId = "CLI:local",
+            platform = "CLI",
+            scopeId = "local",
+            userId = "opaque-user",
+            userText = "history user",
+            assistantText = "history assistant",
+            completedAtMs = 1L,
+        )
+        return testBuiltPrompt(
+            PromptSegmentKind.SYSTEM_CONTRACT to "stable system",
+            PromptSegmentKind.PERSONA to "stable persona",
+            PromptSegmentKind.INCARNATION_ANCHOR to "stable incarnation",
+            PromptSegmentKind.BIO to "dynamic state",
+            PromptSegmentKind.USER to "current user",
+            promptHistory = PromptHistorySnapshot(
+                summary = PromptHistorySummary(
+                    text = "history summary",
+                    sourceTurnIds = setOf("summary-turn"),
+                    fingerprint = "summary-fingerprint",
+                    serializerVersion = 2,
+                ),
+                mutableTail = PromptHistorySerializer().createItems(listOf(turn)),
+                sourceTurnIds = setOf("summary-turn", "history-turn"),
+                cacheEpoch = 1L,
+            ),
+        )
+    }
+
+    private fun structuredOutput() =
+        """{"internal_logic":"logic","vector_delta":{"L":0.0,"P":0.0,"E":0.0,"S":0.0,"tau":0.0,"V":0.0,"M":0.0,"F":0.0},"response":"ok"}"""
+
+    private fun MockRequestHandleScope.successResponse(extraRootFields: String? = null) = respond(
+        content = buildString {
+            append("{\"output_text\":")
+            append(Json.encodeToString(structuredOutput()))
+            extraRootFields?.let { append(',').append(it) }
+            append('}')
+        },
+        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+    )
+
+    private data class CapturedRequest(val body: JsonObject, val output: LlmOutput)
 
     private fun simplePrompt(): BuiltPrompt = testBuiltPrompt(
         PromptSegmentKind.SYSTEM_CONTRACT to "system",

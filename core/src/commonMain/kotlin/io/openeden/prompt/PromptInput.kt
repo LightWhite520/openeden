@@ -14,6 +14,7 @@ import io.openeden.transcript.PromptHistorySnapshot
 
 data class PromptInput(
     val personaConfig: PersonaConfig,
+    val conversationCacheIdentity: ConversationCacheIdentity,
     val evolutionIndex: Long,
     val vectorSnapshot: BioVector,
     val derivedDissonance: Float,
