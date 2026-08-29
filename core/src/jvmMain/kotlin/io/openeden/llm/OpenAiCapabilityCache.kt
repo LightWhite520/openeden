@@ -2,8 +2,10 @@ package io.openeden.llm
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class OpenAiCapabilityCache(
     private val nowMs: () -> Long = System::currentTimeMillis,
@@ -29,18 +31,35 @@ class OpenAiCapabilityCache(
 
         return try {
             val result = probe()
-            mutex.withLock {
-                capabilities[key] = result
-                inFlight.remove(key)
-                deferred.complete(result)
-            }
+            finalizeProbe(key, deferred, result = result, failure = null, cacheResult = true)
             result
+        } catch (cancelled: CancellationException) {
+            val fallback = OpenAiProviderCapabilities.unavailable(nowMs())
+            finalizeProbe(key, deferred, result = fallback, failure = null, cacheResult = false)
+            throw cancelled
         } catch (failure: Throwable) {
-            mutex.withLock {
-                inFlight.remove(key)
-                deferred.completeExceptionally(failure)
-            }
+            finalizeProbe(key, deferred, result = null, failure = failure, cacheResult = false)
             throw failure
+        }
+    }
+
+    private suspend fun finalizeProbe(
+        key: OpenAiCapabilityCacheKey,
+        deferred: CompletableDeferred<OpenAiProviderCapabilities>,
+        result: OpenAiProviderCapabilities?,
+        failure: Throwable?,
+        cacheResult: Boolean,
+    ) = withContext(NonCancellable) {
+        mutex.withLock {
+            if (inFlight[key] !== deferred) return@withLock
+            inFlight.remove(key)
+            if (failure != null) {
+                deferred.completeExceptionally(failure)
+            } else {
+                val completed = requireNotNull(result)
+                if (cacheResult) capabilities[key] = completed
+                deferred.complete(completed)
+            }
         }
     }
 }

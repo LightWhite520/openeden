@@ -72,6 +72,52 @@ class OpenAiResponsesLlmClientTest {
     }
 
     @Test
+    fun `parses and conservatively applies legacy cache policies`() {
+        val auto = OpenAiPromptCachingMode.parse("AUTO")
+        val explicit = OpenAiPromptCachingMode.parse("explicit")
+        val disabled = OpenAiPromptCachingMode.parse("disabled")
+
+        assertEquals("AUTO", auto.name)
+        assertEquals(
+            OpenAiRequestCacheMetadata(cacheKey = true, cacheOptions = false, breakpoint = false),
+            auto.requestMetadata(explicitCapabilities()),
+        )
+        assertEquals("EXPLICIT", explicit.name)
+        assertEquals(
+            OpenAiRequestCacheMetadata(cacheKey = true, cacheOptions = true, breakpoint = true),
+            explicit.requestMetadata(explicitCapabilities()),
+        )
+        assertEquals("DISABLED", disabled.name)
+        assertEquals(OpenAiRequestCacheMetadata.None, disabled.requestMetadata(explicitCapabilities()))
+        assertFalse(disabled.observesUsage())
+    }
+
+    @Test
+    fun `raw prompt fingerprints cannot bind changed stable content to a stale cache key`() = runTest {
+        suspend fun cacheKey(system: String): String {
+            val canonical = cachingPrompt(system = system)
+            val forged = BuiltPrompt(
+                segments = canonical.segments.map { segment ->
+                    if (segment.kind == PromptSegmentKind.SYSTEM_CONTRACT) {
+                        segment.copy(fingerprint = "stale-caller-fingerprint")
+                    } else {
+                        segment
+                    }
+                },
+                cacheIdentity = "stale-caller-cache-identity",
+                conversationCacheIdentity = canonical.conversationCacheIdentity,
+            )
+            return captureCachingRequest(
+                policy = OpenAiCachePolicy.RELAY_APPEND_ONLY,
+                capabilities = cacheKeyCapabilities(),
+                prompt = forged,
+            ).body.getValue("prompt_cache_key").jsonPrimitive.content
+        }
+
+        assertNotEquals(cacheKey("stable system one"), cacheKey("stable system two"))
+    }
+
+    @Test
     fun `official explicit requires positive capability evidence`() = runTest {
         val withoutEvidence = captureCachingRequest(
             baseUrl = "https://api.openai.com/v1",

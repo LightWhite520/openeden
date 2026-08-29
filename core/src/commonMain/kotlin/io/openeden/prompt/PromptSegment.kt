@@ -31,6 +31,39 @@ data class PromptSegment(
         return copy(text = amended, fingerprint = fingerprint(amended))
     }
 
+    internal fun authoritativeSnapshot(historyEpoch: Long?): PromptSegment {
+        val snapshotTurnIds = immutablePromptList(turnIds)
+        val snapshotWireItems = immutablePromptList(wireItems.map(PromptWireItem::authoritativeSnapshot))
+        val authoritativeFingerprint = if (kind == PromptSegmentKind.HISTORY) {
+            fingerprint(
+                buildString {
+                    historyEpoch?.let { append(it).append(':') }
+                    snapshotWireItems.forEach { item ->
+                        appendRecord(item.role.apiValue)
+                        appendRecord(item.text)
+                        item.turnIds.forEach { turnId -> appendRecord(turnId) }
+                    }
+                },
+            )
+        } else {
+            fingerprint(text)
+        }
+        return PromptSegment(
+            id = id,
+            role = role,
+            kind = kind,
+            stability = stability,
+            text = text,
+            fingerprint = authoritativeFingerprint,
+            turnIds = snapshotTurnIds,
+            wireItems = snapshotWireItems,
+        )
+    }
+
+    private fun StringBuilder.appendRecord(value: String) {
+        append(value.encodeToByteArray().size).append(':').append(value)
+    }
+
     companion object {
         fun text(
             id: String,

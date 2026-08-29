@@ -8,17 +8,28 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class OpenAiCapabilityProbeTest {
     @Test
@@ -192,6 +203,84 @@ class OpenAiCapabilityProbeTest {
         )
 
         assertEquals(OpenAiProviderCapabilities.unavailable(1_000L), provider.capabilities())
+    }
+
+    @Test
+    fun `leader cancellation releases followers and allows a subsequent reprobe`() = runTest {
+        val now = 1_000L
+        val cache = OpenAiCapabilityCache(nowMs = { now })
+        val key = OpenAiCapabilityCacheKey("https://relay.example.test/v1", "test-model", "route-a")
+        val leaderStarted = CompletableDeferred<Unit>()
+        val leader = async(start = CoroutineStart.UNDISPATCHED) {
+            cache.getOrProbe(key) {
+                leaderStarted.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        leaderStarted.await()
+        val follower = async(start = CoroutineStart.UNDISPATCHED) {
+            cache.getOrProbe(key) { error("must join the leader probe") }
+        }
+
+        leader.cancelAndJoin()
+
+        assertEquals(
+            OpenAiProviderCapabilities.unavailable(now),
+            withTimeout(1_000L) { follower.await() },
+        )
+        val reprobed = OpenAiProviderCapabilities.unavailable(2_000L).copy(basicResponses = true)
+        assertEquals(reprobed, cache.getOrProbe(key) { reprobed })
+    }
+
+    @Test
+    fun `ordinary probe failure finalizes followers despite concurrent leader cancellation`() = runTest {
+        val blockClock = AtomicBoolean(false)
+        val mutexHeld = CountDownLatch(1)
+        val releaseMutex = CountDownLatch(1)
+        val cache = OpenAiCapabilityCache(nowMs = {
+            if (blockClock.get()) {
+                mutexHeld.countDown()
+                check(releaseMutex.await(5, TimeUnit.SECONDS))
+            }
+            1_000L
+        })
+        val failingKey = OpenAiCapabilityCacheKey("https://relay.example.test/v1", "test-model", "route-fail")
+        val holderKey = OpenAiCapabilityCacheKey("https://relay.example.test/v1", "test-model", "route-holder")
+        val holderCapabilities = OpenAiProviderCapabilities.unavailable(2_000L).copy(basicResponses = true)
+        cache.getOrProbe(holderKey) { holderCapabilities }
+        val probeStarted = CompletableDeferred<Unit>()
+        val releaseProbe = CompletableDeferred<Unit>()
+        supervisorScope {
+            val leader = async(start = CoroutineStart.UNDISPATCHED) {
+                cache.getOrProbe(failingKey) {
+                    probeStarted.complete(Unit)
+                    releaseProbe.await()
+                    throw IllegalStateException("probe failed")
+                }
+            }
+            probeStarted.await()
+            val follower = async(start = CoroutineStart.UNDISPATCHED) {
+                cache.getOrProbe(failingKey) { error("must join the leader probe") }
+            }
+
+            blockClock.set(true)
+            val mutexHolder = async(Dispatchers.IO) { cache.get(holderKey) }
+            assertTrue(withContext(Dispatchers.IO) { mutexHeld.await(5, TimeUnit.SECONDS) })
+            releaseProbe.complete(Unit)
+            yield()
+            leader.cancel()
+            releaseMutex.countDown()
+            mutexHolder.await()
+
+            val followerFailure = assertFailsWith<IllegalStateException> {
+                withTimeout(1_000L) { follower.await() }
+            }
+            assertEquals("probe failed", followerFailure.message)
+            leader.cancelAndJoin()
+            blockClock.set(false)
+            val reprobed = OpenAiProviderCapabilities.unavailable(3_000L).copy(basicResponses = true)
+            assertEquals(reprobed, cache.getOrProbe(failingKey) { reprobed })
+        }
     }
 
     private suspend fun probeAgainstScriptedServer(

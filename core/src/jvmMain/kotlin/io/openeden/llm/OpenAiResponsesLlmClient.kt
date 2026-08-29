@@ -255,14 +255,15 @@ class OpenAiResponsesLlmClient private constructor(
         generationSettings: LlmGenerationSettings,
         stream: Boolean,
     ): HttpResponse {
+        val authoritativePrompt = prompt.authoritativeSnapshot()
         val metadata = cachePolicy.requestMetadata(resolveCapabilities())
-        val first = post(prompt, generationSettings, stream, metadata)
+        val first = post(authoritativePrompt, generationSettings, stream, metadata)
         if (first.status.isSuccess()) return first
 
         val firstError = first.bodyAsText().take(MAX_ERROR_BODY_LENGTH)
         if (isRecognizedUnsupportedCacheField(first.status, firstError, metadata)) {
             return requireSuccessful(
-                post(prompt, generationSettings, stream, OpenAiRequestCacheMetadata.None),
+                post(authoritativePrompt, generationSettings, stream, OpenAiRequestCacheMetadata.None),
             )
         }
         throw providerFailure(first.status, firstError)
@@ -324,7 +325,7 @@ class OpenAiResponsesLlmClient private constructor(
     }
 
     private suspend fun resolveCapabilities(): OpenAiProviderCapabilities {
-        if (cachePolicy == OpenAiCachePolicy.OBSERVE_ONLY || cachePolicy == OpenAiCachePolicy.CACHE_DISABLED) {
+        if (!cachePolicy.requestsCapabilityProbe()) {
             return OpenAiProviderCapabilities.unavailable(System.currentTimeMillis())
         }
         return try {

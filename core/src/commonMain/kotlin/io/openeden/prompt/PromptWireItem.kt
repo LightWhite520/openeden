@@ -10,4 +10,14 @@ data class PromptWireItem(
         require(turnIds.none(String::isBlank)) { "turnIds must not contain blanks" }
         require(fingerprint.isNotBlank()) { "fingerprint must not be blank" }
     }
+
+    internal fun authoritativeSnapshot(): PromptWireItem {
+        val snapshotTurnIds = immutablePromptList(turnIds)
+        return PromptWireItem(
+            role = role,
+            text = text,
+            turnIds = snapshotTurnIds,
+            fingerprint = fingerprint,
+        )
+    }
 }
