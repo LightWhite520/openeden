@@ -182,10 +182,16 @@ class DevelopmentMessagePipeline(
             turnId = request.turnId,
             sessionId = sessionId,
         )
-        store.readOrCreate(
-            sessionId = sessionId,
+        val incarnationId = transcriptStore?.activeIncarnation()?.id ?: DEVELOPMENT_INCARNATION_ID
+        val initial = vectorWriteService.readOrCreateIncarnation(
+            incarnationId = incarnationId,
             personaMode = personaConfig.mode,
             personaStartSubState = personaConfig.startSubState,
+        )
+        store.readOrCreate(
+            sessionId = sessionId,
+            personaMode = initial.personaMode,
+            personaStartSubState = initial.personaStartSubState,
         )
         val userActivityMs = turnStartedAtMs.takeIf { request.source == TurnSource.USER }
         if (userActivityMs != null) {
@@ -194,7 +200,6 @@ class DevelopmentMessagePipeline(
                 store.write(scopedState.copy(lastUserActivityMs = userActivityMs))
             }
         }
-        val incarnationId = transcriptStore?.activeIncarnation()?.id ?: DEVELOPMENT_INCARNATION_ID
         val committedRetry = transcriptStore?.findByTurnId(request.turnId)?.also { committed ->
             require(
                 committed.incarnationId == incarnationId &&
@@ -206,11 +211,6 @@ class DevelopmentMessagePipeline(
             ) { "Turn ID '${request.turnId}' already exists for a different request" }
         }
         val canonicalSubjectId = canonicalSubjectResolver.resolve(request.platform, request.userId).value
-        val initial = vectorWriteService.readOrCreateIncarnation(
-            incarnationId = incarnationId,
-            personaMode = personaConfig.mode,
-            personaStartSubState = personaConfig.startSubState,
-        )
         trace(traceContext, "state_load")
         val centroid = inferenceExecutor.run { centroidProvider.centroidFor(incarnationId) }
         trace(

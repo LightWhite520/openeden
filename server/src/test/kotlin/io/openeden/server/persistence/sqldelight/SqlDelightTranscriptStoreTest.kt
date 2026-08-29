@@ -279,8 +279,8 @@ class SqlDelightTranscriptStoreTest {
     }
 
     @Test
-    fun `version fifteen migrates through prompt history items to current version twenty`() = runTest {
-        assertEquals(20L, Database.Schema.version)
+    fun `version fifteen migrates through prompt history items to current schema`() = runTest {
+        assertEquals(23L, Database.Schema.version)
         createVersionFifteenDatabase()
         assertEquals(15L, schemaVersion())
         assertEquals(0L, tableCount("turn_post_commit"))
@@ -292,7 +292,7 @@ class SqlDelightTranscriptStoreTest {
             store.close()
         }
 
-        assertEquals(20L, schemaVersion())
+        assertEquals(Database.Schema.version, schemaVersion())
         assertEquals(1L, tableCount("turn_post_commit"))
     }
 

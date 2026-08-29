@@ -53,7 +53,8 @@ class SqlDelightSessionStateStore(
     ): SessionState = withContext(ioDispatcher) {
         val configuredMode = personaMode ?: defaultPersonaMode
         val configuredStart = personaStartSubState ?: defaultStartSubState
-        val loaded = queries.selectById(sessionId) { id, vector, origin, omega, evolution, mode, start,
+        val incarnationId = activeIncarnationId()
+        val loaded = queries.selectById(incarnationId, sessionId) { id, vector, origin, omega, evolution, mode, start,
                                                   lastActivity, lastRuntimeTickAt, shockActive, shockIntensity, shockDescription,
                                                   shockAt, shockLambda, shockHeartbeat ->
             val bothPresent = mode != null && start != null
@@ -76,8 +77,9 @@ class SqlDelightSessionStateStore(
         val persistedMode = configuredMode.name.lowercase()
         val persistedStart = configuredStart.name.lowercase()
         val neutral = SessionStateStore.neutral(sessionId, configuredStart, configuredMode)
-        queries.initializePersonaSelection(persistedMode, persistedStart, sessionId)
+        queries.initializePersonaSelection(persistedMode, persistedStart, incarnationId, sessionId)
         queries.insertNeutralIfAbsent(
+            incarnation_id = incarnationId,
             session_id = sessionId,
             vector_json = json.encodeToString(BioVector.serializer(), neutral.vector),
             origin_json = json.encodeToString(BioVector.serializer(), neutral.origin),
@@ -87,7 +89,7 @@ class SqlDelightSessionStateStore(
             persona_start_sub_state = persistedStart,
             last_runtime_tick_at_ms = neutral.lastRuntimeTickAtMs,
         )
-        queries.selectById(sessionId, ::toSessionState).executeAsOne()
+        queries.selectById(incarnationId, sessionId, ::toSessionState).executeAsOne()
     }
 
     override suspend fun write(state: SessionState) = withContext(ioDispatcher) {
@@ -141,7 +143,8 @@ class SqlDelightSessionStateStore(
     }
 
     private fun writeStateQueries(state: SessionState) {
-        queries.selectPersonaSelectionById(state.sessionId) { mode, start -> mode to start }
+        val incarnationId = activeIncarnationId()
+        queries.selectPersonaSelectionById(incarnationId, state.sessionId) { mode, start -> mode to start }
             .executeAsOneOrNull()
             ?.let { (mode, start) ->
                 require(
@@ -151,6 +154,7 @@ class SqlDelightSessionStateStore(
             }
         val shock = state.shockState
         queries.upsert(
+            incarnation_id = incarnationId,
             session_id = state.sessionId,
             vector_json = json.encodeToString(BioVector.serializer(), state.vector),
             origin_json = json.encodeToString(BioVector.serializer(), state.origin),
@@ -170,8 +174,12 @@ class SqlDelightSessionStateStore(
     }
 
     override suspend fun sessionIds(): Set<String> = withContext(ioDispatcher) {
-        queries.selectAllIds().executeAsList().toSet()
+        queries.selectAllIds(activeIncarnationId()).executeAsList().toSet()
     }
+
+    private fun activeIncarnationId(): String =
+        transcriptQueries.selectActiveIncarnation { id, _ -> id }.executeAsOneOrNull()
+            ?: "legacy-incarnation".also { id -> transcriptQueries.insertIncarnationIfAbsent(id, 0L) }
 
     suspend fun close() = withContext(ioDispatcher) {
         if (driver is JdbcSqliteDriver) driver.closeCurrentThreadConnection()

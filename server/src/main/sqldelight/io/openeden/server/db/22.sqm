@@ -1,0 +1,15 @@
+CREATE TABLE incarnation_reset_incomplete_migration_guard (
+    singleton_id INTEGER NOT NULL UNIQUE
+);
+
+INSERT INTO incarnation_reset_incomplete_migration_guard(singleton_id)
+SELECT 1
+FROM incarnation_reset_requests
+WHERE phase <> 'COMPLETED';
+
+DROP TABLE incarnation_reset_incomplete_migration_guard;
+DROP INDEX incarnation_reset_one_incomplete_per_incarnation;
+
+CREATE UNIQUE INDEX incarnation_reset_one_incomplete_global
+ON incarnation_reset_requests((1))
+WHERE phase <> 'COMPLETED';

@@ -26,6 +26,9 @@ import io.openeden.model.LocalModelArtifactLoader
 import io.openeden.model.LocalModelArtifact
 import io.openeden.server.api.route.DiagnosticsAccess
 import io.openeden.server.api.route.DiagnosticsAccessKey
+import io.openeden.server.api.route.MaintenanceAccess
+import io.openeden.server.api.route.MaintenanceAccessKey
+import io.openeden.server.api.route.ServerIncarnationMaintenanceKey
 import io.openeden.codebook.CodebookDictionary
 import io.openeden.codebook.CodebookQuantizer
 import io.openeden.codebook.DjlVqVaeCodebookModelRunner
@@ -73,6 +76,12 @@ import io.openeden.server.vector.qdrant.QdrantVectorIndex
 import io.openeden.server.vector.VectorDatabaseStatusProvider
 import io.openeden.server.vector.VectorDatabaseStatus
 import io.openeden.server.persistence.sqldelight.SqlDelightIncarnationLifecycleRepository
+import io.openeden.server.persistence.sqldelight.SqlDelightIncarnationMaintenanceRepository
+import io.openeden.server.maintenance.IncarnationDataExporter
+import io.openeden.server.maintenance.IncarnationProjectionEraser
+import io.openeden.server.maintenance.IncarnationResetService
+import io.openeden.server.maintenance.LiveServerIncarnationMaintenance
+import io.openeden.server.maintenance.QdrantIncarnationProjectionEraser
 import io.openeden.server.runtime.IncarnationTerminationCoordinator
 import io.openeden.runtime.lifecycle.IncarnationLifecycle
 import io.openeden.runtime.lifecycle.IncarnationLifecycleGate
@@ -239,6 +248,37 @@ private suspend fun Application.startRuntime(
     } else {
         null
     }
+    val maintenanceRepository = persistenceIo.open {
+        SqlDelightIncarnationMaintenanceRepository.open(serverConfig.runtimeDbPath)
+    }
+    startupClosers.addFirst { maintenanceRepository.close() }
+    val maintenanceExporter = IncarnationDataExporter(
+        repository = maintenanceRepository,
+        mutationGate = writer.incarnationMutationGate,
+        exportRoot = serverConfig.maintenanceExportRoot,
+    )
+    val projectionEraser = qdrantRuntime?.let { runtime ->
+        QdrantIncarnationProjectionEraser(
+            client = runtime.client,
+            naming = QdrantCollectionNaming(serverConfig.vectorDatabase.collectionPrefix),
+            configuredModelId = serverConfig.vectorDatabase.modelId,
+        )
+    } ?: IncarnationProjectionEraser.Disabled
+    val resetService = IncarnationResetService(
+        repository = maintenanceRepository,
+        exporter = maintenanceExporter,
+        mutationGate = writer.incarnationMutationGate,
+        projectionEraser = projectionEraser,
+    )
+    resetService.resumeIncomplete()
+    val serverMaintenance = LiveServerIncarnationMaintenance(
+        repository = maintenanceRepository,
+        exporter = maintenanceExporter,
+        resetService = resetService,
+        exportRoot = serverConfig.maintenanceExportRoot,
+    )
+    attributes.put(MaintenanceAccessKey, serverConfig.maintenanceAccess)
+    attributes.put(ServerIncarnationMaintenanceKey, serverMaintenance)
     val resilientIndex = qdrantRuntime?.resilientIndex(fallbackIndex)
     lateinit var projectionSynchronizer: QdrantProjectionSynchronizer
     val memoryStore = persistenceIo.open {
@@ -345,6 +385,7 @@ private suspend fun Application.startRuntime(
             index = runtime.primary,
             loadEntry = { id -> memoryStore.readById(id)?.takeIf { it.modelId == serverConfig.vectorDatabase.modelId }?.entry },
             modelId = serverConfig.vectorDatabase.modelId,
+            mutationGate = writer.incarnationMutationGate,
             intervalMs = serverConfig.vectorDatabase.syncIntervalMs,
             batchSize = serverConfig.vectorDatabase.syncBatchSize,
             circuit = runtime.circuit,
@@ -392,8 +433,9 @@ private suspend fun Application.startRuntime(
         taskStore = diaryTaskStore,
         memoryStore = memoryStore,
         generator = DiaryNarrativeGenerator(LlmDiaryNarrativeGenerator(
-            persona, store,
-            CheckpointedDiaryDataSource(
+            personaConfig = persona,
+            incarnationStateStore = incarnationStore,
+            dataSource = CheckpointedDiaryDataSource(
                 diaryTaskStore,
                 memoryStore,
                 { session, after, through, limit ->
@@ -407,9 +449,16 @@ private suspend fun Application.startRuntime(
                     }
                 },
                 { id -> memoryStore.readById(id)?.entry },
-            ), models.quantizer, inferenceExecutor, llmClient, models.embeddingModel, serverConfig.diaryMaxRawMemories,
+            ),
+            quantizer = models.quantizer,
+            inferenceExecutor = inferenceExecutor,
+            llmClient = llmClient,
+            embeddingModel = models.embeddingModel,
+            rawLimit = serverConfig.diaryMaxRawMemories,
             generationSettings = staticGenerationSettings,
         )::generate),
+        incarnationGate = writer.incarnationMutationGate,
+        activeIncarnationId = { transcriptStore.activeIncarnation().id },
     )
     val diaryWorkerJob = DiaryWorkerScheduler(
         taskStore = diaryTaskStore,
@@ -464,6 +513,7 @@ private suspend fun Application.startRuntime(
         incarnationStore = incarnationStore,
         closers = listOf(
             { lifecycleRepository.close() },
+            { maintenanceRepository.close() },
             { transcriptStore.close() },
             { store.close() },
             { memoryStore.close(); Unit },
@@ -616,6 +666,8 @@ private data class ServerRuntimeConfig(
     val diaryScanIntervalMs: Long,
     val diaryMaxRawMemories: Int,
     val diagnosticsAccess: DiagnosticsAccess,
+    val maintenanceAccess: MaintenanceAccess,
+    val maintenanceExportRoot: Path,
     val vectorDatabase: VectorDatabaseConfig,
     val oneBot: OneBotConfig,
 )
@@ -637,6 +689,8 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         resolveFromRoot(Path.of(optional(path, default)))
     val diagnosticsEnabled = optional("openeden.diagnostics.enabled", "false").equals("true", ignoreCase = true)
     val diagnosticsToken = config.propertyOrNull("openeden.diagnostics.token")?.getString()
+        ?.takeIf { it.isNotBlank() }
+    val maintenanceToken = config.propertyOrNull("openeden.maintenance.token")?.getString()
         ?.takeIf { it.isNotBlank() }
     val hostIdentity = loadHostIdentity(config)
     val oneBot = loadOneBotConfig(config)
@@ -679,6 +733,8 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
         } else {
             DiagnosticsAccess.disabled()
         },
+        maintenanceAccess = maintenanceToken?.let(MaintenanceAccess::enabled) ?: MaintenanceAccess.disabled(),
+        maintenanceExportRoot = rootPath("openeden.maintenance.exportRoot", "data/exports"),
         vectorDatabase = loadVectorDatabaseConfig(config),
         oneBot = oneBot,
     )

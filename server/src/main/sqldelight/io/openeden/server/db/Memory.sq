@@ -330,23 +330,25 @@ SELECT id, session_id, source_memory_id, reason, status, attempts, available_at_
 FROM diary_tasks WHERE id = ?;
 
 CREATE TABLE diary_checkpoints (
-    session_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
     last_covered_raw_memory_id TEXT,
     last_successful_diary_at_ms INTEGER,
-    last_narrative_memory_id TEXT
+    last_narrative_memory_id TEXT,
+    PRIMARY KEY(incarnation_id, session_id)
 );
 
 upsertDiaryCheckpoint:
-INSERT OR REPLACE INTO diary_checkpoints(session_id, last_covered_raw_memory_id, last_successful_diary_at_ms, last_narrative_memory_id)
-VALUES (?, ?, ?, ?)
+INSERT OR REPLACE INTO diary_checkpoints(incarnation_id, session_id, last_covered_raw_memory_id, last_successful_diary_at_ms, last_narrative_memory_id)
+VALUES (?, ?, ?, ?, ?)
 ;
 
 selectDiaryCheckpoint:
 SELECT last_covered_raw_memory_id, last_successful_diary_at_ms, last_narrative_memory_id
-FROM diary_checkpoints WHERE session_id = ?;
+FROM diary_checkpoints WHERE incarnation_id = ? AND session_id = ?;
 
 selectDiaryCheckpointSessions:
-SELECT session_id FROM diary_checkpoints;
+SELECT session_id FROM diary_checkpoints WHERE incarnation_id = ?;
 
 CREATE TABLE trace_spans (
     span_id TEXT NOT NULL PRIMARY KEY,

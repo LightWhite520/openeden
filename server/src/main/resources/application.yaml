@@ -80,3 +80,6 @@ openeden:
   diagnostics:
     enabled: "$OPENEDEN_ENABLE_CLI_DIAGNOSTICS:false"
     token: "$?OPENEDEN_CLI_DIAGNOSTICS_TOKEN"
+  maintenance:
+    token: "$?OPENEDEN_MAINTENANCE_TOKEN"
+    exportRoot: "$OPENEDEN_MAINTENANCE_EXPORT_ROOT:data/exports"

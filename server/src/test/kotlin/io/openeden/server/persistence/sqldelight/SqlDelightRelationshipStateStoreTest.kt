@@ -138,7 +138,7 @@ class SqlDelightRelationshipStateStoreTest {
     }
 
     @Test
-    fun `version 17 relationship state migrates deterministically through version 20`() = runTest {
+    fun `version 17 relationship state migrates deterministically through current schema`() = runTest {
         val dbPath = Files.createTempFile("openeden-relationship-v17", ".db")
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
             connection.createStatement().use { statement ->
@@ -147,6 +147,8 @@ class SqlDelightRelationshipStateStoreTest {
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_STATE_SQL)
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_SQL)
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_INDEX_SQL)
+                statement.executeUpdate(PRE_V21_SESSION_STATE_SQL)
+                statement.executeUpdate(PRE_V21_DIARY_CHECKPOINTS_SQL)
                 statement.executeUpdate(VERSION_19_INCARNATION_STATE_SQL)
                 statement.executeUpdate(
                     """
@@ -210,7 +212,6 @@ class SqlDelightRelationshipStateStoreTest {
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
             connection.createStatement().use { statement ->
                 statement.executeQuery("PRAGMA user_version").use { result ->
-                    assertEquals(20L, result.getLong(1))
                     assertEquals(Database.Schema.version, result.getLong(1))
                 }
             }
@@ -269,6 +270,8 @@ class SqlDelightRelationshipStateStoreTest {
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_STATE_SQL)
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_SQL)
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_INDEX_SQL)
+                statement.executeUpdate(PRE_V21_SESSION_STATE_SQL)
+                statement.executeUpdate(PRE_V21_DIARY_CHECKPOINTS_SQL)
                 statement.executeUpdate(VERSION_19_INCARNATION_STATE_SQL)
                 statement.execute("PRAGMA user_version = 14")
             }

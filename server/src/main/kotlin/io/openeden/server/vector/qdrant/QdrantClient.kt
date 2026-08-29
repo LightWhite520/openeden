@@ -109,13 +109,22 @@ class QdrantClient(
         }
     }
 
-    suspend fun deletePoints(collection: String, filter: QdrantFilter) {
+    suspend fun deletePoints(collection: String, filter: QdrantFilter, wait: Boolean = false) {
         request {
             http.post("${collectionPath(collection)}/points/delete") {
+                if (wait) parameter("wait", true)
                 contentType(ContentType.Application.Json)
                 setBody(QdrantDeletePointsRequest(filter = filter.toWire()))
             }.requireSuccess()
         }
+    }
+
+    suspend fun countPoints(collection: String, filter: QdrantFilter): Long = request {
+        val response = http.post("${collectionPath(collection)}/points/count") {
+            contentType(ContentType.Application.Json)
+            setBody(QdrantCountPointsRequest(filter.toWire(), exact = true))
+        }.requireSuccess()
+        response.decode<QdrantCountPointsResponse>().result.count
     }
 
     /** Qdrant's named-vector search shape is {vector:{name,vector}, limit, filter}. */
@@ -188,6 +197,9 @@ class QdrantClient(
     val filter: QdrantWireFilter? = null,
     val offset: Int = 0,
 )
+@Serializable private data class QdrantCountPointsRequest(val filter: QdrantWireFilter, val exact: Boolean)
+@Serializable private data class QdrantCountPointsResponse(val result: QdrantCountPointsResult)
+@Serializable private data class QdrantCountPointsResult(val count: Long)
 @Serializable private data class QdrantWireFilter(
     val must: List<QdrantWireCondition>,
     val should: List<QdrantWireCondition> = emptyList(),

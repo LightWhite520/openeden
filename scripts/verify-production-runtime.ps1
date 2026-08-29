@@ -2,7 +2,8 @@ param(
     [int]$StartupTimeoutSeconds = 90,
     [int]$RequestTimeoutSeconds = 120,
     [int]$DiaryTimeoutSeconds = 180,
-    [int]$RestartTimeoutSeconds = 90
+    [int]$RestartTimeoutSeconds = 90,
+    [ValidateRange(0, 65535)][int]$OpenEdenPort = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,6 +14,7 @@ $baseUrl = $null
 $sessionUser = "production-smoke-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 $tempRoot = Join-Path ([IO.Path]::GetTempPath()) "openeden-production-$([Guid]::NewGuid().ToString('N'))"
 $dbPath = Join-Path $tempRoot 'runtime.db'
+$maintenanceToken = "maintenance-$([Guid]::NewGuid().ToString('N'))"
 $server = $null
 
 function Import-DotEnv {
@@ -49,9 +51,12 @@ function Resolve-ModelPath([string]$name, [string]$defaultRelative) {
 }
 
 function Get-FreePort {
-    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-    $listener.Start()
-    try { return ([Net.IPEndPoint]$listener.LocalEndpoint).Port } finally { $listener.Stop() }
+    do {
+        $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        try { $candidate = ([Net.IPEndPoint]$listener.LocalEndpoint).Port } finally { $listener.Stop() }
+    } while ($candidate -eq 8080)
+    return $candidate
 }
 
 function Wait-Http([string]$uri, [int]$timeoutSeconds) {
@@ -84,6 +89,8 @@ function Start-Server([int]$timeoutSeconds = $StartupTimeoutSeconds) {
     $psi.Environment['JAVA_HOME'] = $javaHome
     $psi.Environment['OPENEDEN_SERVER_PORT'] = [string]$port
     $psi.Environment['OPENEDEN_RUNTIME_DB_PATH'] = $dbPath
+    $psi.Environment['OPENEDEN_MAINTENANCE_TOKEN'] = $maintenanceToken
+    $psi.Environment['OPENEDEN_MAINTENANCE_EXPORT_ROOT'] = (Join-Path $tempRoot 'exports')
     $psi.Environment['OPENEDEN_MODEL_BACKEND'] = 'djl'
     # Verification-only override: threshold 0.0 makes every valid turn a deterministic Diary trigger.
     $psi.Environment['OPENEDEN_DIARY_DELTA_THRESHOLD'] = '0.0'
@@ -120,10 +127,12 @@ function Stop-Server {
 }
 
 try {
+    if ($OpenEdenPort -eq 8080) { throw 'Port 8080 is reserved and must never be targeted by OpenEden verification.' }
     if (-not (Test-Path (Join-Path $javaHome 'bin\java.exe'))) { throw "JDK21 not found at $javaHome" }
     if (-not (Get-Command sqlite3 -ErrorAction SilentlyContinue)) { throw 'sqlite3 is required for production verification.' }
     Import-DotEnv
-    $port = Get-FreePort
+    $port = if ($OpenEdenPort -gt 0) { $OpenEdenPort } else { Get-FreePort }
+    if ($port -eq 8080) { throw 'Port 8080 is reserved and must never be targeted by OpenEden verification.' }
     $baseUrl = "http://127.0.0.1:$port"
     Require-Setting 'OPENEDEN_OPENAI_API_KEY'
     Resolve-ModelPath 'OPENEDEN_DJL_VQVAE_MODEL_PATH' 'data/models/djl/vqvae'
@@ -133,6 +142,18 @@ try {
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
 
     Start-Server
+    $maintenanceHeaders = @{ Authorization = "Bearer $maintenanceToken" }
+    $maintenanceReadiness = Invoke-RestMethod -Uri "$baseUrl/api/v1/maintenance/incarnation/readiness" `
+        -Method Get -Headers $maintenanceHeaders -TimeoutSec 30
+    $schemaVersion = [int]$maintenanceReadiness.schemaVersion
+    $activeIncarnationCount = [int64]$maintenanceReadiness.activeIncarnationCount
+    $activeIncarnationId = [string]$maintenanceReadiness.activeIncarnationId
+    $resetReadiness = [string]$maintenanceReadiness.resetReadiness
+    if ($schemaVersion -lt 23) { throw "Maintenance schema is too old: $schemaVersion" }
+    if ($activeIncarnationCount -ne 1) { throw "Expected exactly one active incarnation; found $activeIncarnationCount" }
+    if ([string]::IsNullOrWhiteSpace($activeIncarnationId)) { throw 'Maintenance diagnostics omitted the active incarnation ID.' }
+    if ($resetReadiness -ne 'READY') { throw "Maintenance reset readiness is $resetReadiness" }
+    $sqlIncarnationId = $activeIncarnationId.Replace("'", "''")
     1..3 | ForEach-Object { Invoke-Chat "production diary smoke turn $_" | Out-Null }
     $deadline = [DateTime]::UtcNow.AddSeconds($DiaryTimeoutSeconds)
     do {
@@ -140,26 +161,32 @@ try {
         $done = Invoke-Sql "SELECT COUNT(*) FROM diary_tasks WHERE session_id='CLI:$sessionUser' AND status='DONE';"
     } while ($done -lt 1 -and [DateTime]::UtcNow -lt $deadline)
     if ($done -lt 1) { throw 'Diary task did not complete before timeout.' }
-    $beforeEvolution = [int64](Invoke-Sql "SELECT evolution_index FROM session_state WHERE session_id='CLI:$sessionUser';")
-    $beforeVector = Invoke-Sql "SELECT vector_json FROM session_state WHERE session_id='CLI:$sessionUser';"
-    $beforeRaw = [int](Invoke-Sql "SELECT COUNT(*) FROM memory_entries WHERE session_id='CLI:$sessionUser' AND kind='RAW';")
-    $narrative = [int](Invoke-Sql "SELECT COUNT(*) FROM memory_entries WHERE session_id='CLI:$sessionUser' AND kind='NARRATIVE';")
-    $checkpoint = Invoke-Sql "SELECT COUNT(*) FROM diary_checkpoints WHERE session_id='CLI:$sessionUser';"
+    $beforeEvolution = [int64](Invoke-Sql "SELECT evolution_index FROM session_state WHERE incarnation_id='$sqlIncarnationId' AND session_id='CLI:$sessionUser';")
+    $beforeVector = Invoke-Sql "SELECT vector_json FROM session_state WHERE incarnation_id='$sqlIncarnationId' AND session_id='CLI:$sessionUser';"
+    $beforeRaw = [int](Invoke-Sql "SELECT COUNT(*) FROM memory_entries WHERE incarnation_id='$sqlIncarnationId' AND session_id='CLI:$sessionUser' AND kind='RAW';")
+    $narrative = [int](Invoke-Sql "SELECT COUNT(*) FROM memory_entries WHERE incarnation_id='$sqlIncarnationId' AND session_id='CLI:$sessionUser' AND kind='NARRATIVE';")
+    $checkpoint = Invoke-Sql "SELECT COUNT(*) FROM diary_checkpoints WHERE incarnation_id='$sqlIncarnationId' AND session_id='CLI:$sessionUser';"
     if ($beforeRaw -lt 3 -or $narrative -lt 1 -or $checkpoint -ne '1') { throw 'Initial persistence checks failed.' }
     $stateBeforeRestart = Invoke-RestMethod "$baseUrl/api/v1/state?userId=$sessionUser"
     Stop-Server
 
     Start-Server -timeoutSeconds $RestartTimeoutSeconds
     $stateAfterRestart = Invoke-RestMethod "$baseUrl/api/v1/state?userId=$sessionUser"
-    $afterEvolution = [int64](Invoke-Sql "SELECT evolution_index FROM session_state WHERE session_id='CLI:$sessionUser';")
+    $afterEvolution = [int64](Invoke-Sql "SELECT evolution_index FROM session_state WHERE incarnation_id='$sqlIncarnationId' AND session_id='CLI:$sessionUser';")
     if ($afterEvolution -ne $beforeEvolution) { throw 'Evolution index changed across restart.' }
-    if ((Invoke-Sql "SELECT vector_json FROM session_state WHERE session_id='CLI:$sessionUser';") -ne $beforeVector) { throw 'Vector changed across restart.' }
+    if ((Invoke-Sql "SELECT vector_json FROM session_state WHERE incarnation_id='$sqlIncarnationId' AND session_id='CLI:$sessionUser';") -ne $beforeVector) { throw 'Vector changed across restart.' }
     if ($stateAfterRestart.omega -ne $stateBeforeRestart.omega) { throw 'Omega changed across restart.' }
     if ([int](Invoke-Sql "SELECT COUNT(*) FROM diary_tasks WHERE session_id='CLI:$sessionUser' AND status='RUNNING';") -ne 0) { throw 'A Diary task remained RUNNING after restart.' }
     Invoke-Chat 'production diary post-restart turn' | Out-Null
-    $finalEvolution = [int64](Invoke-Sql "SELECT evolution_index FROM session_state WHERE session_id='CLI:$sessionUser';")
+    $finalEvolution = [int64](Invoke-Sql "SELECT evolution_index FROM session_state WHERE incarnation_id='$sqlIncarnationId' AND session_id='CLI:$sessionUser';")
     if ($finalEvolution -le $afterEvolution) { throw 'Post-restart chat did not advance evolution index.' }
-    Write-Host "Production runtime verification passed (raw=$beforeRaw, narrative=$narrative, evolution=$finalEvolution)."
+    $sqliteSchemaVersion = Invoke-Sql 'PRAGMA user_version;'
+    if ([int]$sqliteSchemaVersion -ne $schemaVersion) { throw 'Live maintenance diagnostics disagree with SQLite schema version.' }
+    $relayPolicy = [Environment]::GetEnvironmentVariable('OPENEDEN_OPENAI_PROMPT_CACHING_POLICY')
+    if ([string]::IsNullOrWhiteSpace($relayPolicy)) { $relayPolicy = 'relay_append_only' }
+    $probeSetting = [Environment]::GetEnvironmentVariable('OPENEDEN_OPENAI_CAPABILITY_PROBE_ENABLED')
+    $capabilityProbe = if ($probeSetting -eq 'true') { 'enabled-and-startup-completed' } else { 'disabled-unobservable' }
+    Write-Host "Production runtime verification passed (port=$port, schema=$schemaVersion, activeIncarnations=$activeIncarnationCount, resetReadiness=$resetReadiness, relayPolicy=$relayPolicy, relayCapabilities=$capabilityProbe, raw=$beforeRaw, narrative=$narrative, evolution=$finalEvolution)."
 }
 finally {
     Stop-Server

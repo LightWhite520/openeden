@@ -25,6 +25,7 @@ class SqlDelightDiaryTaskStore(
     private val driver: SqlDriver? = null,
 ) : DiaryTaskStore, DiaryCheckpointStore {
     private val queries get() = database.memoryQueries
+    private val transcriptQueries get() = database.transcriptQueries
 
     override suspend fun enqueue(task: DiaryTask): Set<String> {
         return withContext(Dispatchers.IO) { retry { database.transactionWithResult {
@@ -68,8 +69,9 @@ class SqlDelightDiaryTaskStore(
         withContext(Dispatchers.IO) { database.transaction {
             queries.completeDiaryTask(taskId, leaseToken)
             if (queries.selectChanges().executeAsOne() == 0L) return@transaction
+            val (incarnationId, sessionId) = checkpointOwner(taskId)
             queries.upsertDiaryCheckpoint(
-                checkpointSession(taskId), checkpoint.lastCoveredRawMemoryId,
+                incarnationId, sessionId, checkpoint.lastCoveredRawMemoryId,
                 checkpoint.lastSuccessfulDiaryAtMs, checkpoint.lastNarrativeMemoryId,
             )
         } }
@@ -79,17 +81,20 @@ class SqlDelightDiaryTaskStore(
         withContext(Dispatchers.IO) { database.transactionWithResult {
             queries.completeDiaryTask(taskId, leaseToken)
             if (queries.selectChanges().executeAsOne() != 1L) return@transactionWithResult false
-            queries.upsertDiaryCheckpoint(checkpointSession(taskId), checkpoint.lastCoveredRawMemoryId, checkpoint.lastSuccessfulDiaryAtMs, checkpoint.lastNarrativeMemoryId)
+            val (incarnationId, sessionId) = checkpointOwner(taskId)
+            queries.upsertDiaryCheckpoint(incarnationId, sessionId, checkpoint.lastCoveredRawMemoryId, checkpoint.lastSuccessfulDiaryAtMs, checkpoint.lastNarrativeMemoryId)
             true
         } }
 
     override suspend fun read(sessionId: String): DiaryCheckpoint? = withContext(Dispatchers.IO) {
-        queries.selectDiaryCheckpoint(sessionId) { covered, at, narrative -> DiaryCheckpoint(covered, at, narrative) }.executeAsOneOrNull()
+        queries.selectDiaryCheckpoint(activeIncarnationId(), sessionId) { covered, at, narrative -> DiaryCheckpoint(covered, at, narrative) }.executeAsOneOrNull()
     }
 
     suspend fun readCheckpoint(sessionId: String): DiaryCheckpoint? = read(sessionId)
 
-    override suspend fun sessions(): Set<String> = withContext(Dispatchers.IO) { queries.selectDiaryCheckpointSessions().executeAsList().toSet() }
+    override suspend fun sessions(): Set<String> = withContext(Dispatchers.IO) {
+        queries.selectDiaryCheckpointSessions(activeIncarnationId()).executeAsList().toSet()
+    }
 
     suspend fun countActive(sessionId: String): Long = withContext(Dispatchers.IO) { queries.countActiveDiaryTasks(sessionId).executeAsOne() }
 
@@ -110,6 +115,9 @@ class SqlDelightDiaryTaskStore(
     suspend fun readById(id: String): DiaryTask? = withContext(Dispatchers.IO) { queries.selectDiaryTask(id, ::map).executeAsOneOrNull() }
 
     fun close() = driver?.close()
+
+    private fun checkpointOwner(taskId: String): Pair<String, String> =
+        queries.selectDiaryTask(taskId, ::map).executeAsOne().let { it.incarnationId to it.sessionId }
 
     private fun insert(task: DiaryTask, replace: Boolean) {
         val persisted = normalize(task)

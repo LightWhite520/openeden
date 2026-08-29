@@ -4,7 +4,8 @@
 -- ShockState is decomposed into columns so we never serialize kotlin.time.Instant; the two
 -- BioVector fields are stored as JSON (BioVector is @Serializable).
 CREATE TABLE session_state (
-    session_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
     vector_json TEXT NOT NULL,
     origin_json TEXT NOT NULL,
     omega REAL NOT NULL,
@@ -18,7 +19,8 @@ CREATE TABLE session_state (
     shock_description TEXT,
     shock_triggered_at_ms INTEGER,
     shock_decay_lambda REAL,
-    shock_heartbeat_fired INTEGER
+    shock_heartbeat_fired INTEGER,
+    PRIMARY KEY(incarnation_id, session_id)
 );
 
 selectById:
@@ -27,34 +29,34 @@ SELECT session_id, vector_json, origin_json, omega, evolution_index, persona_mod
        shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
        shock_heartbeat_fired
 FROM session_state
-WHERE session_id = ?;
+WHERE incarnation_id = ? AND session_id = ?;
 
 selectAllIds:
-SELECT session_id FROM session_state;
+SELECT session_id FROM session_state WHERE incarnation_id = ?;
 
 selectPersonaSelectionById:
 SELECT persona_mode, persona_start_sub_state
 FROM session_state
-WHERE session_id = ?;
+WHERE incarnation_id = ? AND session_id = ?;
 
 initializePersonaSelection:
 UPDATE session_state
 SET persona_mode = ?, persona_start_sub_state = ?
-WHERE session_id = ? AND persona_mode IS NULL AND persona_start_sub_state IS NULL;
+WHERE incarnation_id = ? AND session_id = ? AND persona_mode IS NULL AND persona_start_sub_state IS NULL;
 
 insertNeutralIfAbsent:
 INSERT OR IGNORE INTO session_state(
-    session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state,
+    incarnation_id, session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state,
     last_runtime_tick_at_ms
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 upsert:
 INSERT OR REPLACE INTO session_state(
-    session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state, last_user_activity_ms,
+    incarnation_id, session_id, vector_json, origin_json, omega, evolution_index, persona_mode, persona_start_sub_state, last_user_activity_ms,
     last_runtime_tick_at_ms,
     shock_active, shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
     shock_heartbeat_fired
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteAllSessionStates:
 DELETE FROM session_state;

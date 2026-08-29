@@ -2,6 +2,7 @@ package io.openeden.server.vector
 
 import io.openeden.memory.MemoryEntry
 import io.openeden.memory.VectorIndex
+import io.openeden.runtime.incarnation.IncarnationTurnGate
 import io.openeden.server.persistence.sqldelight.MemoryVectorProjectionStore
 import io.openeden.server.vector.qdrant.QdrantClientException
 import io.openeden.trace.TraceTag
@@ -43,6 +44,38 @@ class QdrantProjectionSynchronizer(
 ) {
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private var child: Job? = null
+    private var mutationGate: IncarnationTurnGate? = null
+
+    constructor(
+        store: ProjectionWorkStore,
+        loadEntry: suspend (String) -> MemoryEntry?,
+        project: suspend (List<MemoryEntry>) -> Unit,
+        modelId: String,
+        mutationGate: IncarnationTurnGate,
+        nowMs: () -> Long = { System.currentTimeMillis() },
+        intervalMs: Long = 30_000L,
+        batchSize: Int = 128,
+        circuit: QdrantCircuitBreaker? = null,
+        onCollectionLoss: (suspend () -> Unit)? = null,
+        retryJitterMs: (MemoryVectorProjectionStore.ProjectionWork) -> Long = {
+            Random.nextLong(0L, 501L)
+        },
+        onTrace: (String) -> Unit = {},
+    ) : this(
+        store = store,
+        loadEntry = loadEntry,
+        project = project,
+        modelId = modelId,
+        nowMs = nowMs,
+        intervalMs = intervalMs,
+        batchSize = batchSize,
+        circuit = circuit,
+        onCollectionLoss = onCollectionLoss,
+        retryJitterMs = retryJitterMs,
+        onTrace = onTrace,
+    ) {
+        this.mutationGate = mutationGate
+    }
 
     constructor(
         store: ProjectionWorkStore,
@@ -61,6 +94,34 @@ class QdrantProjectionSynchronizer(
         loadEntry = loadEntry,
         project = { entries -> entries.forEach { index.insert(it) } },
         modelId = modelId,
+        nowMs = nowMs,
+        intervalMs = intervalMs,
+        batchSize = batchSize,
+        circuit = circuit,
+        onCollectionLoss = onCollectionLoss,
+        retryJitterMs = retryJitterMs,
+        onTrace = onTrace,
+    )
+
+    constructor(
+        store: ProjectionWorkStore,
+        index: VectorIndex,
+        loadEntry: suspend (String) -> MemoryEntry?,
+        modelId: String,
+        mutationGate: IncarnationTurnGate,
+        nowMs: () -> Long = { System.currentTimeMillis() },
+        intervalMs: Long = 30_000L,
+        batchSize: Int = 128,
+        circuit: QdrantCircuitBreaker? = null,
+        retryJitterMs: (MemoryVectorProjectionStore.ProjectionWork) -> Long = { Random.nextLong(0L, 501L) },
+        onCollectionLoss: (suspend () -> Unit)? = null,
+        onTrace: (String) -> Unit = {},
+    ) : this(
+        store = store,
+        loadEntry = loadEntry,
+        project = { entries -> entries.forEach { index.insert(it) } },
+        modelId = modelId,
+        mutationGate = mutationGate,
         nowMs = nowMs,
         intervalMs = intervalMs,
         batchSize = batchSize,
@@ -115,16 +176,7 @@ class QdrantProjectionSynchronizer(
         }
 
         try {
-            if (loaded.isNotEmpty()) {
-                if (circuit != null) {
-                    circuit.execute {
-                        project(loaded)
-                        true
-                    } ?: error("Qdrant circuit is open")
-                } else {
-                    project(loaded)
-                }
-            }
+            projectAndAcknowledge(loaded)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
@@ -144,10 +196,44 @@ class QdrantProjectionSynchronizer(
             emitTrace(TraceTag.VectorProjectionRetry)
         }
         if (loaded.isNotEmpty()) {
-            store.markReady(loaded.map { it.id }, completedAt)
             emitTrace(TraceTag.VectorProjectionSucceeded)
         }
         return claimed.size
+    }
+
+    private suspend fun projectAndAcknowledge(loaded: List<MemoryEntry>) {
+        if (loaded.isEmpty()) return
+        val gate = mutationGate
+        if (gate == null) {
+            projectBatch(loaded)
+            store.markReady(loaded.map { it.id }, nowMs())
+            return
+        }
+        loaded.groupBy { it.metadata.incarnationId }.forEach { (incarnationId, entries) ->
+            require(incarnationId.isNotBlank()) { "Projected memory incarnation id must not be blank" }
+            gate.withIncarnation(incarnationId) {
+                val current = entries.map { expected ->
+                    requireNotNull(loadEntry(expected.id)) { "Projected memory source changed" }.also { actual ->
+                        require(actual.id == expected.id && actual.metadata.incarnationId == incarnationId) {
+                            "Projected memory identity changed"
+                        }
+                    }
+                }
+                projectBatch(current)
+                store.markReady(current.map { it.id }, nowMs())
+            }
+        }
+    }
+
+    private suspend fun projectBatch(entries: List<MemoryEntry>) {
+        if (circuit != null) {
+            circuit.execute {
+                project(entries)
+                true
+            } ?: error("Qdrant circuit is open")
+        } else {
+            project(entries)
+        }
     }
 
     private suspend fun rescheduleAll(

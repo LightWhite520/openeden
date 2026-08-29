@@ -237,33 +237,41 @@ class SqlDelightIncarnationLifecycleRepositoryTest {
 
     private fun insertPromptHistory() {
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
+            val incarnationId = connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1").use { result ->
+                    check(result.next())
+                    result.getString(1)
+                }
+            }
             connection.prepareStatement(
-                "INSERT INTO prompt_history_state(session_id, cache_epoch, serializer_version, updated_at_ms) VALUES (?, ?, ?, ?)",
+                "INSERT INTO prompt_history_state(incarnation_id, session_id, cache_epoch, serializer_version, updated_at_ms) VALUES (?, ?, ?, ?, ?)",
             ).use { statement ->
-                statement.setString(1, "QQ:42")
-                statement.setLong(2, 1L)
+                statement.setString(1, incarnationId)
+                statement.setString(2, "QQ:42")
                 statement.setLong(3, 1L)
-                statement.setLong(4, 1_000L)
+                statement.setLong(4, 1L)
+                statement.setLong(5, 1_000L)
                 statement.executeUpdate()
             }
             connection.prepareStatement(
                 """
                 INSERT INTO prompt_history_chunks(
-                    chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+                    incarnation_id, chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
                     turn_ids_json, serialized_text, token_count, fingerprint, serializer_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent(),
             ).use { statement ->
-                statement.setString(1, "QQ:42|1|turn-1")
-                statement.setString(2, "QQ:42")
-                statement.setLong(3, 1L)
-                statement.setString(4, "turn-1")
+                statement.setString(1, incarnationId)
+                statement.setString(2, "QQ:42|1|turn-1")
+                statement.setString(3, "QQ:42")
+                statement.setLong(4, 1L)
                 statement.setString(5, "turn-1")
-                statement.setString(6, "[\"turn-1\"]")
-                statement.setString(7, "serialized history")
-                statement.setLong(8, 10L)
-                statement.setString(9, "fingerprint")
-                statement.setLong(10, 1L)
+                statement.setString(6, "turn-1")
+                statement.setString(7, "[\"turn-1\"]")
+                statement.setString(8, "serialized history")
+                statement.setLong(9, 10L)
+                statement.setString(10, "fingerprint")
+                statement.setLong(11, 1L)
                 statement.executeUpdate()
             }
         }

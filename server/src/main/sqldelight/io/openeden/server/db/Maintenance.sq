@@ -1,0 +1,46 @@
+CREATE TABLE incarnation_reset_requests (
+    request_id TEXT NOT NULL PRIMARY KEY,
+    previous_incarnation_id TEXT NOT NULL,
+    fresh_incarnation_id TEXT NOT NULL,
+    manifest_sha256 TEXT NOT NULL,
+    manifest_path TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    persona_mode TEXT NOT NULL,
+    persona_start_sub_state TEXT NOT NULL,
+    confirmed INTEGER NOT NULL CHECK(confirmed = 1),
+    phase TEXT NOT NULL CHECK(phase IN ('PREPARED', 'PROJECTIONS_VERIFIED', 'COMPLETED')),
+    projection_models_json TEXT NOT NULL,
+    prepared_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER
+);
+
+CREATE UNIQUE INDEX incarnation_reset_one_incomplete_global
+ON incarnation_reset_requests((1))
+WHERE phase <> 'COMPLETED';
+
+CREATE TABLE incarnation_reset_projection_recovery (
+    request_id TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    previous_status TEXT NOT NULL,
+    previous_attempts INTEGER NOT NULL,
+    previous_available_at_ms INTEGER NOT NULL,
+    previous_last_error TEXT,
+    previous_updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY(request_id, memory_id),
+    FOREIGN KEY(request_id) REFERENCES incarnation_reset_requests(request_id) ON DELETE CASCADE
+);
+
+selectIncarnationResetRequest:
+SELECT request_id, previous_incarnation_id, fresh_incarnation_id, manifest_sha256, manifest_path,
+       payload_sha256, persona_mode, persona_start_sub_state, confirmed, phase,
+       projection_models_json, prepared_at_ms, completed_at_ms
+FROM incarnation_reset_requests
+WHERE request_id = ?;
+
+insertIncarnationResetRequest:
+INSERT INTO incarnation_reset_requests(
+    request_id, previous_incarnation_id, fresh_incarnation_id, manifest_sha256, manifest_path,
+    payload_sha256, persona_mode, persona_start_sub_state, confirmed, phase,
+    projection_models_json, prepared_at_ms, completed_at_ms
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

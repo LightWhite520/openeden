@@ -1,6 +1,7 @@
 package io.openeden.runtime.diary
 
 import io.openeden.runtime.inference.InferenceExecutor
+import io.openeden.runtime.incarnation.IncarnationStateStore
 import io.openeden.runtime.session.SessionStateStore
 
 import io.openeden.bio.VectorDelta
@@ -10,6 +11,8 @@ import io.openeden.llm.LlmGenerationSettings
 import io.openeden.llm.LlmOutputValidator
 import io.openeden.memory.*
 import io.openeden.persona.PersonaConfig
+import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.ConversationCacheIdentity
 import io.openeden.prompt.PromptRole
@@ -22,7 +25,7 @@ import kotlinx.coroutines.CancellationException
 
 class LlmDiaryNarrativeGenerator private constructor(
     private val personaConfig: PersonaConfig,
-    private val sessionStateStore: SessionStateStore,
+    private val stateResolver: suspend (DiaryTask) -> DiaryGenerationState,
     private val dataSource: DiaryDataSource,
     private val quantizer: CodebookQuantizer,
     private val inferenceExecutor: InferenceExecutor,
@@ -43,7 +46,17 @@ class LlmDiaryNarrativeGenerator private constructor(
         rawLimit: Int = 32,
     ) : this(
         personaConfig = personaConfig,
-        sessionStateStore = sessionStateStore,
+        stateResolver = { task ->
+            sessionStateStore.read(task.sessionId).let { state ->
+                DiaryGenerationState(
+                    vector = state.vector,
+                    origin = state.origin,
+                    omega = state.omega.value,
+                    personaMode = state.personaMode,
+                    personaStartSubState = state.personaStartSubState,
+                )
+            }
+        },
         dataSource = dataSource,
         quantizer = quantizer,
         inferenceExecutor = inferenceExecutor,
@@ -66,7 +79,50 @@ class LlmDiaryNarrativeGenerator private constructor(
         generationSettings: LlmGenerationSettings,
     ) : this(
         personaConfig = personaConfig,
-        sessionStateStore = sessionStateStore,
+        stateResolver = { task ->
+            sessionStateStore.read(task.sessionId).let { state ->
+                DiaryGenerationState(
+                    vector = state.vector,
+                    origin = state.origin,
+                    omega = state.omega.value,
+                    personaMode = state.personaMode,
+                    personaStartSubState = state.personaStartSubState,
+                )
+            }
+        },
+        dataSource = dataSource,
+        quantizer = quantizer,
+        inferenceExecutor = inferenceExecutor,
+        llmClient = llmClient,
+        embeddingModel = embeddingModel,
+        rawLimit = rawLimit,
+        generationSettings = generationSettings,
+        constructorMarker = Unit,
+    )
+
+    constructor(
+        personaConfig: PersonaConfig,
+        incarnationStateStore: IncarnationStateStore,
+        dataSource: DiaryDataSource,
+        quantizer: CodebookQuantizer,
+        inferenceExecutor: InferenceExecutor,
+        llmClient: LlmClient,
+        embeddingModel: MemoryEmbeddingModel,
+        rawLimit: Int = 32,
+        generationSettings: LlmGenerationSettings = LlmGenerationSettings.Default,
+    ) : this(
+        personaConfig = personaConfig,
+        stateResolver = { task ->
+            incarnationStateStore.read(task.incarnationId).let { state ->
+                DiaryGenerationState(
+                    vector = state.vector,
+                    origin = state.origin,
+                    omega = state.omega.value,
+                    personaMode = state.personaMode,
+                    personaStartSubState = state.personaStartSubState,
+                )
+            }
+        },
         dataSource = dataSource,
         quantizer = quantizer,
         inferenceExecutor = inferenceExecutor,
@@ -79,7 +135,7 @@ class LlmDiaryNarrativeGenerator private constructor(
 
     suspend fun generate(task: DiaryTask): DiaryNarrativeResult {
         require(rawLimit > 0) { "rawLimit must be positive" }
-        val state = sessionStateStore.read(task.sessionId)
+        val state = stateResolver(task)
         val slice = dataSource.uncoveredRawSlice(task.sessionId, task.sourceMemoryId, rawLimit)
             ?: throw IllegalArgumentException("Diary raw slice is empty")
         require(slice.memories.isNotEmpty()) { "Diary raw slice is empty" }
@@ -108,7 +164,7 @@ class LlmDiaryNarrativeGenerator private constructor(
                     PromptRole.DEVELOPER,
                     PromptSegmentKind.INCARNATION_ANCHOR,
                     PromptStability.STABLE,
-                    "persona_mode=${personaConfig.mode.name}\npersona_start_sub_state=${personaConfig.startSubState.name}",
+                    "persona_mode=${state.personaMode.name}\npersona_start_sub_state=${state.personaStartSubState.name}",
                 ),
                 PromptSegment.history(PromptHistorySnapshot()),
                 PromptSegment.text("bio", PromptRole.DEVELOPER, PromptSegmentKind.BIO, PromptStability.DYNAMIC, bioText),
@@ -153,7 +209,7 @@ class LlmDiaryNarrativeGenerator private constructor(
             emotionalEmbedding = emotional,
             metadata = MemoryMetadata(
                 snapshot8D = state.vector,
-                omegaState = state.omega.value,
+                omegaState = state.omega,
                 deltaVec = VectorDelta.Zero,
                 snapshotOrigin = state.origin,
                 userId = userId,
@@ -193,3 +249,11 @@ class LlmDiaryNarrativeGenerator private constructor(
         const val DIARY_WORKER_USER = "diary-worker"
     }
 }
+
+private data class DiaryGenerationState(
+    val vector: io.openeden.bio.BioVector,
+    val origin: io.openeden.bio.BioVector,
+    val omega: Float,
+    val personaMode: PersonaMode,
+    val personaStartSubState: PersonaSubState,
+)

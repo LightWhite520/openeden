@@ -6,15 +6,71 @@ import io.openeden.memory.MemoryEntry
 import io.openeden.memory.MemoryKind
 import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemoryRoom
+import io.openeden.runtime.incarnation.IncarnationMutexRegistry
+import io.openeden.runtime.incarnation.IncarnationTurnGate
 import io.openeden.server.persistence.sqldelight.MemoryVectorProjectionStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class QdrantProjectionSynchronizerTest {
+    @Test
+    fun `shared incarnation gate covers projection through ready acknowledgement`() = runTest {
+        val store = FakeStore(work("a"))
+        val gate = IncarnationTurnGate(IncarnationMutexRegistry())
+        val maintenanceEntered = CompletableDeferred<Unit>()
+        val releaseMaintenance = CompletableDeferred<Unit>()
+        val projectionEntered = CompletableDeferred<Unit>()
+        val finishProjection = CompletableDeferred<Unit>()
+        val maintenance = launch {
+            gate.withIncarnation("incarnation-1") {
+                maintenanceEntered.complete(Unit)
+                releaseMaintenance.await()
+            }
+        }
+        maintenanceEntered.await()
+        val synchronizer = QdrantProjectionSynchronizer(
+            store = store,
+            loadEntry = { id -> entry(id, "incarnation-1") },
+            project = {
+                projectionEntered.complete(Unit)
+                finishProjection.await()
+            },
+            modelId = "model",
+            nowMs = { 10L },
+            mutationGate = gate,
+        )
+
+        val drain = async { synchronizer.drainOnce() }
+        testScheduler.runCurrent()
+        assertEquals(false, projectionEntered.isCompleted)
+        assertEquals(emptyList(), store.ready)
+
+        releaseMaintenance.complete(Unit)
+        maintenance.join()
+        projectionEntered.await()
+        var waiterObservedReady: List<String>? = null
+        val resetWaiter = launch {
+            gate.withIncarnation("incarnation-1") {
+                waiterObservedReady = store.ready.toList()
+            }
+        }
+        testScheduler.runCurrent()
+        assertEquals(null, waiterObservedReady)
+
+        finishProjection.complete(Unit)
+        assertEquals(1, drain.await())
+        resetWaiter.join()
+        assertEquals(listOf("a"), store.ready)
+        assertEquals(listOf("a"), waiterObservedReady)
+    }
+
     @Test
     fun `successful batch acknowledges exactly projected rows`() = runTest {
         val store = FakeStore(work("a"), work("b"))
@@ -161,10 +217,17 @@ class QdrantProjectionSynchronizerTest {
         id, "model", MemoryVectorProjectionStore.ProjectionStatus.PENDING, 0, 0L, null, 0L,
     )
 
-    private fun entry(id: String) = MemoryEntry(
+    private fun entry(id: String, incarnationId: String = "") = MemoryEntry(
         id = id, sessionId = "session", content = id, room = MemoryRoom.EVENT_ROOM, kind = MemoryKind.RAW,
         semanticEmbedding = listOf(1f), emotionalEmbedding = listOf(1f),
-        metadata = MemoryMetadata(BioVector.Neutral, 0f, VectorDelta.Zero, BioVector.Neutral, "user"),
+        metadata = MemoryMetadata(
+            BioVector.Neutral,
+            0f,
+            VectorDelta.Zero,
+            BioVector.Neutral,
+            "user",
+            incarnationId = incarnationId,
+        ),
     )
 
     private class FakeStore(vararg initial: MemoryVectorProjectionStore.ProjectionWork) : ProjectionWorkStore {

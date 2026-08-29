@@ -1062,6 +1062,32 @@ class MessagePipelineTest {
     }
 
     @Test
+    fun `first turn persists persona selected by the active incarnation after reset`() = runTest {
+        val store = MutableSessionStateStore()
+        val incarnationStore = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = store.transcript,
+        )
+        incarnationStore.write(
+            io.openeden.runtime.incarnation.IncarnationStateStore.neutral(
+                incarnationId = "development",
+                personaMode = PersonaMode.LEGACY,
+                personaStartSubState = PersonaSubState.AWAKENED,
+            ),
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(PersonaSubState.PRE_COMMAND, PersonaMode.GROWTH),
+            store = store,
+            incarnationStateStore = incarnationStore,
+        )
+
+        pipeline.handle(testRequest().copy(turnId = "first-turn-after-reset"))
+
+        val persisted = store.read("QQ:100")
+        assertEquals(PersonaMode.LEGACY, persisted.personaMode)
+        assertEquals(PersonaSubState.AWAKENED, persisted.personaStartSubState)
+    }
+
+    @Test
     fun `pipeline grants host role and address only to exact configured sender`() = runTest {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(),

@@ -333,6 +333,41 @@ completed_at_ms=1
             driver.execute(
                 null,
                 """
+                CREATE TABLE session_state (
+                    session_id TEXT NOT NULL PRIMARY KEY,
+                    vector_json TEXT NOT NULL,
+                    origin_json TEXT NOT NULL,
+                    omega REAL NOT NULL,
+                    evolution_index INTEGER NOT NULL,
+                    persona_mode TEXT,
+                    persona_start_sub_state TEXT,
+                    last_user_activity_ms INTEGER,
+                    last_runtime_tick_at_ms INTEGER,
+                    shock_active INTEGER,
+                    shock_intensity REAL,
+                    shock_description TEXT,
+                    shock_triggered_at_ms INTEGER,
+                    shock_decay_lambda REAL,
+                    shock_heartbeat_fired INTEGER
+                )
+                """.trimIndent(),
+                0,
+            )
+            driver.execute(
+                null,
+                """
+                CREATE TABLE diary_checkpoints (
+                    session_id TEXT NOT NULL PRIMARY KEY,
+                    last_covered_raw_memory_id TEXT,
+                    last_successful_diary_at_ms INTEGER,
+                    last_narrative_memory_id TEXT
+                )
+                """.trimIndent(),
+                0,
+            )
+            driver.execute(
+                null,
+                """
                 CREATE TABLE incarnation_state (
                     singleton_id INTEGER NOT NULL PRIMARY KEY CHECK (singleton_id = 1),
                     active_incarnation_id TEXT NOT NULL,

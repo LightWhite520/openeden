@@ -79,7 +79,7 @@ class VectorWriteService private constructor(
         constructorMarker = Unit,
     )
 
-    private val incarnationTurnGate = IncarnationTurnGate(incarnationMutexRegistry)
+    val incarnationMutationGate = IncarnationTurnGate(incarnationMutexRegistry)
 
     internal fun isBackedBy(candidate: SessionStateStore): Boolean = store === candidate
 
@@ -285,7 +285,7 @@ class VectorWriteService private constructor(
         turn: ConversationTurn? = null,
         postCommitPlan: TurnPostCommitPlan? = null,
         finalizePreparedMemory: Boolean = true,
-    ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
+    ): VectorWriteResult<IncarnationState> = incarnationMutationGate.withIncarnation(incarnationId) {
         val latest = bioStore.read(incarnationId)
         val previousDynamicsAtMs = maxOfNullable(latest.lastVectorDynamicsAtMs, latest.lastRuntimeTickAtMs)
         val reductionOrigin = latest.origin
@@ -395,21 +395,21 @@ class VectorWriteService private constructor(
         incarnationId: String,
         personaMode: PersonaMode,
         personaStartSubState: PersonaSubState,
-    ): IncarnationState = incarnationTurnGate.withIncarnation(incarnationId) {
+    ): IncarnationState = incarnationMutationGate.withIncarnation(incarnationId) {
         bioStore.readOrCreate(incarnationId, personaMode, personaStartSubState)
     }
 
     suspend fun updateIncarnation(
         incarnationId: String,
         transform: (IncarnationState) -> IncarnationState,
-    ): IncarnationState = incarnationTurnGate.withIncarnation(incarnationId) {
+    ): IncarnationState = incarnationMutationGate.withIncarnation(incarnationId) {
         val updated = transform(bioStore.read(incarnationId))
         bioStore.write(updated)
         updated
     }
 
     suspend fun reserveCentroidRevision(incarnationId: String): Long =
-        incarnationTurnGate.withIncarnation(incarnationId) {
+        incarnationMutationGate.withIncarnation(incarnationId) {
             val latest = bioStore.read(incarnationId)
             check(latest.centroidRevision < Long.MAX_VALUE) { "Centroid revision exhausted" }
             val revision = latest.centroidRevision + 1L
@@ -421,7 +421,7 @@ class VectorWriteService private constructor(
         incarnationId: String,
         candidateRevision: Long,
         candidateOrigin: BioVector,
-    ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
+    ): VectorWriteResult<IncarnationState> = incarnationMutationGate.withIncarnation(incarnationId) {
         val latest = bioStore.read(incarnationId)
         val accepted = candidateOrigin.isValidStorageVector() &&
             candidateRevision in 1L..latest.centroidRevision &&
@@ -482,7 +482,7 @@ class VectorWriteService private constructor(
     suspend fun applyShockForIncarnation(
         incarnationId: String,
         signal: ShockSignal,
-    ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
+    ): VectorWriteResult<IncarnationState> = incarnationMutationGate.withIncarnation(incarnationId) {
         val latest = bioStore.read(incarnationId)
         val merge = inferenceExecutor.run { ShockStateEngine.merge(latest.shockState, signal) }
         val updated = latest.copy(
@@ -500,7 +500,7 @@ class VectorWriteService private constructor(
     suspend fun applyBackgroundDriftForIncarnation(
         incarnationId: String,
         delta: VectorDelta,
-    ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
+    ): VectorWriteResult<IncarnationState> = incarnationMutationGate.withIncarnation(incarnationId) {
         val latest = bioStore.read(incarnationId)
         val updated = inferenceExecutor.run { latest.copy(vector = latest.vector.apply(delta)) }
         bioStore.write(updated)
@@ -510,7 +510,7 @@ class VectorWriteService private constructor(
     suspend fun applyRuntimeTickForIncarnation(
         incarnationId: String,
         transform: suspend (IncarnationState) -> Pair<IncarnationState, Set<String>>,
-    ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
+    ): VectorWriteResult<IncarnationState> = incarnationMutationGate.withIncarnation(incarnationId) {
         val (updated, traceTags) = transform(bioStore.read(incarnationId))
         bioStore.write(updated)
         VectorWriteResult(updated, traceTags)
@@ -519,7 +519,7 @@ class VectorWriteService private constructor(
     suspend fun applyBackgroundDynamicsTickForIncarnation(
         incarnationId: String,
         nowMs: Long,
-    ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
+    ): VectorWriteResult<IncarnationState> = incarnationMutationGate.withIncarnation(incarnationId) {
         val latest = bioStore.read(incarnationId)
         val previousDynamicsAtMs = maxOfNullable(latest.lastVectorDynamicsAtMs, latest.lastRuntimeTickAtMs)
         val background = inferenceExecutor.run {

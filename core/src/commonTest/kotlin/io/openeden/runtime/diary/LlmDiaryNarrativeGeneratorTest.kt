@@ -1,6 +1,8 @@
 package io.openeden.runtime.diary
 
 import io.openeden.runtime.inference.DirectInferenceExecutor
+import io.openeden.runtime.incarnation.IncarnationState
+import io.openeden.runtime.incarnation.IncarnationStateStore
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 
@@ -20,6 +22,8 @@ import io.openeden.memory.MemoryMetadata
 import io.openeden.memory.MemorySnippet
 import io.openeden.memory.MemoryVisibility
 import io.openeden.persona.MapPersonaLoader
+import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSegmentKind
 import kotlin.test.Test
@@ -29,6 +33,31 @@ import kotlin.test.assertFailsWith
 import kotlinx.coroutines.test.runTest
 
 class LlmDiaryNarrativeGeneratorTest {
+    @Test
+    fun `diary uses persisted task incarnation mode and starting point after reset`() = runTest {
+        var captured: BuiltPrompt? = null
+        val state = IncarnationStateStore.neutral(
+            incarnationId = "incarnation-after-reset",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.TRUE_SELF,
+        )
+        val generator = incarnationFixture(state) { captured = it }
+
+        val entry = generator.generate(
+            DiaryTask(
+                id = "task-after-reset",
+                sessionId = "QQ:same-session",
+                sourceMemoryId = "raw-1",
+                reason = "vector_delta",
+                incarnationId = state.incarnationId,
+            ),
+        ).entry
+
+        assertEquals(state.incarnationId, entry.metadata.incarnationId)
+        assertContains(captured!!.segmentText(PromptSegmentKind.INCARNATION_ANCHOR), "persona_mode=GROWTH")
+        assertContains(captured!!.segmentText(PromptSegmentKind.INCARNATION_ANCHOR), "persona_start_sub_state=TRUE_SELF")
+    }
+
     @Test
     fun generatesNarrativeWithCodebookAndDerivedDWithoutRawVector() = runTest {
         val state = SessionStateStore.neutral("cli:S").copy(vector = BioVector(0.8f, 0.2f, 0.4f, 0.5f, 0.1f, 0.7f, 0.5f, 0.2f))
@@ -227,6 +256,71 @@ class LlmDiaryNarrativeGeneratorTest {
         }
         client.capture = capture
         return LlmDiaryNarrativeGenerator(persona, store, source, object : CodebookQuantizer { override suspend fun quantize(vector: BioVector, dissonance: Float) = QuantizationResult(listOf("NODE_1"), listOf("NODE_1 definition"), 1f) }, DirectInferenceExecutor, client, DeterministicMemoryEmbeddingModel, generationSettings = generationSettings)
+    }
+
+    private fun incarnationFixture(
+        state: IncarnationState,
+        capture: (BuiltPrompt) -> Unit,
+    ): LlmDiaryNarrativeGenerator {
+        val persona = MapPersonaLoader.load(
+            mapOf(
+                "mode" to "legacy",
+                "start_sub_state" to "awakened",
+                "persona.base" to "base",
+                "output.layer.rules" to "rules",
+                "persona.patch.pre_command" to "pre",
+                "persona.patch.true_self" to "true",
+                "persona.patch.awakened" to "awake",
+                "heartbeat.base" to "hb",
+                "heartbeat.shock" to "shock",
+                "diary.narrative" to "【叙事日记】 write facts",
+            ),
+        )
+        val stateStore = object : IncarnationStateStore {
+            override suspend fun read(incarnationId: String) = state.also {
+                require(incarnationId == state.incarnationId)
+            }
+            override suspend fun readOrCreate(
+                incarnationId: String,
+                personaMode: PersonaMode,
+                personaStartSubState: PersonaSubState,
+            ) = error("unused")
+            override suspend fun write(state: IncarnationState) = error("unused")
+        }
+        val source = object : DiaryDataSource {
+            override suspend fun uncoveredRawSlice(sessionId: String, throughMemoryId: String?, limit: Int) =
+                DiaryRawSlice(
+                    listOf(
+                        MemorySnippet(
+                            "raw-1",
+                            "raw fact",
+                            MemoryMetadata(
+                                BioVector.Neutral,
+                                0f,
+                                VectorDelta.Zero,
+                                BioVector.Neutral,
+                                "u",
+                                incarnationId = state.incarnationId,
+                            ),
+                        ),
+                    ),
+                    "raw-1",
+                )
+            override suspend fun loadSourceMemory(memoryId: String): MemoryEntry? = null
+        }
+        val client = FakeClient(capture = capture)
+        return LlmDiaryNarrativeGenerator(
+            personaConfig = persona,
+            incarnationStateStore = stateStore,
+            dataSource = source,
+            quantizer = object : CodebookQuantizer {
+                override suspend fun quantize(vector: BioVector, dissonance: Float) =
+                    QuantizationResult(listOf("NODE_1"), listOf("NODE_1 definition"), 1f)
+            },
+            inferenceExecutor = DirectInferenceExecutor,
+            llmClient = client,
+            embeddingModel = DeterministicMemoryEmbeddingModel,
+        )
     }
 
     private class FakeClient(var capture: (BuiltPrompt) -> Unit = {}, var output: LlmOutput = LlmOutput("logic", diaryZeroDelta(), "narrative")) : LlmClient {

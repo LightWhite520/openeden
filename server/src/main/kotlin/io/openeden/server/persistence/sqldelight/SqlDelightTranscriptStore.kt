@@ -82,8 +82,10 @@ class SqlDelightTranscriptStore private constructor(
         withContext(ioDispatcher) {
             val requestedLimit = limit.coerceAtLeast(0)
             if (requestedLimit == 0) return@withContext emptyList()
+            val incarnationId = queries.selectActiveIncarnation { id, _ -> id }.executeAsOne()
 
             queries.selectRecentForSession(
+                incarnationId = incarnationId,
                 sessionId = sessionId,
                 limit = requestedLimit.toLong(),
                 mapper = ::mapTurn,
@@ -152,19 +154,23 @@ class SqlDelightTranscriptStore private constructor(
         requiredTailTurns: Int,
         tokenBudget: Int,
     ): PromptHistorySnapshot = withContext(ioDispatcher) {
+        val incarnationId = queries.selectActiveIncarnation { id, _ -> id }.executeAsOne()
         val persistedState = queries.selectPromptHistoryState(
+            incarnationId = incarnationId,
             sessionId = sessionId,
             mapper = ::mapPromptHistoryState,
         ).executeAsOneOrNull()
         val cacheEpoch = persistedState?.cacheEpoch ?: 0L
         val persistedChunks = persistedState?.let { state ->
             queries.selectPromptHistoryChunks(
+                incarnationId = incarnationId,
                 sessionId = sessionId,
                 cacheEpoch = state.cacheEpoch,
                 mapper = ::mapPromptHistoryChunk,
             ).executeAsList()
         }.orEmpty()
         val turns = queries.selectRecentForSession(
+            incarnationId = incarnationId,
             sessionId = sessionId,
             limit = Long.MAX_VALUE,
             mapper = ::mapTurn,
@@ -187,12 +193,14 @@ class SqlDelightTranscriptStore private constructor(
 
         database.transaction {
             queries.insertPromptHistoryState(
+                incarnation_id = incarnationId,
                 session_id = sessionId,
                 cache_epoch = snapshot.cacheEpoch,
                 serializer_version = promptHistoryAssembler.serializer.serializerVersion.toLong(),
                 updated_at_ms = clock.nowMs(),
             )
             queries.updatePromptHistoryStateMetadata(
+                incarnationId = incarnationId,
                 cacheEpoch = snapshot.cacheEpoch,
                 serializerVersion = promptHistoryAssembler.serializer.serializerVersion.toLong(),
                 updatedAtMs = clock.nowMs(),
@@ -201,6 +209,7 @@ class SqlDelightTranscriptStore private constructor(
             )
             snapshot.stableChunks.forEach { chunk ->
                 queries.insertPromptHistoryChunk(
+                    incarnation_id = incarnationId,
                     chunk_id = chunkId(chunk),
                     session_id = chunk.sessionId,
                     cache_epoch = chunk.cacheEpoch,
@@ -292,7 +301,8 @@ class SqlDelightTranscriptStore private constructor(
         requestId: String,
         sessionId: String,
     ): PromptHistorySnapshot? = withContext(ioDispatcher) {
-        queries.selectPromptHistoryCompaction(requestId, ::mapPromptHistoryCompaction)
+        val incarnationId = queries.selectActiveIncarnation { id, _ -> id }.executeAsOne()
+        queries.selectPromptHistoryCompaction(incarnationId, requestId, ::mapPromptHistoryCompaction)
             .executeAsOneOrNull()
             ?.completedSnapshot(sessionId)
     }
@@ -303,11 +313,12 @@ class SqlDelightTranscriptStore private constructor(
         source: PromptHistorySnapshot,
         proposed: PromptHistorySnapshot,
     ): PromptHistorySnapshot = withContext(ioDispatcher) {
+        val incarnationId = queries.selectActiveIncarnation { id, _ -> id }.executeAsOne()
         val sourceJson = json.encodeToString(source)
         val sourceFingerprint = Sha256.hex(sourceJson.encodeToByteArray())
         var persisted = source
         database.transaction {
-            val existing = queries.selectPromptHistoryCompaction(requestId, ::mapPromptHistoryCompaction)
+            val existing = queries.selectPromptHistoryCompaction(incarnationId, requestId, ::mapPromptHistoryCompaction)
                 .executeAsOneOrNull()
             if (existing != null) {
                 existing.completedSnapshot(sessionId)?.let { completed ->
@@ -319,6 +330,7 @@ class SqlDelightTranscriptStore private constructor(
                 }
             } else {
                 queries.insertPromptHistoryCompactionIfAbsent(
+                    incarnation_id = incarnationId,
                     request_id = requestId,
                     session_id = sessionId,
                     source_fingerprint = sourceFingerprint,
@@ -330,6 +342,7 @@ class SqlDelightTranscriptStore private constructor(
             if (proposed != source) {
                 val summary = checkNotNull(proposed.summary)
                 queries.activatePromptHistorySummary(
+                    incarnationId = incarnationId,
                     newCacheEpoch = proposed.cacheEpoch,
                     summaryText = summary.text,
                     summarySourceTurnIdsJson = json.encodeToString(summary.sourceTurnIds),
@@ -344,6 +357,7 @@ class SqlDelightTranscriptStore private constructor(
 
             val resultJson = json.encodeToString(persisted)
             queries.completePromptHistoryCompaction(
+                incarnationId = incarnationId,
                 resultFingerprint = Sha256.hex(resultJson.encodeToByteArray()),
                 resultSnapshotJson = resultJson,
                 resultCacheEpoch = persisted.cacheEpoch,

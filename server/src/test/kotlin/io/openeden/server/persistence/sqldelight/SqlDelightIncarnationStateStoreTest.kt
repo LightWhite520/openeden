@@ -504,6 +504,8 @@ class SqlDelightIncarnationStateStoreTest {
     private fun openVersionNineteenEstablishedState(lastRuntimeTickAtMs: Long) {
         val vectorJson = Json.encodeToString(BioVector.serializer(), BioVector.Neutral)
         JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            createPreV21OwnedSessionTables(driver)
+            createPreV21PromptHistoryTables(driver)
             driver.execute(
                 null,
                 """

@@ -1,0 +1,140 @@
+ALTER TABLE session_state RENAME TO session_state_legacy;
+CREATE UNIQUE INDEX incarnation_reset_one_incomplete_per_incarnation
+ON incarnation_reset_requests(previous_incarnation_id)
+WHERE phase <> 'COMPLETED';
+
+CREATE TABLE session_state (
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    vector_json TEXT NOT NULL,
+    origin_json TEXT NOT NULL,
+    omega REAL NOT NULL,
+    evolution_index INTEGER NOT NULL,
+    persona_mode TEXT,
+    persona_start_sub_state TEXT,
+    last_user_activity_ms INTEGER,
+    last_runtime_tick_at_ms INTEGER,
+    shock_active INTEGER,
+    shock_intensity REAL,
+    shock_description TEXT,
+    shock_triggered_at_ms INTEGER,
+    shock_decay_lambda REAL,
+    shock_heartbeat_fired INTEGER,
+    PRIMARY KEY(incarnation_id, session_id)
+);
+INSERT INTO session_state(
+    incarnation_id, session_id, vector_json, origin_json, omega, evolution_index, persona_mode,
+    persona_start_sub_state, last_user_activity_ms, last_runtime_tick_at_ms, shock_active,
+    shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
+    shock_heartbeat_fired
+)
+SELECT (SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1),
+       session_id, vector_json, origin_json, omega, evolution_index, persona_mode,
+       persona_start_sub_state, last_user_activity_ms, last_runtime_tick_at_ms, shock_active,
+       shock_intensity, shock_description, shock_triggered_at_ms, shock_decay_lambda,
+       shock_heartbeat_fired
+FROM session_state_legacy legacy;
+DROP TABLE session_state_legacy;
+
+ALTER TABLE prompt_history_state RENAME TO prompt_history_state_legacy;
+CREATE TABLE prompt_history_state (
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    cache_epoch INTEGER NOT NULL,
+    serializer_version INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL,
+    summary_text TEXT,
+    summary_source_turn_ids_json TEXT,
+    summary_fingerprint TEXT,
+    summary_serializer_version INTEGER,
+    PRIMARY KEY(incarnation_id, session_id),
+    CHECK ((summary_text IS NULL AND summary_source_turn_ids_json IS NULL AND summary_fingerprint IS NULL AND summary_serializer_version IS NULL)
+        OR (summary_text IS NOT NULL AND summary_source_turn_ids_json IS NOT NULL AND summary_fingerprint IS NOT NULL AND summary_serializer_version IS NOT NULL))
+);
+INSERT INTO prompt_history_state(
+    incarnation_id, session_id, cache_epoch, serializer_version, updated_at_ms, summary_text,
+    summary_source_turn_ids_json, summary_fingerprint, summary_serializer_version
+)
+SELECT (SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1),
+       session_id, cache_epoch, serializer_version, updated_at_ms, summary_text,
+       summary_source_turn_ids_json, summary_fingerprint, summary_serializer_version
+FROM prompt_history_state_legacy legacy;
+DROP TABLE prompt_history_state_legacy;
+
+ALTER TABLE prompt_history_chunks RENAME TO prompt_history_chunks_legacy;
+DROP INDEX prompt_history_chunks_session_epoch;
+CREATE TABLE prompt_history_chunks (
+    incarnation_id TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    cache_epoch INTEGER NOT NULL,
+    first_turn_id TEXT NOT NULL,
+    last_turn_id TEXT NOT NULL,
+    turn_ids_json TEXT NOT NULL,
+    items_json TEXT,
+    serialized_text TEXT,
+    token_count INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    serializer_version INTEGER NOT NULL,
+    PRIMARY KEY(incarnation_id, chunk_id),
+    CHECK (items_json IS NOT NULL OR serialized_text IS NOT NULL)
+);
+INSERT INTO prompt_history_chunks(
+    incarnation_id, chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+    turn_ids_json, items_json, serialized_text, token_count, fingerprint, serializer_version
+)
+SELECT (SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1),
+       chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+       turn_ids_json, items_json, serialized_text, token_count, fingerprint, serializer_version
+FROM prompt_history_chunks_legacy legacy;
+DROP TABLE prompt_history_chunks_legacy;
+CREATE INDEX prompt_history_chunks_session_epoch
+ON prompt_history_chunks(incarnation_id, session_id, cache_epoch, first_turn_id, last_turn_id, chunk_id);
+
+ALTER TABLE prompt_history_compactions RENAME TO prompt_history_compactions_legacy;
+DROP INDEX prompt_history_compactions_session_created;
+CREATE TABLE prompt_history_compactions (
+    incarnation_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    source_fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('PENDING', 'COMPLETED')),
+    result_fingerprint TEXT,
+    result_snapshot_json TEXT,
+    result_cache_epoch INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    completed_at_ms INTEGER,
+    PRIMARY KEY(incarnation_id, request_id),
+    CHECK ((status = 'PENDING' AND result_fingerprint IS NULL AND result_snapshot_json IS NULL AND result_cache_epoch IS NULL AND completed_at_ms IS NULL)
+        OR (status = 'COMPLETED' AND result_fingerprint IS NOT NULL AND result_snapshot_json IS NOT NULL AND result_cache_epoch IS NOT NULL AND completed_at_ms IS NOT NULL))
+);
+INSERT INTO prompt_history_compactions(
+    incarnation_id, request_id, session_id, source_fingerprint, status, result_fingerprint,
+    result_snapshot_json, result_cache_epoch, created_at_ms, completed_at_ms
+)
+SELECT (SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1),
+       request_id, session_id, source_fingerprint, status, result_fingerprint,
+       result_snapshot_json, result_cache_epoch, created_at_ms, completed_at_ms
+FROM prompt_history_compactions_legacy legacy;
+DROP TABLE prompt_history_compactions_legacy;
+CREATE INDEX prompt_history_compactions_session_created
+ON prompt_history_compactions(incarnation_id, session_id, created_at_ms, request_id);
+
+ALTER TABLE diary_checkpoints RENAME TO diary_checkpoints_legacy;
+CREATE TABLE diary_checkpoints (
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    last_covered_raw_memory_id TEXT,
+    last_successful_diary_at_ms INTEGER,
+    last_narrative_memory_id TEXT,
+    PRIMARY KEY(incarnation_id, session_id)
+);
+INSERT INTO diary_checkpoints(
+    incarnation_id, session_id, last_covered_raw_memory_id, last_successful_diary_at_ms,
+    last_narrative_memory_id
+)
+SELECT (SELECT active_incarnation_id FROM incarnation_state WHERE singleton_id = 1),
+       session_id, last_covered_raw_memory_id, last_successful_diary_at_ms,
+       last_narrative_memory_id
+FROM diary_checkpoints_legacy legacy;
+DROP TABLE diary_checkpoints_legacy;

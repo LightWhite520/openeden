@@ -40,6 +40,7 @@ dependencies {
     implementation(ktorLibs.server.websockets)
     implementation(libs.logback.classic)
     implementation(libs.sqldelight.sqlite.driver)
+    implementation(libs.jna.platform)
     implementation(project(":core"))
     implementation(project(":onebot"))
 

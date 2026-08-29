@@ -24,7 +24,8 @@ CREATE TABLE turn_post_commit (
 );
 
 CREATE TABLE prompt_history_state (
-    session_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
     cache_epoch INTEGER NOT NULL,
     serializer_version INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
@@ -32,6 +33,7 @@ CREATE TABLE prompt_history_state (
     summary_source_turn_ids_json TEXT,
     summary_fingerprint TEXT,
     summary_serializer_version INTEGER,
+    PRIMARY KEY(incarnation_id, session_id),
     CHECK (
         (summary_text IS NULL AND summary_source_turn_ids_json IS NULL AND
             summary_fingerprint IS NULL AND summary_serializer_version IS NULL)
@@ -42,7 +44,8 @@ CREATE TABLE prompt_history_state (
 );
 
 CREATE TABLE prompt_history_chunks (
-    chunk_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     cache_epoch INTEGER NOT NULL,
     first_turn_id TEXT NOT NULL,
@@ -53,14 +56,16 @@ CREATE TABLE prompt_history_chunks (
     token_count INTEGER NOT NULL,
     fingerprint TEXT NOT NULL,
     serializer_version INTEGER NOT NULL,
+    PRIMARY KEY(incarnation_id, chunk_id),
     CHECK (items_json IS NOT NULL OR serialized_text IS NOT NULL)
 );
 
 CREATE INDEX prompt_history_chunks_session_epoch
-ON prompt_history_chunks(session_id, cache_epoch, first_turn_id, last_turn_id, chunk_id);
+ON prompt_history_chunks(incarnation_id, session_id, cache_epoch, first_turn_id, last_turn_id, chunk_id);
 
 CREATE TABLE prompt_history_compactions (
-    request_id TEXT NOT NULL PRIMARY KEY,
+    incarnation_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     source_fingerprint TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('PENDING', 'COMPLETED')),
@@ -69,6 +74,7 @@ CREATE TABLE prompt_history_compactions (
     result_cache_epoch INTEGER,
     created_at_ms INTEGER NOT NULL,
     completed_at_ms INTEGER,
+    PRIMARY KEY(incarnation_id, request_id),
     CHECK (
         (status = 'PENDING' AND result_fingerprint IS NULL AND result_snapshot_json IS NULL AND
             result_cache_epoch IS NULL AND completed_at_ms IS NULL)
@@ -79,7 +85,7 @@ CREATE TABLE prompt_history_compactions (
 );
 
 CREATE INDEX prompt_history_compactions_session_created
-ON prompt_history_compactions(session_id, created_at_ms, request_id);
+ON prompt_history_compactions(incarnation_id, session_id, created_at_ms, request_id);
 
 insertIncarnationIfAbsent:
 INSERT OR IGNORE INTO incarnation_state(singleton_id, active_incarnation_id, created_at_ms)
@@ -138,7 +144,8 @@ selectRecentForSession:
 SELECT turn_id, incarnation_id, session_id, platform, scope_id, user_id,
        user_text, assistant_text, completed_at_ms
 FROM conversation_turns
-WHERE session_id = :sessionId
+WHERE incarnation_id = :incarnationId
+  AND session_id = :sessionId
 ORDER BY completed_at_ms DESC, turn_id DESC
 LIMIT :limit;
 
@@ -146,26 +153,29 @@ selectPromptHistoryState:
 SELECT session_id, cache_epoch, serializer_version, updated_at_ms,
        summary_text, summary_source_turn_ids_json, summary_fingerprint, summary_serializer_version
 FROM prompt_history_state
-WHERE session_id = :sessionId;
+WHERE incarnation_id = :incarnationId AND session_id = :sessionId;
 
 selectPromptHistoryChunks:
 SELECT chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
        turn_ids_json, items_json, serialized_text, token_count, fingerprint, serializer_version
 FROM prompt_history_chunks
-WHERE session_id = :sessionId
+WHERE incarnation_id = :incarnationId
+  AND session_id = :sessionId
   AND cache_epoch = :cacheEpoch
 ORDER BY first_turn_id, last_turn_id, chunk_id;
 
 insertPromptHistoryState:
-INSERT OR IGNORE INTO prompt_history_state(session_id, cache_epoch, serializer_version, updated_at_ms)
-VALUES (?, ?, ?, ?);
+INSERT OR IGNORE INTO prompt_history_state(incarnation_id, session_id, cache_epoch, serializer_version, updated_at_ms)
+VALUES (?, ?, ?, ?, ?);
 
 updatePromptHistoryStateMetadata:
 UPDATE prompt_history_state
 SET cache_epoch = :cacheEpoch,
     serializer_version = :serializerVersion,
     updated_at_ms = :updatedAtMs
-WHERE session_id = :sessionId
+WHERE incarnation_id = :incarnationId
+  AND session_id = :sessionId
+  AND incarnation_id = :incarnationId
   AND cache_epoch = :expectedCacheEpoch;
 
 activatePromptHistorySummary:
@@ -177,18 +187,19 @@ SET cache_epoch = :newCacheEpoch,
     summary_serializer_version = :summarySerializerVersion,
     updated_at_ms = :updatedAtMs
 WHERE session_id = :sessionId
+  AND incarnation_id = :incarnationId
   AND cache_epoch = :expectedCacheEpoch;
 
 selectPromptHistoryCompaction:
 SELECT request_id, session_id, source_fingerprint, status, result_fingerprint,
        result_snapshot_json, result_cache_epoch, created_at_ms, completed_at_ms
 FROM prompt_history_compactions
-WHERE request_id = :requestId;
+WHERE incarnation_id = :incarnationId AND request_id = :requestId;
 
 insertPromptHistoryCompactionIfAbsent:
 INSERT OR IGNORE INTO prompt_history_compactions(
-    request_id, session_id, source_fingerprint, status, created_at_ms
-) VALUES (?, ?, ?, 'PENDING', ?);
+    incarnation_id, request_id, session_id, source_fingerprint, status, created_at_ms
+) VALUES (?, ?, ?, ?, 'PENDING', ?);
 
 completePromptHistoryCompaction:
 UPDATE prompt_history_compactions
@@ -198,6 +209,7 @@ SET status = 'COMPLETED',
     result_cache_epoch = :resultCacheEpoch,
     completed_at_ms = :completedAtMs
 WHERE request_id = :requestId
+  AND incarnation_id = :incarnationId
   AND session_id = :sessionId
   AND source_fingerprint = :sourceFingerprint
   AND status = 'PENDING';
@@ -207,9 +219,9 @@ SELECT changes();
 
 insertPromptHistoryChunk:
 INSERT OR IGNORE INTO prompt_history_chunks(
-    chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
+    incarnation_id, chunk_id, session_id, cache_epoch, first_turn_id, last_turn_id,
     turn_ids_json, items_json, serialized_text, token_count, fingerprint, serializer_version
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteAllConversationTurns:
 DELETE FROM conversation_turns;

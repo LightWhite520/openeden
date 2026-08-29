@@ -9,6 +9,7 @@ pytorch-native = "2.7.1"
 jline = "4.3.1"
 mordant = "3.0.1"
 pty4j = "0.13.12"
+jna = "5.14.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -24,6 +25,7 @@ jline-reader = { module = "org.jline:jline-reader", version.ref = "jline" }
 mordant = { module = "com.github.ajalt.mordant:mordant", version.ref = "mordant" }
 mordant-markdown = { module = "com.github.ajalt.mordant:mordant-markdown", version.ref = "mordant" }
 pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref = "pty4j" }
+jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

@@ -44,8 +44,11 @@ fun Application.configureRouting() {
     val sessionStateStore = attributes.getOrNull(SessionStateStoreKey)
     val transcriptStore = attributes.getOrNull(TranscriptStoreKey)
     val diagnosticsAccess = attributes.getOrNull(DiagnosticsAccessKey) ?: DiagnosticsAccess.disabled()
+    val maintenanceAccess = attributes.getOrNull(MaintenanceAccessKey) ?: MaintenanceAccess.disabled()
+    val maintenance = attributes.getOrNull(ServerIncarnationMaintenanceKey)
     val vectorDatabaseStatus = attributes.getOrNull(VectorDatabaseStatusKey)
     routing {
+        installMaintenanceRoutes(maintenanceAccess, maintenance)
         get("/") {
             call.respondText("OpenEden runtime skeleton")
         }

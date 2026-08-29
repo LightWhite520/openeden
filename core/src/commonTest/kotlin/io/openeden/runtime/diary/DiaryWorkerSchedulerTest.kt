@@ -6,6 +6,8 @@ import io.openeden.memory.MemoryStore
 import io.openeden.memory.RetrievalMode
 import io.openeden.memory.RetrievalRequest
 import io.openeden.memory.RetrievalResult
+import io.openeden.runtime.incarnation.IncarnationMutexRegistry
+import io.openeden.runtime.incarnation.IncarnationTurnGate
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -26,6 +28,8 @@ class DiaryWorkerSchedulerTest {
             taskStore = store,
             memoryStore = EmptyMemoryStore,
             generator = DiaryNarrativeGenerator { error("not called") },
+            incarnationGate = IncarnationTurnGate(IncarnationMutexRegistry()),
+            activeIncarnationId = { "inc-1" },
         )
         val scheduler = DiaryWorkerScheduler(store, worker, { setOf("S2", "S1") }, { 42L })
 
