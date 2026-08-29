@@ -13,8 +13,6 @@ import io.openeden.runtime.heartbeat.OwnerHeartbeatRouteResolver
 import io.openeden.runtime.state.RuntimeConfig
 import io.openeden.runtime.tick.RuntimeTickScheduler
 import io.openeden.runtime.heartbeat.SecureRandomHeartbeatInterval
-import io.openeden.runtime.tick.SecureRandomSineWaveFluctuation
-import io.openeden.runtime.tick.SineWaveFluctuationEngine
 import io.openeden.runtime.state.VectorWriteService
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.diary.DurableDiaryWorker
@@ -192,8 +190,13 @@ private suspend fun Application.startRuntime(
     startupClosers.addFirst { traceStore.close() }
     val inferenceExecutor = JvmInferenceExecutor()
     startupClosers.addFirst { inferenceExecutor.close() }
-    val writer = VectorWriteService(incarnationStore = incarnationStore, inferenceExecutor = inferenceExecutor)
     val runtimeConfig = RuntimeConfig.Default.copy(owner = serverConfig.heartbeatOwner)
+    val backgroundDynamicsFactory = IncarnationBackgroundDynamicsReducerFactory(runtimeConfig.omega)
+    val writer = VectorWriteService(
+        incarnationStore = incarnationStore,
+        inferenceExecutor = inferenceExecutor,
+        backgroundDynamicsReducerFactory = backgroundDynamicsFactory::create,
+    )
     val models = loadRuntimeModels(serverConfig)
     startupClosers.addFirst { models.close() }
     val projectionStore = persistenceIo.open {
@@ -441,9 +444,9 @@ private suspend fun Application.startRuntime(
     val tickJob = RuntimeTickScheduler(
         store = store,
         writer = writer,
-        fluctuation = SineWaveFluctuationEngine(SecureRandomSineWaveFluctuation.profile()),
         inferenceExecutor = inferenceExecutor,
         config = runtimeConfig,
+        startedAtMs = 0L,
         onOmegaCritical = { lifecycleRepository.markCritical() },
         incarnationStore = incarnationStore,
         transcriptStore = transcriptStore,

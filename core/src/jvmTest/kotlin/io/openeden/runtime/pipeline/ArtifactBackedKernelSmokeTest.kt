@@ -131,7 +131,8 @@ class ArtifactBackedKernelSmokeTest {
             assertEquals(2, llmCalls)
             assertEquals(result.prompt, receivedPrompts.first())
             assertContains(receivedPrompts[1].segmentText(PromptSegmentKind.BIO), "[Codebook Grounding Repair]")
-            assertEquals(BioVector.Neutral.apply(expectedDelta), result.updatedVector)
+            assertEquals(BioVector.Neutral, result.updatedVector.copy(p = BioVector.Neutral.p))
+            assertTrue(result.updatedVector.p in BioVector.Neutral.p..<0.6f)
 
             val selectedPatchKey = "persona.patch.${personaConfig.startSubState.name.lowercase()}"
             val selectedPatch = personaConfig.promptSections.getValue(selectedPatchKey).trim()
@@ -177,8 +178,9 @@ class ArtifactBackedKernelSmokeTest {
             assertEquals(personaConfig.mode, persistedState.personaMode)
             assertEquals(personaConfig.startSubState, persistedState.personaStartSubState)
             val persistedMemory = memoryStore.recent(result.sessionId, limit = 1).single()
-            assertEquals(BioVector.Neutral, persistedMemory.metadata.snapshot8D)
-            assertEquals(expectedDelta, persistedMemory.metadata.deltaVec)
+            assertEquals(result.updatedVector, persistedMemory.metadata.snapshot8D)
+            assertEquals(0.03f, persistedMemory.metadata.deltaVec.p, absoluteTolerance = 1e-6f)
+            assertEquals(VectorDelta.Zero, persistedMemory.metadata.deltaVec.copy(p = 0.0f))
         } finally {
             executor.close()
         }

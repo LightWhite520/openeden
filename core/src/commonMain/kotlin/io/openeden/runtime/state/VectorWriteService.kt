@@ -11,6 +11,7 @@ import io.openeden.runtime.incarnation.IncarnationStateStore
 import io.openeden.runtime.incarnation.IncarnationTurnGate
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
+import io.openeden.memory.MemoryEntry
 import io.openeden.runtime.session.SessionMutexRegistry
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
@@ -24,13 +25,60 @@ import io.openeden.bio.VectorDelta
 import io.openeden.trace.TraceTag
 import kotlinx.coroutines.sync.withLock
 
-class VectorWriteService(
-    private val store: SessionStateStore? = null,
-    val mutexRegistry: SessionMutexRegistry = SessionMutexRegistry(),
-    private val incarnationStore: IncarnationStateStore? = null,
-    val incarnationMutexRegistry: IncarnationMutexRegistry = IncarnationMutexRegistry(),
-    private val inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
+class VectorWriteService private constructor(
+    private val store: SessionStateStore?,
+    val mutexRegistry: SessionMutexRegistry,
+    private val incarnationStore: IncarnationStateStore?,
+    val incarnationMutexRegistry: IncarnationMutexRegistry,
+    private val inferenceExecutor: InferenceExecutor,
+    private val vectorDeltaReducer: VectorDeltaReducer,
+    private val backgroundDynamicsReducer: BackgroundDynamicsReducer,
+    private val backgroundDynamicsReducerFactory: ((String) -> BackgroundDynamicsReducer)?,
+    @Suppress("UNUSED_PARAMETER") constructorMarker: Unit,
 ) {
+    constructor() : this(store = null)
+
+    constructor(
+        store: SessionStateStore? = null,
+        mutexRegistry: SessionMutexRegistry = SessionMutexRegistry(),
+        incarnationStore: IncarnationStateStore? = null,
+        incarnationMutexRegistry: IncarnationMutexRegistry = IncarnationMutexRegistry(),
+        inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
+        vectorDeltaReducer: VectorDeltaReducer = VectorDeltaReducer(),
+        backgroundDynamicsReducer: BackgroundDynamicsReducer = BackgroundDynamicsReducer.stationary(),
+    ) : this(
+        store = store,
+        mutexRegistry = mutexRegistry,
+        incarnationStore = incarnationStore,
+        incarnationMutexRegistry = incarnationMutexRegistry,
+        inferenceExecutor = inferenceExecutor,
+        vectorDeltaReducer = vectorDeltaReducer,
+        backgroundDynamicsReducer = backgroundDynamicsReducer,
+        backgroundDynamicsReducerFactory = null,
+        constructorMarker = Unit,
+    )
+
+    constructor(
+        store: SessionStateStore? = null,
+        mutexRegistry: SessionMutexRegistry = SessionMutexRegistry(),
+        incarnationStore: IncarnationStateStore? = null,
+        incarnationMutexRegistry: IncarnationMutexRegistry = IncarnationMutexRegistry(),
+        inferenceExecutor: InferenceExecutor = DirectInferenceExecutor,
+        vectorDeltaReducer: VectorDeltaReducer = VectorDeltaReducer(),
+        backgroundDynamicsReducer: BackgroundDynamicsReducer = BackgroundDynamicsReducer.stationary(),
+        backgroundDynamicsReducerFactory: ((String) -> BackgroundDynamicsReducer)?,
+    ) : this(
+        store = store,
+        mutexRegistry = mutexRegistry,
+        incarnationStore = incarnationStore,
+        incarnationMutexRegistry = incarnationMutexRegistry,
+        inferenceExecutor = inferenceExecutor,
+        vectorDeltaReducer = vectorDeltaReducer,
+        backgroundDynamicsReducer = backgroundDynamicsReducer,
+        backgroundDynamicsReducerFactory = backgroundDynamicsReducerFactory,
+        constructorMarker = Unit,
+    )
+
     private val incarnationTurnGate = IncarnationTurnGate(incarnationMutexRegistry)
 
     internal fun isBackedBy(candidate: SessionStateStore): Boolean = store === candidate
@@ -232,29 +280,59 @@ class VectorWriteService(
         delta: VectorDelta,
         shockSignal: ShockSignal?,
         lastUserActivityMs: Long?,
+        reductionContext: VectorDeltaContext = VectorDeltaContext.Ordinary,
+        reductionAtMs: Long? = null,
         turn: ConversationTurn? = null,
         postCommitPlan: TurnPostCommitPlan? = null,
+        finalizePreparedMemory: Boolean = true,
     ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
         val latest = bioStore.read(incarnationId)
-        val updatedVector = inferenceExecutor.run {
+        val previousDynamicsAtMs = maxOfNullable(latest.lastVectorDynamicsAtMs, latest.lastRuntimeTickAtMs)
+        val reductionOrigin = latest.origin
+        val (backgroundReduction, vectorReduction) = inferenceExecutor.run {
+            val background = backgroundDynamicsReducerFor(incarnationId).reduce(
+                vector = latest.vector,
+                shockState = latest.shockState,
+                omega = latest.omega,
+                previousAtMs = previousDynamicsAtMs,
+                throughAtMs = reductionAtMs,
+            )
+            val effectiveContext = authoritativeContext(
+                requested = reductionContext,
+                persistedShock = background.shockState,
+                signal = shockSignal,
+            )
             // Rebase this turn's pre-tick effect onto the latest serialized Bio state.
             val preTickDelta = baseSnapshot.deltaTo(preTickedSnapshot)
-            latest.vector.apply(preTickDelta).apply(delta)
+            val rebased = background.vector.apply(preTickDelta)
+            background to vectorDeltaReducer.reduce(
+                current = rebased,
+                origin = reductionOrigin,
+                proposedDelta = delta,
+                context = effectiveContext,
+                elapsedSeconds = background.elapsedMillis.toFloat() / 1_000.0f,
+            )
         }
+        val authoritativeReduction = vectorReduction.copy(
+            committedDelta = latest.vector.deltaTo(vectorReduction.result),
+        )
+        val persistedOrigin = latest.origin.takeIf { it.isValidStorageVector() }
+            ?: authoritativeReduction.result
         val shockMerge = shockSignal?.let { signal ->
-            inferenceExecutor.run { ShockStateEngine.merge(latest.shockState, signal) }
+            inferenceExecutor.run { ShockStateEngine.merge(backgroundReduction.shockState, signal) }
         }
         val updated = latest.copy(
-            vector = updatedVector,
-            origin = latest.origin,
+            vector = authoritativeReduction.result,
+            origin = persistedOrigin,
             evolutionIndex = latest.evolutionIndex + 1,
-            shockState = shockMerge?.state ?: latest.shockState,
+            shockState = shockMerge?.state ?: backgroundReduction.shockState,
             omega = if (shockMerge?.activated == true) {
-                inferenceExecutor.run { latest.omega.increase(shockMerge.state.intensity * 0.15f) }
+                inferenceExecutor.run { backgroundReduction.omega.increase(shockMerge.state.intensity * 0.15f) }
             } else {
-                latest.omega
+                backgroundReduction.omega
             },
             lastUserActivityMs = maxOfNullable(latest.lastUserActivityMs, lastUserActivityMs),
+            lastVectorDynamicsAtMs = backgroundReduction.consumedAtMs,
         )
         val outcome = if (turn == null) {
             require(postCommitPlan == null) { "Post-commit plan requires a committed transcript turn" }
@@ -264,7 +342,11 @@ class VectorWriteService(
             val committedPlan = requireNotNull(postCommitPlan).let { plan ->
                 plan.copy(
                     rawMemory = plan.rawMemory?.let { memory ->
-                        memory.copy(metadata = memory.metadata.copy(omegaState = updated.omega.value))
+                        if (finalizePreparedMemory) {
+                            memory.withCommittedState(updated, authoritativeReduction.committedDelta)
+                        } else {
+                            memory
+                        }
                     },
                 )
             }
@@ -278,12 +360,36 @@ class VectorWriteService(
             } else {
                 buildSet {
                     add(TraceTag.VectorWriteSerialized)
+                    add(TraceTag.VectorDeltaReduced)
+                    addAll(backgroundReduction.traceTags())
+                    if (authoritativeReduction.reasons.any { it.endsWith("rejected") }) {
+                        add(TraceTag.VectorDeltaRejected)
+                    }
                     if (shockSignal != null) add(TraceTag.ShockStateTransition)
                 }
             },
             turnCommitOutcome = outcome,
+            vectorReduction = authoritativeReduction.takeUnless { outcome == TurnCommitOutcome.ALREADY_COMMITTED },
         )
     }
+
+    private fun authoritativeContext(
+        requested: VectorDeltaContext,
+        persistedShock: ShockState?,
+        signal: ShockSignal?,
+    ): VectorDeltaContext {
+        val requestedConfidence = (requested as? VectorDeltaContext.Authoritative)?.confidence
+        val persistedShockConfidence = persistedShock
+            ?.takeIf { it.active }
+            ?.intensity
+        val confidence = listOfNotNull(requestedConfidence, persistedShockConfidence, signal?.intensity)
+            .filter { it.isFinite() && it in 0.0f..1.0f }
+            .maxOrNull()
+        return confidence?.let(VectorDeltaContext::Authoritative) ?: VectorDeltaContext.Ordinary
+    }
+
+    private fun BioVector.isValidStorageVector(): Boolean =
+        toList().all { it.isFinite() && it in 0.0f..1.0f }
 
     suspend fun readOrCreateIncarnation(
         incarnationId: String,
@@ -302,10 +408,67 @@ class VectorWriteService(
         updated
     }
 
+    suspend fun reserveCentroidRevision(incarnationId: String): Long =
+        incarnationTurnGate.withIncarnation(incarnationId) {
+            val latest = bioStore.read(incarnationId)
+            check(latest.centroidRevision < Long.MAX_VALUE) { "Centroid revision exhausted" }
+            val revision = latest.centroidRevision + 1L
+            bioStore.write(latest.copy(centroidRevision = revision))
+            revision
+        }
+
+    suspend fun applyCentroidCandidate(
+        incarnationId: String,
+        candidateRevision: Long,
+        candidateOrigin: BioVector,
+    ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
+        val latest = bioStore.read(incarnationId)
+        val accepted = candidateOrigin.isValidStorageVector() &&
+            candidateRevision in 1L..latest.centroidRevision &&
+            candidateRevision > latest.originRevision
+        val updated = if (accepted) {
+            latest.copy(
+                origin = candidateOrigin,
+                originRevision = candidateRevision,
+            ).also { bioStore.write(it) }
+        } else {
+            latest
+        }
+        VectorWriteResult(
+            state = updated,
+            traceTags = if (accepted) setOf(TraceTag.CentroidUpdated) else emptySet(),
+            traceAttributes = mapOf(
+                "candidate_revision" to candidateRevision.toString(),
+                "issued_revision" to latest.centroidRevision.toString(),
+                "previous_origin_revision" to latest.originRevision.toString(),
+                "origin_revision" to updated.originRevision.toString(),
+                "accepted" to accepted.toString(),
+            ),
+        )
+    }
+
     private fun maxOfNullable(first: Long?, second: Long?): Long? = when {
         first == null -> second
         second == null -> first
         else -> maxOf(first, second)
+    }
+
+    private fun MemoryEntry.withCommittedState(
+        state: IncarnationState,
+        committedDelta: VectorDelta,
+    ): MemoryEntry {
+        val stableTags = setOf("daily", "stable")
+        val isStable = state.omega.value < 0.75f &&
+            committedDelta.toList().all { kotlin.math.abs(it) <= 0.05f }
+        return copy(
+            tags = (tags - stableTags) + if (isStable) stableTags else emptySet(),
+            metadata = metadata.copy(
+                snapshot8D = state.vector,
+                omegaState = state.omega.value,
+                deltaVec = committedDelta,
+                snapshotOrigin = state.origin,
+            ),
+        )
     }
 
     suspend fun markUserActivityForIncarnation(incarnationId: String, nowMs: Long): IncarnationState =
@@ -353,9 +516,53 @@ class VectorWriteService(
         VectorWriteResult(updated, traceTags)
     }
 
+    suspend fun applyBackgroundDynamicsTickForIncarnation(
+        incarnationId: String,
+        nowMs: Long,
+    ): VectorWriteResult<IncarnationState> = incarnationTurnGate.withIncarnation(incarnationId) {
+        val latest = bioStore.read(incarnationId)
+        val previousDynamicsAtMs = maxOfNullable(latest.lastVectorDynamicsAtMs, latest.lastRuntimeTickAtMs)
+        val background = inferenceExecutor.run {
+            backgroundDynamicsReducerFor(incarnationId).reduce(
+                vector = latest.vector,
+                shockState = latest.shockState,
+                omega = latest.omega,
+                previousAtMs = previousDynamicsAtMs,
+                throughAtMs = nowMs,
+            )
+        }
+        val updated = latest.copy(
+            vector = background.vector,
+            shockState = background.shockState,
+            omega = background.omega,
+            lastRuntimeTickAtMs = nowMs,
+            lastVectorDynamicsAtMs = background.consumedAtMs,
+        )
+        bioStore.write(updated)
+        VectorWriteResult(
+            state = updated,
+            traceTags = if (background.baseline) {
+                setOf(TraceTag.RuntimeTickBaseline)
+            } else {
+                background.traceTags(includeBackground = true)
+            },
+        )
+    }
+
     private val sessionStore: SessionStateStore
         get() = checkNotNull(store) { "Session-scoped vector writes are not configured" }
 
     private val bioStore: IncarnationStateStore
         get() = checkNotNull(incarnationStore) { "Incarnation-scoped vector writes are not configured" }
+
+    private fun backgroundDynamicsReducerFor(incarnationId: String): BackgroundDynamicsReducer =
+        backgroundDynamicsReducerFactory?.invoke(incarnationId) ?: backgroundDynamicsReducer
+}
+
+private fun BackgroundDynamicsReduction.traceTags(
+    includeBackground: Boolean = elapsedMillis > 0L,
+): Set<String> = buildSet {
+    if (includeBackground) add(TraceTag.BackgroundDrift)
+    if (shockDecayed) add(TraceTag.ShockStateDecayed)
+    if (omegaChanged) add(TraceTag.OmegaAccumulated)
 }

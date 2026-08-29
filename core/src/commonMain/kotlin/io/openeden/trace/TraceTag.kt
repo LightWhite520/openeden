@@ -13,6 +13,8 @@ object TraceTag {
     const val DiaryQueueOverflow = "diary=QUEUE_OVERFLOW"
     const val DiaryWritten = "diary=WRITTEN"
     const val VectorWriteSerialized = "vector=WRITE_SERIALIZED"
+    const val VectorDeltaReduced = "vector=DELTA_REDUCED"
+    const val VectorDeltaRejected = "vector=DELTA_REJECTED"
     const val TranscriptRetry = "transcript=ALREADY_COMMITTED"
     const val TranscriptDegraded = "transcript=DEGRADED"
     const val HeartbeatSource = "source=HEARTBEAT"

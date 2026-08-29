@@ -1,12 +1,20 @@
 package io.openeden.runtime.heartbeat
 
 import io.openeden.runtime.affect.ShockState
+import io.openeden.runtime.affect.OmegaAccumulationConfig
+import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.pipeline.DevelopmentMessageRequest
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionStateStore
 import io.openeden.runtime.state.VectorWriteService
+import io.openeden.runtime.state.BackgroundDynamicsReducer
+import io.openeden.runtime.state.RuntimeConfig
+import io.openeden.runtime.tick.RuntimeTickScheduler
+import io.openeden.runtime.tick.SineWaveDimension
+import io.openeden.runtime.tick.SineWaveFluctuationEngine
+import io.openeden.runtime.tick.SineWaveFluctuationProfile
 import io.openeden.runtime.time.MutableRuntimeClock
 import io.openeden.runtime.time.RuntimeClock
 import io.openeden.transcript.InMemoryTranscriptStore
@@ -98,7 +106,9 @@ class HeartbeatSchedulerTest {
 
         scheduler.evaluateOnce(now)
 
-        assertEquals(1L, incarnationStore.read("incarnation-a").evolutionIndex)
+        val state = incarnationStore.read("incarnation-a")
+        assertEquals(1L, state.evolutionIndex)
+        assertTrue(state.vector.p in 0.5f..<0.6f)
         assertEquals(1, delivery.calls.size)
         assertEquals("owner", delivery.calls.single().userId)
     }
@@ -281,6 +291,60 @@ class HeartbeatSchedulerTest {
         val after = store.read("QQ:silent")
         assertEquals(1L, scheduler.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
         assertEquals(sixMinAgo, after.lastUserActivityMs)
+    }
+
+    @Test
+    fun `heartbeat then tick compose full background fluctuation without gaps or duplicates`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:silent").copy(lastUserActivityMs = sixMinAgo))
+        val fluctuation = SineWaveFluctuationEngine(
+            SineWaveFluctuationProfile(
+                dimensions = List(8) {
+                    SineWaveDimension(amplitude = 0.04f, frequencyHz = 0.002f, phaseRadians = 0.1f)
+                },
+            ),
+        )
+        val fixture = scheduler(
+            store,
+            RecordingDelivery(),
+            llmClient = zeroDeltaLlm(),
+            backgroundDynamicsReducer = BackgroundDynamicsReducer(
+                fluctuation = fluctuation,
+                omegaConfig = OmegaAccumulationConfig(sWearRate = 0.0f, dissonanceWearRate = 0.0f),
+                startedAtMs = now - 2_000L,
+            ),
+        )
+        val initial = fixture.incarnationStore.read(TEST_INCARNATION_ID).copy(
+            origin = BioVector.Neutral.apply(fluctuation.deltaBetween(0L, 2_000L)),
+            lastRuntimeTickAtMs = now - 2_000L,
+            lastVectorDynamicsAtMs = now - 2_000L,
+        )
+        fixture.incarnationStore.write(initial)
+
+        fixture.evaluateOnce(now)
+        val afterHeartbeat = fixture.incarnationStore.read(TEST_INCARNATION_ID)
+        assertEquals(initial.origin, afterHeartbeat.vector)
+        RuntimeTickScheduler(
+            store = store,
+            writer = fixture.writer,
+            fluctuation = fluctuation,
+            inferenceExecutor = DirectInferenceExecutor,
+            config = RuntimeConfig.Default.copy(
+                omega = OmegaAccumulationConfig(sWearRate = 0.0f, dissonanceWearRate = 0.0f),
+            ),
+            startedAtMs = now - 2_000L,
+            incarnationStore = fixture.incarnationStore,
+            transcriptStore = fixture.transcriptStore,
+        ).evaluateOnce(nowMs = now + 1_000L)
+
+        val afterTick = fixture.incarnationStore.read(TEST_INCARNATION_ID)
+        assertEquals(
+            initial.vector
+                .apply(fluctuation.deltaBetween(0L, 2_000L))
+                .apply(fluctuation.deltaBetween(2_000L, 3_000L)),
+            afterTick.vector,
+        )
+        assertEquals(now + 1_000L, afterTick.lastVectorDynamicsAtMs)
     }
 
     @Test
@@ -541,6 +605,8 @@ class HeartbeatSchedulerTest {
         },
         clock: RuntimeClock = MutableRuntimeClock(now),
         onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
+        llmClient: LlmClient = validLlm(),
+        backgroundDynamicsReducer: BackgroundDynamicsReducer = BackgroundDynamicsReducer.stationary(),
     ): HeartbeatFixture {
         val transcript = InMemoryTranscriptStore(TEST_INCARNATION_ID)
         val incarnationStore = MutableIncarnationStateStore(transcriptStore = transcript)
@@ -549,10 +615,13 @@ class HeartbeatSchedulerTest {
             personaMode = PersonaMode.GROWTH,
             personaStartSubState = PersonaSubState.PRE_COMMAND,
         )
-        val writer = VectorWriteService(incarnationStore = incarnationStore)
+        val writer = VectorWriteService(
+            incarnationStore = incarnationStore,
+            backgroundDynamicsReducer = backgroundDynamicsReducer,
+        )
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = personaConfig(),
-            llmClient = validLlm(),
+            llmClient = llmClient,
             store = store,
             incarnationStateStore = incarnationStore,
             vectorWriteService = writer,
@@ -572,12 +641,16 @@ class HeartbeatSchedulerTest {
                 transcriptStore = transcript,
             ),
             incarnationStore = incarnationStore,
+            writer = writer,
+            transcriptStore = transcript,
         )
     }
 
     private class HeartbeatFixture(
         private val scheduler: HeartbeatScheduler,
         val incarnationStore: MutableIncarnationStateStore,
+        val writer: VectorWriteService,
+        val transcriptStore: InMemoryTranscriptStore,
     ) {
         suspend fun evaluateOnce(now: Long? = null) {
             if (now == null) scheduler.evaluateOnce() else scheduler.evaluateOnce(now)
@@ -611,6 +684,17 @@ class HeartbeatSchedulerTest {
 
     private companion object {
         const val TEST_INCARNATION_ID = "incarnation-a"
+    }
+
+    private fun zeroDeltaLlm(): LlmClient = object : LlmClient {
+        override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+            internalLogic = "logic references HEURISTIC_FALLBACK",
+            vectorDelta = mapOf(
+                "L" to 0.0f, "P" to 0.0f, "E" to 0.0f, "S" to 0.0f,
+                "tau" to 0.0f, "V" to 0.0f, "M" to 0.0f, "F" to 0.0f,
+            ),
+            response = "hb",
+        )
     }
 }
 

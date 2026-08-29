@@ -1,10 +1,16 @@
 package io.openeden.runtime.tick
 
 import java.security.SecureRandom
+import java.util.Random
 
 object SecureRandomSineWaveFluctuation {
     fun profile(
         random: SecureRandom = SecureRandom(),
+        maxAmplitude: Float = 0.02f,
+    ): SineWaveFluctuationProfile = profile(random as Random, maxAmplitude)
+
+    internal fun profile(
+        random: Random,
         maxAmplitude: Float = 0.02f,
     ): SineWaveFluctuationProfile {
         val dimensions = List(8) {

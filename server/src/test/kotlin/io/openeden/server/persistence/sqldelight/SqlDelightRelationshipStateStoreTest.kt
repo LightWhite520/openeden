@@ -138,7 +138,7 @@ class SqlDelightRelationshipStateStoreTest {
     }
 
     @Test
-    fun `version 17 relationship state migrates deterministically through version 19`() = runTest {
+    fun `version 17 relationship state migrates deterministically through version 20`() = runTest {
         val dbPath = Files.createTempFile("openeden-relationship-v17", ".db")
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
             connection.createStatement().use { statement ->
@@ -147,6 +147,7 @@ class SqlDelightRelationshipStateStoreTest {
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_STATE_SQL)
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_SQL)
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_INDEX_SQL)
+                statement.executeUpdate(VERSION_19_INCARNATION_STATE_SQL)
                 statement.executeUpdate(
                     """
                     INSERT INTO relationship_state VALUES (
@@ -209,7 +210,7 @@ class SqlDelightRelationshipStateStoreTest {
         DriverManager.getConnection("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { connection ->
             connection.createStatement().use { statement ->
                 statement.executeQuery("PRAGMA user_version").use { result ->
-                    assertEquals(19L, result.getLong(1))
+                    assertEquals(20L, result.getLong(1))
                     assertEquals(Database.Schema.version, result.getLong(1))
                 }
             }
@@ -268,6 +269,7 @@ class SqlDelightRelationshipStateStoreTest {
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_STATE_SQL)
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_SQL)
                 statement.executeUpdate(LEGACY_PROMPT_HISTORY_CHUNKS_INDEX_SQL)
+                statement.executeUpdate(VERSION_19_INCARNATION_STATE_SQL)
                 statement.execute("PRAGMA user_version = 14")
             }
         }
@@ -307,6 +309,33 @@ class SqlDelightRelationshipStateStoreTest {
     )
 
     private companion object {
+        val VERSION_19_INCARNATION_STATE_SQL =
+            """
+            CREATE TABLE incarnation_state (
+                singleton_id INTEGER NOT NULL PRIMARY KEY CHECK(singleton_id = 1),
+                active_incarnation_id TEXT NOT NULL,
+                created_at_ms INTEGER NOT NULL,
+                lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE',
+                lifecycle_changed_at_ms INTEGER NOT NULL DEFAULT 0,
+                termination_reason TEXT,
+                lifecycle_request_id TEXT,
+                vector_json TEXT,
+                origin_json TEXT,
+                omega REAL,
+                evolution_index INTEGER,
+                persona_mode TEXT,
+                persona_start_sub_state TEXT,
+                last_user_activity_ms INTEGER,
+                last_runtime_tick_at_ms INTEGER,
+                shock_active INTEGER,
+                shock_intensity REAL,
+                shock_description TEXT,
+                shock_triggered_at_ms INTEGER,
+                shock_decay_lambda REAL,
+                shock_heartbeat_fired INTEGER
+            )
+            """.trimIndent()
+
         val VERSION_17_RELATIONSHIP_STATE_SQL =
             """
             CREATE TABLE relationship_state (

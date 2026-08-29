@@ -5,9 +5,20 @@ import io.openeden.bio.BioVector
 import io.openeden.persona.PersonaMode
 import io.openeden.persona.PersonaSubState
 import io.openeden.runtime.affect.OmegaState
+import io.openeden.runtime.affect.OmegaAccumulationConfig
 import io.openeden.runtime.affect.ShockState
+import io.openeden.runtime.inference.DirectInferenceExecutor
 import io.openeden.runtime.incarnation.IncarnationState
 import io.openeden.runtime.incarnation.IncarnationStateStore
+import io.openeden.runtime.session.MutableSessionStateStore
+import io.openeden.runtime.state.RuntimeConfig
+import io.openeden.runtime.state.BackgroundDynamicsReducer
+import io.openeden.runtime.state.VectorWriteService
+import io.openeden.runtime.tick.RuntimeTickScheduler
+import io.openeden.runtime.tick.SineWaveDimension
+import io.openeden.runtime.tick.SineWaveFluctuationEngine
+import io.openeden.runtime.tick.SineWaveFluctuationProfile
+import io.openeden.server.bootstrap.IncarnationBackgroundDynamicsReducerFactory
 import io.openeden.relationship.RelationshipEvaluation
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.TurnCommitOutcome
@@ -19,6 +30,7 @@ import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 class SqlDelightIncarnationStateStoreTest {
     private val tempDir = Files.createTempDirectory("openeden-incarnation-state-test")
@@ -76,6 +88,181 @@ class SqlDelightIncarnationStateStoreTest {
     }
 
     @Test
+    fun `version nineteen established state backfills consumed dynamics from runtime tick`() = runTest {
+        openVersionNineteenEstablishedState(lastRuntimeTickAtMs = 4_321L)
+
+        SqlDelightIncarnationStateStore.open(dbPath).use { store ->
+            val state = store.read(activeIncarnationId)
+
+            assertEquals(4_321L, state.lastRuntimeTickAtMs)
+            assertEquals(4_321L, state.lastVectorDynamicsAtMs)
+            assertEquals(0L, state.centroidRevision)
+            assertEquals(0L, state.originRevision)
+        }
+    }
+
+    @Test
+    fun `restart between turn and tick preserves complete dynamics composition`() = runTest {
+        val transcript = SqlDelightTranscriptStore.open(dbPath)
+        val incarnationId = transcript.activeIncarnation().id
+        val fluctuation = SineWaveFluctuationEngine(
+            SineWaveFluctuationProfile(
+                dimensions = List(8) {
+                    SineWaveDimension(amplitude = 0.04f, frequencyHz = 0.002f, phaseRadians = 0.1f)
+                },
+            ),
+        )
+        val initial = IncarnationStateStore.neutral(
+            incarnationId,
+            PersonaMode.GROWTH,
+            PersonaSubState.PRE_COMMAND,
+        ).copy(
+            origin = BioVector.Neutral.apply(fluctuation.deltaBetween(0L, 1_000L)),
+            lastRuntimeTickAtMs = 0L,
+            lastVectorDynamicsAtMs = 0L,
+        )
+        SqlDelightIncarnationStateStore.open(dbPath).use { store ->
+            store.readOrCreate(incarnationId, PersonaMode.GROWTH, PersonaSubState.PRE_COMMAND)
+            store.write(initial)
+            VectorWriteService(
+                incarnationStore = store,
+                backgroundDynamicsReducer = BackgroundDynamicsReducer(
+                    fluctuation = fluctuation,
+                    omegaConfig = OmegaAccumulationConfig(sWearRate = 0.0f, dissonanceWearRate = 0.0f),
+                    startedAtMs = 0L,
+                ),
+            ).commitIncarnationTurn(
+                incarnationId = incarnationId,
+                baseSnapshot = initial.vector,
+                preTickedSnapshot = initial.vector,
+                delta = io.openeden.bio.VectorDelta.Zero,
+                shockSignal = null,
+                lastUserActivityMs = null,
+                reductionAtMs = 1_000L,
+            )
+        }
+
+        SqlDelightIncarnationStateStore.open(dbPath).use { reopened ->
+            val reducer = BackgroundDynamicsReducer(
+                fluctuation = fluctuation,
+                omegaConfig = OmegaAccumulationConfig(sWearRate = 0.0f, dissonanceWearRate = 0.0f),
+                startedAtMs = 0L,
+            )
+            RuntimeTickScheduler(
+                store = MutableSessionStateStore(),
+                writer = VectorWriteService(
+                    incarnationStore = reopened,
+                    backgroundDynamicsReducer = reducer,
+                ),
+                fluctuation = fluctuation,
+                inferenceExecutor = DirectInferenceExecutor,
+                config = RuntimeConfig.Default.copy(
+                    omega = OmegaAccumulationConfig(sWearRate = 0.0f, dissonanceWearRate = 0.0f),
+                ),
+                startedAtMs = 0L,
+                incarnationStore = reopened,
+                transcriptStore = transcript,
+            ).evaluateOnce(nowMs = 2_000L)
+
+            val state = reopened.read(incarnationId)
+            assertEquals(
+                initial.vector
+                    .apply(fluctuation.deltaBetween(0L, 1_000L))
+                    .apply(fluctuation.deltaBetween(1_000L, 2_000L)),
+                state.vector,
+            )
+            assertEquals(2_000L, state.lastVectorDynamicsAtMs)
+        }
+        transcript.close()
+    }
+
+    @Test
+    fun `independent production dynamics constructions preserve fluctuation coordinates across restart`() = runTest {
+        val transcript = SqlDelightTranscriptStore.open(dbPath)
+        val incarnationId = transcript.activeIncarnation().id
+        val omegaConfig = OmegaAccumulationConfig(sWearRate = 0.0f, dissonanceWearRate = 0.0f)
+        val firstStartedAtMs = 1_700_000_000_000L
+        val turnAtMs = firstStartedAtMs + 1_000L
+        val tickAtMs = firstStartedAtMs + 2_000L
+        val firstFactory = IncarnationBackgroundDynamicsReducerFactory(omegaConfig)
+        val initial = IncarnationStateStore.neutral(
+            incarnationId,
+            PersonaMode.GROWTH,
+            PersonaSubState.PRE_COMMAND,
+        ).copy(
+            lastRuntimeTickAtMs = firstStartedAtMs,
+            lastVectorDynamicsAtMs = firstStartedAtMs,
+        )
+        val expectedAtTick = SqlDelightIncarnationStateStore.open(dbPath).use { store ->
+            store.readOrCreate(incarnationId, PersonaMode.GROWTH, PersonaSubState.PRE_COMMAND)
+            store.write(initial)
+            val afterTurn = VectorWriteService(
+                incarnationStore = store,
+                backgroundDynamicsReducerFactory = firstFactory::create,
+            ).commitIncarnationTurn(
+                incarnationId = incarnationId,
+                baseSnapshot = initial.vector,
+                preTickedSnapshot = initial.vector,
+                delta = io.openeden.bio.VectorDelta.Zero,
+                shockSignal = null,
+                lastUserActivityMs = null,
+                reductionAtMs = turnAtMs,
+            ).state
+            DirectInferenceExecutor.run {
+                firstFactory.create(incarnationId).reduce(
+                    vector = afterTurn.vector,
+                    shockState = afterTurn.shockState,
+                    omega = afterTurn.omega,
+                    previousAtMs = turnAtMs,
+                    throughAtMs = tickAtMs,
+                )
+            }
+        }
+
+        val secondFactory = IncarnationBackgroundDynamicsReducerFactory(omegaConfig)
+        SqlDelightIncarnationStateStore.open(dbPath).use { reopened ->
+            RuntimeTickScheduler(
+                store = MutableSessionStateStore(),
+                writer = VectorWriteService(
+                    incarnationStore = reopened,
+                    backgroundDynamicsReducerFactory = secondFactory::create,
+                ),
+                inferenceExecutor = DirectInferenceExecutor,
+                config = RuntimeConfig.Default.copy(omega = omegaConfig),
+                startedAtMs = 0L,
+                incarnationStore = reopened,
+                transcriptStore = transcript,
+            ).evaluateOnce(nowMs = tickAtMs)
+
+            val state = reopened.read(incarnationId)
+            assertEquals(expectedAtTick.vector, state.vector)
+            assertEquals(tickAtMs, state.lastVectorDynamicsAtMs)
+        }
+        transcript.close()
+    }
+
+    @Test
+    fun `fresh incarnation construction replaces the fluctuation coordinate identity`() = runTest {
+        val factory = IncarnationBackgroundDynamicsReducerFactory(
+            OmegaAccumulationConfig(sWearRate = 0.0f, dissonanceWearRate = 0.0f),
+        )
+        suspend fun vectorAfterInterval(incarnationId: String): BioVector = DirectInferenceExecutor.run {
+            factory.create(incarnationId).reduce(
+                vector = BioVector.Neutral,
+                shockState = null,
+                omega = OmegaState(0.0f),
+                previousAtMs = 1_700_000_000_000L,
+                throughAtMs = 1_700_000_060_000L,
+            ).vector
+        }
+
+        assertNotEquals(
+            vectorAfterInterval("incarnation-before-reset"),
+            vectorAfterInterval("incarnation-after-reset"),
+        )
+    }
+
+    @Test
     fun `fresh schema initializes Bio state for transcript active incarnation`() = runTest {
         val transcriptStore = SqlDelightTranscriptStore.open(dbPath)
         val incarnation = try {
@@ -114,6 +301,9 @@ class SqlDelightIncarnationStateStoreTest {
             personaStartSubState = PersonaSubState.TRUE_SELF,
             lastUserActivityMs = 1_700_000_123_456L,
             lastRuntimeTickAtMs = 1_700_000_223_456L,
+            lastVectorDynamicsAtMs = 1_700_000_323_456L,
+            centroidRevision = 12L,
+            originRevision = 11L,
             shockState = ShockState(
                 active = true,
                 intensity = 0.71f,
@@ -308,6 +498,58 @@ class SqlDelightIncarnationStateStoreTest {
                 lastUserActivityMs = 1_000L,
             )
             driver.execute(null, "PRAGMA user_version = 11", 0)
+        }
+    }
+
+    private fun openVersionNineteenEstablishedState(lastRuntimeTickAtMs: Long) {
+        val vectorJson = Json.encodeToString(BioVector.serializer(), BioVector.Neutral)
+        JdbcSqliteDriver("jdbc:sqlite:${dbPath.toAbsolutePath()}").use { driver ->
+            driver.execute(
+                null,
+                """
+                CREATE TABLE incarnation_state (
+                    singleton_id INTEGER NOT NULL PRIMARY KEY CHECK(singleton_id = 1),
+                    active_incarnation_id TEXT NOT NULL,
+                    created_at_ms INTEGER NOT NULL,
+                    lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE',
+                    lifecycle_changed_at_ms INTEGER NOT NULL DEFAULT 0,
+                    termination_reason TEXT,
+                    lifecycle_request_id TEXT,
+                    vector_json TEXT,
+                    origin_json TEXT,
+                    omega REAL,
+                    evolution_index INTEGER,
+                    persona_mode TEXT,
+                    persona_start_sub_state TEXT,
+                    last_user_activity_ms INTEGER,
+                    last_runtime_tick_at_ms INTEGER,
+                    shock_active INTEGER,
+                    shock_intensity REAL,
+                    shock_description TEXT,
+                    shock_triggered_at_ms INTEGER,
+                    shock_decay_lambda REAL,
+                    shock_heartbeat_fired INTEGER
+                )
+                """.trimIndent(),
+                0,
+            )
+            driver.execute(
+                null,
+                """
+                INSERT INTO incarnation_state(
+                    singleton_id, active_incarnation_id, created_at_ms, lifecycle_status,
+                    lifecycle_changed_at_ms, vector_json, origin_json, omega, evolution_index,
+                    persona_mode, persona_start_sub_state, last_runtime_tick_at_ms
+                ) VALUES (1, ?, 0, 'ACTIVE', 0, ?, ?, 0.0, 7, 'growth', 'pre_command', ?)
+                """.trimIndent(),
+                4,
+            ) {
+                bindString(0, activeIncarnationId)
+                bindString(1, vectorJson)
+                bindString(2, vectorJson)
+                bindLong(3, lastRuntimeTickAtMs)
+            }
+            driver.execute(null, "PRAGMA user_version = 19", 0)
         }
     }
 
@@ -511,8 +753,8 @@ class SqlDelightIncarnationStateStoreTest {
         }
     }
 
-    private inline fun SqlDelightIncarnationStateStore.use(block: (SqlDelightIncarnationStateStore) -> Unit) {
-        try {
+    private inline fun <T> SqlDelightIncarnationStateStore.use(block: (SqlDelightIncarnationStateStore) -> T): T {
+        return try {
             block(this)
         } finally {
             close()

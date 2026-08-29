@@ -96,7 +96,9 @@ class RuntimePipelineTest {
         assertEquals("CLI:owner", result.sessionId)
         assertEquals("ok", result.response)
         assertEquals(1, result.evolutionIndex)
-        assertEquals(BioVector.Neutral.copy(p = 0.6f), incarnationStore.read("development").vector)
+        val persistedVector = incarnationStore.read("development").vector
+        assertEquals(BioVector.Neutral, persistedVector.copy(p = BioVector.Neutral.p))
+        assertTrue(persistedVector.p in BioVector.Neutral.p..<0.6f)
         assertContains(result.traceTags, TraceTag.CodebookHeuristicFallback)
     }
 

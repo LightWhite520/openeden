@@ -176,8 +176,9 @@ class DevelopmentMessagePipeline(
         sessionId: String,
         emitEvent: suspend (DevelopmentMessageEvent) -> Unit,
     ): DevelopmentMessageResult {
+        val turnStartedAtMs = clock.nowMs()
         val traceContext = TraceContext(
-            traceId = "$sessionId:${clock.nowMs()}",
+            traceId = "$sessionId:$turnStartedAtMs",
             turnId = request.turnId,
             sessionId = sessionId,
         )
@@ -186,7 +187,7 @@ class DevelopmentMessagePipeline(
             personaMode = personaConfig.mode,
             personaStartSubState = personaConfig.startSubState,
         )
-        val userActivityMs = clock.nowMs().takeIf { request.source == TurnSource.USER }
+        val userActivityMs = turnStartedAtMs.takeIf { request.source == TurnSource.USER }
         if (userActivityMs != null) {
             val scopedState = store.read(sessionId)
             if (scopedState.lastUserActivityMs == null || scopedState.lastUserActivityMs < userActivityMs) {
@@ -241,11 +242,12 @@ class DevelopmentMessagePipeline(
             UserAffectState.Uncertain
         }
         val emotionSignal = inferenceExecutor.run {
-            if (request.emotionConfidence > 0.0f || request.emotionDelta != VectorDelta.Zero) {
+            val candidate = if (request.emotionConfidence > 0.0f || request.emotionDelta != VectorDelta.Zero) {
                 EmotionSignal(request.emotionDelta, request.emotionConfidence)
             } else {
                 observedAffect.toEmotionSignal(affectInfluenceMapper)
             }
+            candidate.safeForStateEffects()
         }
         trace(
             traceContext,
@@ -419,7 +421,7 @@ class DevelopmentMessagePipeline(
                 attributes = mapOf("committed_turn_id" to committedRetry.turnId),
             )
         }
-        val firstValidation = LlmOutputValidator.validate(firstOutput)
+        val firstValidation = LlmOutputValidator.validate(firstOutput, request.emotionConfidence)
         var validation = firstValidation
         var groundingTraceTags = emptySet<String>()
         if (firstValidation.isValid) {
@@ -448,7 +450,7 @@ class DevelopmentMessagePipeline(
                         repairedCacheMetrics.traceTags(),
                     attributes = repairedCacheMetrics.traceAttributes(),
                 )
-                val repairedValidation = LlmOutputValidator.validate(repairedOutput)
+                val repairedValidation = LlmOutputValidator.validate(repairedOutput, request.emotionConfidence)
                 if (!repairedValidation.isValid) {
                     validation = repairedValidation.copy(
                         errors = repairedValidation.errors + firstGrounding.errors,
@@ -484,6 +486,7 @@ class DevelopmentMessagePipeline(
                     .map { it.text }
                     .takeLast(RECENT_ASSISTANT_VALIDATION_TURNS),
                 llmCacheMeasurements = llmCacheMeasurements,
+                emotionConfidence = request.emotionConfidence,
             )
         }
         trace(
@@ -540,7 +543,7 @@ class DevelopmentMessagePipeline(
                     preTicked = preTick.preTicked,
                     origin = current.origin,
                     omega = current.omega,
-                    delta = validatedDelta,
+                    delta = VectorDelta.Zero,
                     response = publicTurn.assistantText,
                     incarnationId = incarnationId,
                     canonicalSubjectId = canonicalSubjectId,
@@ -572,11 +575,15 @@ class DevelopmentMessagePipeline(
         val write = if (validation.isValid && validatedDelta != null) {
             val detectedShock = inferenceExecutor.run {
                 ShockStateEngine.detectFromLlmOutput(
-                    vectorDelta = validatedDelta,
+                    vectorDelta = validatedDelta.safeForStateEffects(),
                     emotionConfidence = emotionSignal.confidence,
                     internalLogic = validatedOutput?.internalLogic.orEmpty(),
                 )
             }
+            val reductionContext = emotionSignal.confidence
+                .takeIf { it.isFinite() && it in AUTHORITATIVE_EXTERNAL_CONFIDENCE..1.0f }
+                ?.let(VectorDeltaContext::Authoritative)
+                ?: VectorDeltaContext.Ordinary
             withContext(NonCancellable) {
                 vectorWriteService.commitIncarnationTurn(
                     incarnationId = incarnationId,
@@ -584,16 +591,24 @@ class DevelopmentMessagePipeline(
                     preTickedSnapshot = preTick.preTicked,
                     delta = validatedDelta,
                     shockSignal = detectedShock,
+                    reductionContext = reductionContext,
+                    reductionAtMs = turnStartedAtMs,
                     // Heartbeat turns evolve state but must not silence future proactive turns.
                     lastUserActivityMs = userActivityMs,
                     turn = publicTurn,
                     postCommitPlan = postCommitPlan,
+                    finalizePreparedMemory = committedRetry == null,
                 )
             }
         } else {
             VectorWriteResult(state = current, traceTags = emptySet())
         }
-        trace(traceContext, "state_commit", tags = write.traceTags)
+        trace(
+            traceContext,
+            "state_commit",
+            tags = write.traceTags,
+            attributes = write.vectorReduction?.traceAttributes().orEmpty(),
+        )
         val alreadyCommitted = write.turnCommitOutcome == TurnCommitOutcome.ALREADY_COMMITTED
 
         val sourceTags: Set<String> = if (request.source == TurnSource.HEARTBEAT) setOf(TraceTag.HeartbeatSource) else emptySet()
@@ -601,6 +616,7 @@ class DevelopmentMessagePipeline(
         var diaryOutcome = DiaryOutcome("not_triggered", emptySet())
         var memoryTraceTags = MemoryWriteOutcome(null, emptySet())
         var centroidTags = emptySet<String>()
+        var centroidAttributes = emptyMap<String, String>()
         val durablePostCommit = if (
             publicTurn != null &&
             (write.turnCommitOutcome == TurnCommitOutcome.INSERTED || alreadyCommitted)
@@ -698,12 +714,18 @@ class DevelopmentMessagePipeline(
                         completeStage(stage)
                     }
                     TurnPostCommitStage.CENTROID -> {
+                        val candidateRevision = vectorWriteService.reserveCentroidRevision(incarnationId)
                         val updatedOrigin = memoryStore?.let {
                             inferenceExecutor.run { centroidProvider.centroidFor(incarnationId) }
                         }
-                        if (updatedOrigin != null && updatedOrigin != write.state.origin) {
-                            vectorWriteService.updateIncarnation(incarnationId) { it.copy(origin = updatedOrigin) }
-                            centroidTags = setOf(TraceTag.CentroidUpdated)
+                        if (updatedOrigin != null) {
+                            val centroidWrite = vectorWriteService.applyCentroidCandidate(
+                                incarnationId,
+                                candidateRevision,
+                                updatedOrigin,
+                            )
+                            centroidTags = centroidWrite.traceTags
+                            centroidAttributes = centroidWrite.traceAttributes
                         }
                         completeStage(stage)
                     }
@@ -726,10 +748,10 @@ class DevelopmentMessagePipeline(
                 prepareRawMemory(
                     request = request,
                     sessionId = sessionId,
-                    preTicked = preTick.preTicked,
-                    origin = current.origin,
+                    preTicked = write.state.vector,
+                    origin = write.state.origin,
                     omega = write.state.omega,
-                    delta = validation.delta,
+                    delta = write.vectorReduction?.committedDelta ?: VectorDelta.Zero,
                     response = validation.output.response,
                     incarnationId = incarnationId,
                     canonicalSubjectId = canonicalSubjectId,
@@ -737,10 +759,10 @@ class DevelopmentMessagePipeline(
             }
             if (rawMemory != null) {
                 memoryTraceTags = inferenceExecutor.run { writeRawMemory(rawMemory) }
-                val triggered = validation.delta.toList().any { kotlin.math.abs(it) > 0.0f }
+                val triggered = rawMemory.metadata.deltaVec.toList().any { kotlin.math.abs(it) > 0.0f }
                 if (triggered) {
                     val triggerOutcome = diaryTriggerCoordinator?.onVectorDelta(
-                        sessionId, rawMemory.id, validation.delta, rawMemory.metadata, clock.nowMs(),
+                        sessionId, rawMemory.id, rawMemory.metadata.deltaVec, rawMemory.metadata, clock.nowMs(),
                     ) ?: DiaryTriggerOutcome.fromTraceTags(
                         diaryQueue.tryEnqueue(
                             DiaryEvent(
@@ -757,15 +779,19 @@ class DevelopmentMessagePipeline(
                     )
                     diaryOutcome = triggerOutcome.toPipelineOutcome()
                 }
+                val candidateRevision = vectorWriteService.reserveCentroidRevision(incarnationId)
                 val updatedOrigin = inferenceExecutor.run { centroidProvider.centroidFor(incarnationId) }
-                if (updatedOrigin != write.state.origin) {
-                    vectorWriteService.updateIncarnation(incarnationId) { it.copy(origin = updatedOrigin) }
-                    centroidTags = setOf(TraceTag.CentroidUpdated)
-                }
+                val centroidWrite = vectorWriteService.applyCentroidCandidate(
+                    incarnationId,
+                    candidateRevision,
+                    updatedOrigin,
+                )
+                centroidTags = centroidWrite.traceTags
+                centroidAttributes = centroidWrite.traceAttributes
             }
         }
         trace(traceContext, "memory_write", tags = memoryTraceTags.traceTags)
-        trace(traceContext, "centroid_update", tags = centroidTags)
+        trace(traceContext, "centroid_update", tags = centroidTags, attributes = centroidAttributes)
         trace(traceContext, "diary_publish", tags = diaryOutcome.traceTags, attributes = mapOf("outcome" to diaryOutcome.label))
 
         trace(
@@ -815,12 +841,18 @@ class DevelopmentMessagePipeline(
         generationSettings: LlmGenerationSettings,
         recentAssistantResponses: List<String>,
         llmCacheMeasurements: MutableList<LlmCacheMetrics>,
+        emotionConfidence: Float,
     ): LlmValidationResult {
-        val schemaValidation = LlmOutputValidator.validate(output)
+        val schemaValidation = LlmOutputValidator.validate(output, emotionConfidence)
         if (!schemaValidation.isValid) return schemaValidation
 
         val policy = personaConfig.outputPolicy
-        val policyValidation = LlmOutputValidator.validate(output, policy, recentAssistantResponses)
+        val policyValidation = LlmOutputValidator.validate(
+            output,
+            policy,
+            recentAssistantResponses,
+            emotionConfidence,
+        )
         if (policyValidation.isValid) return policyValidation
 
         val rewriteInput = output.copy(cacheMetrics = null)
@@ -834,7 +866,12 @@ class DevelopmentMessagePipeline(
         }
         llmCacheMeasurements += rewritten.cacheMetrics ?: LlmCacheMetrics.Unobservable
         val responseOnly = output.copy(response = rewritten.response)
-        return LlmOutputValidator.validate(responseOnly, policy, recentAssistantResponses)
+        return LlmOutputValidator.validate(
+            responseOnly,
+            policy,
+            recentAssistantResponses,
+            emotionConfidence,
+        )
     }
 
     private fun publicVoiceRewritePrompt(prompt: BuiltPrompt, output: LlmOutput): BuiltPrompt = prompt.appendDynamic(
@@ -968,6 +1005,7 @@ class DevelopmentMessagePipeline(
         private const val RECENT_ASSISTANT_VALIDATION_TURNS = 8
         private const val PROMPT_HISTORY_CHUNK_TOKEN_BUDGET = 4_096
         private const val DEVELOPMENT_INCARNATION_ID = "development"
+        private const val AUTHORITATIVE_EXTERNAL_CONFIDENCE = 0.65f
 
         fun create(
             personaConfig: PersonaConfig,
@@ -1163,6 +1201,33 @@ private fun LlmCacheMetrics.traceTags(): Set<String> = when (availability) {
     io.openeden.llm.CacheMetricAvailability.REPORTED -> setOf(TraceTag.LlmCacheMeasured)
     io.openeden.llm.CacheMetricAvailability.UNOBSERVABLE -> setOf(TraceTag.LlmCacheUnobservable)
 }
+
+private fun VectorDeltaReduction.traceAttributes(): Map<String, String> = mapOf(
+    "vector_delta_proposed" to proposedDelta.traceValue(),
+    "vector_delta_effective" to effectiveDelta.traceValue(),
+    "vector_delta_homeostatic" to homeostaticDelta.traceValue(),
+    "vector_delta_committed" to committedDelta.traceValue(),
+    "vector_result" to result.traceValue(),
+    "vector_reasons" to reasons.sorted().joinToString(","),
+)
+
+private fun VectorDelta.traceValue(): String =
+    VECTOR_TRACE_NAMES.zip(toList()).joinToString(",") { (name, value) -> "$name=$value" }
+
+private fun VectorDelta.safeForStateEffects(): VectorDelta =
+    takeIf { delta -> delta.toList().all { it.isFinite() && it in -1.0f..1.0f } } ?: VectorDelta.Zero
+
+private fun EmotionSignal.safeForStateEffects(): EmotionSignal =
+    takeIf { signal ->
+        signal.confidence.isFinite() &&
+            signal.confidence in 0.0f..1.0f &&
+            signal.delta == signal.delta.safeForStateEffects()
+    } ?: EmotionSignal(VectorDelta.Zero, 0.0f)
+
+private fun BioVector.traceValue(): String =
+    VECTOR_TRACE_NAMES.zip(toList()).joinToString(",") { (name, value) -> "$name=$value" }
+
+private val VECTOR_TRACE_NAMES = listOf("L", "P", "E", "S", "tau", "V", "M", "F")
 
 private data class DiaryOutcome(
     val label: String,

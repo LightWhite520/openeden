@@ -6,4 +6,6 @@ data class VectorWriteResult<T>(
     val state: T,
     val traceTags: Set<String>,
     val turnCommitOutcome: TurnCommitOutcome? = null,
+    val vectorReduction: VectorDeltaReduction? = null,
+    val traceAttributes: Map<String, String> = emptyMap(),
 )

@@ -57,6 +57,49 @@ class LlmOutputValidatorTest {
     }
 
     @Test
+    fun `rejects every nonfinite or out of protocol range vector coordinate`() {
+        val invalidValues = listOf(
+            Float.NaN,
+            Float.POSITIVE_INFINITY,
+            Float.NEGATIVE_INFINITY,
+            1.01f,
+            -1.01f,
+        )
+
+        validDelta().keys.forEach { key ->
+            invalidValues.forEach { invalid ->
+                val output = validOutput(response = "response").copy(
+                    vectorDelta = validDelta().toMutableMap().apply { put(key, invalid) },
+                )
+
+                val result = LlmOutputValidator.validate(output)
+
+                assertFalse(result.isValid, "$key=$invalid must be rejected")
+                assertEquals(null, result.delta)
+            }
+        }
+    }
+
+    @Test
+    fun `rejects nonfinite or out of range emotion confidence`() {
+        listOf(
+            Float.NaN,
+            Float.POSITIVE_INFINITY,
+            Float.NEGATIVE_INFINITY,
+            1.01f,
+            -0.01f,
+        ).forEach { invalid ->
+            val result = LlmOutputValidator.validate(
+                output = validOutput(response = "response"),
+                emotionConfidence = invalid,
+            )
+
+            assertFalse(result.isValid, "confidence=$invalid must be rejected")
+            assertEquals(null, result.delta)
+        }
+    }
+
+    @Test
     fun `public response rejects matching persona pattern`() {
         val policy = PersonaOutputPolicy(
             prohibitedPublicPatterns = setOf("^收到[。！!\\s]*$"),

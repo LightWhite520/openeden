@@ -1,0 +1,8 @@
+ALTER TABLE incarnation_state ADD COLUMN last_vector_dynamics_at_ms INTEGER;
+
+ALTER TABLE incarnation_state ADD COLUMN centroid_revision INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE incarnation_state ADD COLUMN origin_revision INTEGER NOT NULL DEFAULT 0;
+
+UPDATE incarnation_state
+SET last_vector_dynamics_at_ms = last_runtime_tick_at_ms;

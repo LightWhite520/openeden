@@ -162,6 +162,9 @@ class SqlDelightIncarnationStateStore(
             shock_triggered_at_ms = shock?.triggeredAt?.toEpochMilliseconds(),
             shock_decay_lambda = shock?.decayLambda?.toDouble(),
             shock_heartbeat_fired = shock?.let { if (it.shockHeartbeatFired) 1L else 0L },
+            last_vector_dynamics_at_ms = state.lastVectorDynamicsAtMs,
+            centroid_revision = state.centroidRevision,
+            origin_revision = state.originRevision,
             active_incarnation_id = state.incarnationId,
         )
     }
@@ -183,6 +186,9 @@ class SqlDelightIncarnationStateStore(
             shock_triggered_at_ms = shock?.triggeredAt?.toEpochMilliseconds(),
             shock_decay_lambda = shock?.decayLambda?.toDouble(),
             shock_heartbeat_fired = shock?.let { if (it.shockHeartbeatFired) 1L else 0L },
+            last_vector_dynamics_at_ms = state.lastVectorDynamicsAtMs,
+            centroid_revision = state.centroidRevision,
+            origin_revision = state.originRevision,
             active_incarnation_id = state.incarnationId,
         )
     }
@@ -204,6 +210,9 @@ class SqlDelightIncarnationStateStore(
         shockTriggeredAtMs: Long?,
         shockDecayLambda: Double?,
         shockHeartbeatFired: Long?,
+        lastVectorDynamicsAtMs: Long?,
+        centroidRevision: Long,
+        originRevision: Long,
     ) = LoadedIncarnationState(
         incarnationId = incarnationId,
         vector = vectorJson?.let { json.decodeFromString(BioVector.serializer(), it) },
@@ -214,6 +223,9 @@ class SqlDelightIncarnationStateStore(
         personaStartSubState = personaStartSubState?.toPersonaSubState(),
         lastUserActivityMs = lastUserActivityMs,
         lastRuntimeTickAtMs = lastRuntimeTickAtMs,
+        lastVectorDynamicsAtMs = lastVectorDynamicsAtMs,
+        centroidRevision = centroidRevision,
+        originRevision = originRevision,
         shockState = shockActive?.let {
             ShockState(
                 active = it == 1L,
@@ -236,6 +248,9 @@ class SqlDelightIncarnationStateStore(
         personaStartSubState = checkNotNull(state.personaStartSubState) { "Persisted persona start is missing" },
         lastUserActivityMs = state.lastUserActivityMs,
         lastRuntimeTickAtMs = state.lastRuntimeTickAtMs,
+        lastVectorDynamicsAtMs = state.lastVectorDynamicsAtMs,
+        centroidRevision = state.centroidRevision,
+        originRevision = state.originRevision,
         shockState = state.shockState,
     )
 
@@ -291,6 +306,9 @@ class SqlDelightIncarnationStateStore(
         val personaStartSubState: PersonaSubState?,
         val lastUserActivityMs: Long?,
         val lastRuntimeTickAtMs: Long?,
+        val lastVectorDynamicsAtMs: Long?,
+        val centroidRevision: Long,
+        val originRevision: Long,
         val shockState: ShockState?,
     )
 

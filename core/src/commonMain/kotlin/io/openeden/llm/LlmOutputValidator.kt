@@ -6,18 +6,28 @@ import io.openeden.persona.PersonaOutputPolicy
 object LlmOutputValidator {
     private val requiredKeys = setOf("L", "P", "E", "S", "tau", "V", "M", "F")
 
-    fun validate(output: LlmOutput): LlmValidationResult = validateWithPolicy(output, null)
+    fun validate(
+        output: LlmOutput,
+        emotionConfidence: Float? = null,
+    ): LlmValidationResult = validateWithPolicy(output, null, emotionConfidence = emotionConfidence)
 
     fun validate(
         output: LlmOutput,
         policy: PersonaOutputPolicy,
         recentAssistantResponses: List<String> = emptyList(),
-    ): LlmValidationResult = validateWithPolicy(output, policy, recentAssistantResponses)
+        emotionConfidence: Float? = null,
+    ): LlmValidationResult = validateWithPolicy(
+        output,
+        policy,
+        recentAssistantResponses,
+        emotionConfidence,
+    )
 
     private fun validateWithPolicy(
         output: LlmOutput,
         policy: PersonaOutputPolicy?,
         recentAssistantResponses: List<String> = emptyList(),
+        emotionConfidence: Float? = null,
     ): LlmValidationResult {
         val errors = mutableListOf<String>()
         if (output.internalLogic.isBlank()) {
@@ -31,6 +41,16 @@ object LlmOutputValidator {
         }
         if ("D" in output.vectorDelta.keys) {
             errors += "D must not appear in vector_delta"
+        }
+        output.vectorDelta.forEach { (key, value) ->
+            if (!value.isFinite() || value !in -1.0f..1.0f) {
+                errors += "vector_delta.$key must be finite and within [-1.0, 1.0]"
+            }
+        }
+        if (emotionConfidence != null &&
+            (!emotionConfidence.isFinite() || emotionConfidence !in 0.0f..1.0f)
+        ) {
+            errors += "emotion_confidence must be finite and within [0.0, 1.0]"
         }
         if (policy != null && output.response.isNotBlank()) {
             if (policy.prohibitedPublicPhrases.any(output.response::contains)) {

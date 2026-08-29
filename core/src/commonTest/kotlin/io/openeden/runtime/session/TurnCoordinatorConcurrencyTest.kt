@@ -5,6 +5,7 @@ import io.openeden.runtime.pipeline.DevelopmentMessageRequest
 import io.openeden.runtime.incarnation.IncarnationState
 import io.openeden.runtime.incarnation.IncarnationStateStore
 import io.openeden.runtime.incarnation.MutableIncarnationStateStore
+import io.openeden.runtime.state.VectorWriteService
 
 
 import io.openeden.llm.LlmClient
@@ -18,11 +19,15 @@ import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
+import io.openeden.trace.TraceTag
+import io.openeden.bio.BioVector
+import io.openeden.bio.VectorDelta
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -45,7 +50,7 @@ class TurnCoordinatorConcurrencyTest {
         }.awaitAll()
 
         assertEquals(100L, fixture.state().evolutionIndex)
-        assertTrue(fixture.state().vector.p >= 0.99f)
+        assertTrue(fixture.state().vector.p in 0.5f..<0.99f)
         assertEquals(1, fixture.maximumConcurrentBioWrites)
     }
 
@@ -120,7 +125,132 @@ class TurnCoordinatorConcurrencyTest {
         assertEquals(1, maximumConcurrentCompletions)
         val state = incarnationStore.read("development")
         assertEquals(100L, state.evolutionIndex)
-        assertTrue(state.vector.p >= 0.99f)
+        assertTrue(state.vector.p in 0.5f..<0.99f)
+    }
+
+    @Test
+    fun `stale scope centroid cannot overwrite newer gated origin`() = runTest {
+        val sessions = MutableSessionStateStore()
+        val incarnations = MutableIncarnationStateStore(transcriptStore = sessions.transcript)
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        ).copy(origin = BioVector.Neutral.copy(p = 0.2f))
+        incarnations.write(initial)
+        val writer = VectorWriteService(incarnationStore = incarnations)
+        val newerOrigin = BioVector.Neutral.copy(p = 0.7f)
+        val newerPersisted = CompletableDeferred<Unit>()
+
+        val staleScope = async {
+            newerPersisted.await()
+            writer.commitIncarnationTurn(
+                incarnationId = initial.incarnationId,
+                baseSnapshot = initial.vector,
+                preTickedSnapshot = initial.vector,
+                delta = VectorDelta.Zero,
+                shockSignal = null,
+                lastUserActivityMs = null,
+                reductionAtMs = 1_000L,
+            )
+        }
+        val newerScope = async {
+            writer.updateIncarnation(initial.incarnationId) { it.copy(origin = newerOrigin) }
+            newerPersisted.complete(Unit)
+        }
+
+        newerScope.await()
+        staleScope.await()
+
+        assertEquals(newerOrigin, incarnations.read(initial.incarnationId).origin)
+    }
+
+    @Test
+    fun `delayed same evolution centroid candidate cannot overwrite newer revision`() = runTest {
+        val incarnations = MutableIncarnationStateStore()
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        val writer = VectorWriteService(incarnationStore = incarnations)
+        val delayedRevision = writer.reserveCentroidRevision(initial.incarnationId)
+        val newerRevision = writer.reserveCentroidRevision(initial.incarnationId)
+        val newerOrigin = BioVector.Neutral.copy(p = 0.7f)
+
+        val accepted = writer.applyCentroidCandidate(initial.incarnationId, newerRevision, newerOrigin)
+        val rejected = writer.applyCentroidCandidate(
+            initial.incarnationId,
+            delayedRevision,
+            BioVector.Neutral.copy(p = 0.2f),
+        )
+
+        assertTrue(accepted.traceTags.contains(TraceTag.CentroidUpdated))
+        assertTrue(rejected.traceTags.isEmpty())
+        assertEquals(newerOrigin, rejected.state.origin)
+        assertEquals(newerRevision, rejected.state.centroidRevision)
+        assertEquals(newerRevision, rejected.state.originRevision)
+        assertEquals(0L, rejected.state.evolutionIndex)
+    }
+
+    @Test
+    fun `concurrent scopes at same evolution preserve newest centroid revision`() = runTest {
+        val incarnations = MutableIncarnationStateStore()
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        val writer = VectorWriteService(incarnationStore = incarnations)
+        val firstRevision = writer.reserveCentroidRevision(initial.incarnationId)
+        val secondRevision = writer.reserveCentroidRevision(initial.incarnationId)
+        val newerApplied = CompletableDeferred<Unit>()
+        val newerOrigin = BioVector.Neutral.copy(e = 0.8f)
+
+        val delayedScope = async {
+            newerApplied.await()
+            writer.applyCentroidCandidate(
+                initial.incarnationId,
+                firstRevision,
+                BioVector.Neutral.copy(e = 0.1f),
+            )
+        }
+        val newerScope = async {
+            writer.applyCentroidCandidate(initial.incarnationId, secondRevision, newerOrigin).also {
+                newerApplied.complete(Unit)
+            }
+        }
+
+        newerScope.await()
+        delayedScope.await()
+        val persisted = incarnations.read(initial.incarnationId)
+        assertEquals(newerOrigin, persisted.origin)
+        assertEquals(secondRevision, persisted.originRevision)
+        assertEquals(0L, persisted.evolutionIndex)
+    }
+
+    @Test
+    fun `stale heartbeat centroid cannot overwrite newer user candidate`() = runTest {
+        val incarnations = MutableIncarnationStateStore()
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        val writer = VectorWriteService(incarnationStore = incarnations)
+        val heartbeatRevision = writer.reserveCentroidRevision(initial.incarnationId)
+        val userRevision = writer.reserveCentroidRevision(initial.incarnationId)
+        val userOrigin = BioVector.Neutral.copy(v = 0.65f)
+
+        writer.applyCentroidCandidate(initial.incarnationId, userRevision, userOrigin)
+        val heartbeatResult = writer.applyCentroidCandidate(
+            initial.incarnationId,
+            heartbeatRevision,
+            BioVector.Neutral.copy(v = 0.25f),
+        )
+
+        assertEquals(userOrigin, heartbeatResult.state.origin)
+        assertEquals(userRevision, heartbeatResult.state.originRevision)
     }
 
     private fun testPersonaConfig(): PersonaConfig = PersonaConfig(

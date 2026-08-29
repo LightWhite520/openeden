@@ -19,7 +19,10 @@ CREATE TABLE incarnation_state (
     shock_description TEXT,
     shock_triggered_at_ms INTEGER,
     shock_decay_lambda REAL,
-    shock_heartbeat_fired INTEGER
+    shock_heartbeat_fired INTEGER,
+    last_vector_dynamics_at_ms INTEGER,
+    centroid_revision INTEGER NOT NULL DEFAULT 0,
+    origin_revision INTEGER NOT NULL DEFAULT 0
 );
 
 selectLifecycle:
@@ -46,14 +49,16 @@ SET active_incarnation_id = ?, created_at_ms = ?, lifecycle_status = 'ACTIVE',
     persona_mode = NULL, persona_start_sub_state = NULL, last_user_activity_ms = NULL,
     last_runtime_tick_at_ms = NULL, shock_active = NULL, shock_intensity = NULL,
     shock_description = NULL, shock_triggered_at_ms = NULL, shock_decay_lambda = NULL,
-    shock_heartbeat_fired = NULL
+    shock_heartbeat_fired = NULL, last_vector_dynamics_at_ms = NULL,
+    centroid_revision = 0, origin_revision = 0
 WHERE singleton_id = 1;
 
 selectBioByIncarnationId:
 SELECT active_incarnation_id, vector_json, origin_json, omega, evolution_index,
        persona_mode, persona_start_sub_state, last_user_activity_ms, last_runtime_tick_at_ms,
        shock_active, shock_intensity, shock_description, shock_triggered_at_ms,
-       shock_decay_lambda, shock_heartbeat_fired
+       shock_decay_lambda, shock_heartbeat_fired, last_vector_dynamics_at_ms,
+       centroid_revision, origin_revision
 FROM incarnation_state
 WHERE singleton_id = 1 AND active_incarnation_id = ?;
 
@@ -62,7 +67,8 @@ UPDATE incarnation_state
 SET vector_json = ?, origin_json = ?, omega = ?, evolution_index = ?, persona_mode = ?,
     persona_start_sub_state = ?, last_user_activity_ms = ?, last_runtime_tick_at_ms = ?,
     shock_active = ?, shock_intensity = ?, shock_description = ?, shock_triggered_at_ms = ?,
-    shock_decay_lambda = ?, shock_heartbeat_fired = ?
+    shock_decay_lambda = ?, shock_heartbeat_fired = ?, last_vector_dynamics_at_ms = ?,
+    centroid_revision = ?, origin_revision = ?
 WHERE singleton_id = 1 AND active_incarnation_id = ? AND vector_json IS NULL;
 
 updateBio:
@@ -70,5 +76,6 @@ UPDATE incarnation_state
 SET vector_json = ?, origin_json = ?, omega = ?, evolution_index = ?, persona_mode = ?,
     persona_start_sub_state = ?, last_user_activity_ms = ?, last_runtime_tick_at_ms = ?,
     shock_active = ?, shock_intensity = ?, shock_description = ?, shock_triggered_at_ms = ?,
-    shock_decay_lambda = ?, shock_heartbeat_fired = ?
+    shock_decay_lambda = ?, shock_heartbeat_fired = ?, last_vector_dynamics_at_ms = ?,
+    centroid_revision = ?, origin_revision = ?
 WHERE singleton_id = 1 AND active_incarnation_id = ?;

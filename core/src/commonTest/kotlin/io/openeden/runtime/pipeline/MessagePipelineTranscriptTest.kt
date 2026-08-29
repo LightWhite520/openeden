@@ -190,8 +190,8 @@ class MessagePipelineTranscriptTest {
         assertEquals("我记住了，接下来会照这个做。", relationshipAssistantText)
         val memory = memories.recent("CLI:local", 10).single()
         assertContains(memory.content, "response=我记住了，接下来会照这个做。")
-        assertEquals(0.7f, result.updatedVector.l)
-        assertEquals(0.2f, memory.metadata.deltaVec.l)
+        assertTrue(result.updatedVector.l in 0.5f..<0.7f)
+        assertEquals(0.06f, memory.metadata.deltaVec.l, absoluteTolerance = 0.000001f)
     }
 
     @Test

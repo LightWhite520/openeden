@@ -17,7 +17,9 @@ import io.openeden.runtime.inference.RecordingInferenceExecutor
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionTurnGate
 import io.openeden.runtime.state.StoredOriginCentroidProvider
+import io.openeden.runtime.state.HomeostasisCentroidProvider
 import io.openeden.runtime.state.VectorWriteService
+import io.openeden.runtime.state.BackgroundDynamicsReducer
 
 
 import io.openeden.bio.BioVector
@@ -52,6 +54,10 @@ import io.openeden.relationship.UserAffectInfluenceMapper
 import io.openeden.trace.TraceTag
 import io.openeden.trace.TraceSpan
 import io.openeden.trace.TraceStore
+import io.openeden.runtime.affect.OmegaAccumulationConfig
+import io.openeden.runtime.tick.SineWaveDimension
+import io.openeden.runtime.tick.SineWaveFluctuationEngine
+import io.openeden.runtime.tick.SineWaveFluctuationProfile
 import io.openeden.transcript.InMemoryTranscriptStore
 import io.openeden.llm.CacheMetricAvailability
 import kotlin.test.Test
@@ -427,6 +433,412 @@ class MessagePipelineTest {
     }
 
     @Test
+    fun `user turn traces proposed effective and homeostatic vector reduction`() = runTest {
+        val traces = io.openeden.trace.InMemoryTraceStore()
+        val sessions = MutableSessionStateStore()
+        val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = sessions.transcript,
+        )
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        )
+        incarnations.write(initial.copy(vector = initial.vector.copy(p = 0.98f)))
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            incarnationStateStore = incarnations,
+            traceStore = traces,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "ordinary turn references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta().toMutableMap().apply { put("P", 0.1f) },
+                    response = "response",
+                )
+            },
+        )
+
+        val result = pipeline.handle(testRequest().copy(emotionConfidence = 0.49f))
+
+        assertTrue(result.updatedVector.p in 0.98f..<0.99f)
+        val commitTrace = traces.snapshot().single { it.stage == "state_commit" }
+        assertTrue("vector_delta_proposed" in commitTrace.attributes)
+        assertTrue("vector_delta_effective" in commitTrace.attributes)
+        assertTrue("vector_delta_homeostatic" in commitTrace.attributes)
+        assertTrue("vector_result" in commitTrace.attributes)
+        assertTrue("vector_reasons" in commitTrace.attributes)
+    }
+
+    @Test
+    fun `nonfinite model delta rejects the public turn without state or memory effects`() = runTest {
+        val traces = io.openeden.trace.InMemoryTraceStore()
+        val sessions = MutableSessionStateStore()
+        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = sessions.transcript,
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            incarnationStateStore = incarnations,
+            traceStore = traces,
+            memoryStore = memories,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "invalid delta turn references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta().toMutableMap().apply { put("P", Float.NaN) },
+                    response = "response",
+                )
+            },
+        )
+
+        val result = pipeline.handle(testRequest())
+
+        assertEquals(null, result.response)
+        assertEquals(0L, result.evolutionIndex)
+        assertEquals(BioVector.Neutral, result.updatedVector)
+        assertTrue(result.updatedVector.toList().all(Float::isFinite))
+        assertTrue(memories.recent("QQ:100", 1).isEmpty())
+        assertTrue(result.validationErrors.isNotEmpty())
+        assertTrue(
+            traces.snapshot()
+                .single { it.stage == "state_commit" }
+                .tags
+                .none { it == io.openeden.trace.TraceTag.VectorWriteSerialized },
+        )
+    }
+
+    @Test
+    fun `nonfinite P or F threshold combinations cannot trigger shock or omega`() = runTest {
+        val cases = listOf(
+            "nan-p" to validDelta().toMutableMap().apply {
+                put("P", Float.NaN)
+                put("F", 0.4f)
+            },
+            "infinite-f" to validDelta().toMutableMap().apply {
+                put("P", -0.5f)
+                put("F", Float.POSITIVE_INFINITY)
+            },
+        )
+
+        for ((caseName, modelDelta) in cases) {
+            val sessions = MutableSessionStateStore()
+            val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+            val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+                transcriptStore = sessions.transcript,
+            )
+            val pipeline = DevelopmentMessagePipeline.create(
+                personaConfig = testPersonaConfig(),
+                store = sessions,
+                incarnationStateStore = incarnations,
+                memoryStore = memories,
+                llmClient = object : io.openeden.llm.LlmClient {
+                    override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                        internalLogic = "invalid shock turn references HEURISTIC_FALLBACK",
+                        vectorDelta = modelDelta,
+                        response = "response",
+                    )
+                },
+            )
+
+            val result = pipeline.handle(
+                testRequest().copy(turnId = "invalid-shock-$caseName", emotionConfidence = 0.9f),
+            )
+            val state = incarnations.read("development")
+
+            assertEquals(null, result.response)
+            assertEquals(0L, result.evolutionIndex)
+            assertEquals(null, state.shockState, caseName)
+            assertEquals(0.0f, state.omega.value, caseName)
+            assertTrue(state.vector.toList().all(Float::isFinite), caseName)
+            assertTrue(memories.recent("QQ:100", 1).isEmpty(), caseName)
+        }
+    }
+
+    @Test
+    fun `nonfinite external confidence cannot authorize shock`() = runTest {
+        val sessions = MutableSessionStateStore()
+        val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = sessions.transcript,
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            incarnationStateStore = incarnations,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "invalid confidence turn references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta().toMutableMap().apply {
+                        put("P", -0.5f)
+                        put("F", 0.4f)
+                    },
+                    response = "response",
+                )
+            },
+        )
+
+        val result = pipeline.handle(
+            testRequest().copy(turnId = "invalid-shock-confidence", emotionConfidence = Float.POSITIVE_INFINITY),
+        )
+        val state = incarnations.read("development")
+
+        assertEquals(null, result.response)
+        assertEquals(0L, result.evolutionIndex)
+        assertEquals(null, state.shockState)
+        assertEquals(0.0f, state.omega.value)
+        assertTrue(state.vector.toList().all(Float::isFinite))
+    }
+
+    @Test
+    fun `invalid high confidence delta cannot plan relationship or memory side effects`() = runTest {
+        val sessions = MutableSessionStateStore()
+        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val relationships = InMemoryRelationshipStateStore()
+        var relationshipEvaluations = 0
+        val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = sessions.transcript,
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            incarnationStateStore = incarnations,
+            memoryStore = memories,
+            relationshipStore = relationships,
+            relationshipEventEvaluator = object : RelationshipEventEvaluator {
+                override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
+                    relationshipEvaluations += 1
+                    return RelationshipEvaluation(emptyList(), confidence = 1.0f)
+                }
+            },
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "invalid authoritative turn references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta().toMutableMap().apply {
+                        put("P", Float.NEGATIVE_INFINITY)
+                        put("F", 0.4f)
+                    },
+                    response = "must not be delivered",
+                )
+            },
+        )
+
+        val result = pipeline.handle(
+            testRequest().copy(turnId = "invalid-authoritative", emotionConfidence = 0.9f),
+        )
+        val state = incarnations.read("development")
+
+        assertEquals(null, result.response)
+        assertEquals(0L, state.evolutionIndex)
+        assertEquals(BioVector.Neutral, state.vector)
+        assertEquals(null, state.shockState)
+        assertEquals(0.0f, state.omega.value)
+        assertEquals(0, relationshipEvaluations)
+        assertTrue(relationships.events("development", "QQ:u1").isEmpty())
+        assertTrue(memories.recent("QQ:100", 10).isEmpty())
+    }
+
+    @Test
+    fun `dead zone committed zero suppresses diary and remains stable memory`() = runTest {
+        val sessions = MutableSessionStateStore()
+        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            memoryStore = memories,
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "dead zone turn references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta().toMutableMap().apply { put("P", 0.004f) },
+                    response = "response",
+                )
+            },
+        )
+
+        val result = pipeline.handle(testRequest().copy(turnId = "dead-zone-memory"))
+        val memory = memories.recent("QQ:100", 1).single()
+
+        assertEquals(VectorDelta.Zero, memory.metadata.deltaVec)
+        assertEquals("not_triggered", result.diaryOutcome)
+        assertEquals(1, memories.stableVectors("development", 10).size)
+    }
+
+    @Test
+    fun `homeostatic committed change drives diary and stable decisions`() = runTest {
+        val sessions = MutableSessionStateStore()
+        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = sessions.transcript,
+        )
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        ).copy(
+            vector = BioVector.Neutral.copy(p = 0.8f),
+            origin = BioVector.Neutral.copy(p = 0.3f),
+            lastRuntimeTickAtMs = 0L,
+            lastVectorDynamicsAtMs = 0L,
+        )
+        incarnations.write(initial)
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            incarnationStateStore = incarnations,
+            memoryStore = memories,
+            centroidProvider = HomeostasisCentroidProvider { initial.origin },
+            nowMs = { 3_600_000L },
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "homeostasis memory turn references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta(),
+                    response = "response",
+                )
+            },
+        )
+
+        val result = pipeline.handle(testRequest().copy(turnId = "homeostasis-memory"))
+        val memory = memories.recent("QQ:100", 1).single()
+
+        assertTrue(memory.metadata.deltaVec.p < -0.05f)
+        assertEquals("enqueued", result.diaryOutcome)
+        assertTrue(memories.stableVectors("development", 10).isEmpty())
+    }
+
+    @Test
+    fun `pipeline applies elapsed catch up before bounded homeostasis`() = runTest {
+        val sessions = MutableSessionStateStore()
+        val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = sessions.transcript,
+        )
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        ).copy(
+            vector = BioVector.Neutral.copy(p = 0.8f),
+            origin = BioVector.Neutral.copy(p = 0.3f),
+            lastRuntimeTickAtMs = 0L,
+        )
+        incarnations.write(initial)
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            incarnationStateStore = incarnations,
+            centroidProvider = HomeostasisCentroidProvider { initial.origin },
+            nowMs = { 3_600_000L },
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "elapsed turn references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta(),
+                    response = "response",
+                )
+            },
+        )
+
+        val result = pipeline.handle(testRequest())
+
+        assertTrue(result.updatedVector.p in 0.3f..<0.8f)
+        assertTrue(TraceTag.BackgroundDrift in result.traceTags)
+    }
+
+    @Test
+    fun `multiple turns cannot consume the same homeostasis interval twice`() = runTest {
+        val sessions = MutableSessionStateStore()
+        val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = sessions.transcript,
+        )
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        ).copy(
+            vector = BioVector.Neutral.copy(p = 0.8f),
+            origin = BioVector.Neutral.copy(p = 0.3f),
+            lastRuntimeTickAtMs = 0L,
+        )
+        incarnations.write(initial)
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            incarnationStateStore = incarnations,
+            centroidProvider = HomeostasisCentroidProvider { initial.origin },
+            nowMs = { 3_600_000L },
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "elapsed turn references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta(),
+                    response = "response",
+                )
+            },
+        )
+
+        val first = pipeline.handle(testRequest().copy(turnId = "homeostasis-once-1"))
+        val second = pipeline.handle(testRequest().copy(turnId = "homeostasis-once-2"))
+
+        assertTrue(first.updatedVector.p in 0.3f..<0.8f)
+        assertEquals(first.updatedVector.p, second.updatedVector.p, absoluteTolerance = 0.000001f)
+    }
+
+    @Test
+    fun `memory committed delta includes background catch up before reduction`() = runTest {
+        val sessions = MutableSessionStateStore()
+        val memories = InMemoryMemoryPalace(DirectInferenceExecutor)
+        val incarnations = io.openeden.runtime.incarnation.MutableIncarnationStateStore(
+            transcriptStore = sessions.transcript,
+        )
+        val fluctuation = SineWaveFluctuationEngine(
+            SineWaveFluctuationProfile(
+                dimensions = List(8) {
+                    SineWaveDimension(amplitude = 0.04f, frequencyHz = 0.002f, phaseRadians = 0.1f)
+                },
+            ),
+        )
+        val expectedDelta = fluctuation.deltaBetween(0L, 1_000L)
+        val initial = incarnations.readOrCreate(
+            incarnationId = "development",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        ).copy(
+            origin = BioVector.Neutral.apply(expectedDelta),
+            lastRuntimeTickAtMs = 0L,
+            lastVectorDynamicsAtMs = 0L,
+        )
+        incarnations.write(initial)
+        val writer = VectorWriteService(
+            incarnationStore = incarnations,
+            backgroundDynamicsReducer = BackgroundDynamicsReducer(
+                fluctuation = fluctuation,
+                omegaConfig = OmegaAccumulationConfig(sWearRate = 0.0f, dissonanceWearRate = 0.0f),
+                startedAtMs = 0L,
+            ),
+        )
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = testPersonaConfig(),
+            store = sessions,
+            incarnationStateStore = incarnations,
+            vectorWriteService = writer,
+            memoryStore = memories,
+            centroidProvider = HomeostasisCentroidProvider { initial.origin },
+            nowMs = { 1_000L },
+            llmClient = object : io.openeden.llm.LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput = LlmOutput(
+                    internalLogic = "background momentum references HEURISTIC_FALLBACK",
+                    vectorDelta = validDelta(),
+                    response = "response",
+                )
+            },
+        )
+
+        pipeline.handle(testRequest().copy(turnId = "background-momentum"))
+
+        val committed = memories.recent("QQ:100", 1).single().metadata.deltaVec.toList()
+        expectedDelta.toList().zip(committed).forEach { (expected, actual) ->
+            assertEquals(expected, actual, absoluteTolerance = 0.000001f)
+        }
+    }
+
+    @Test
     fun `enqueues diary event when llm delta changes vector`() = runTest {
         val pipeline = DevelopmentMessagePipeline.create(
             personaConfig = testPersonaConfig(),
@@ -460,7 +872,7 @@ class MessagePipelineTest {
         )
 
         assertEquals("enqueued", result.diaryOutcome)
-        assertEquals(0.7f, result.updatedVector.p)
+        assertTrue(result.updatedVector.p in 0.5f..<0.7f)
     }
 
     @Test

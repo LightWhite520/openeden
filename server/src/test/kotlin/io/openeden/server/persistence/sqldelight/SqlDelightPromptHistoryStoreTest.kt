@@ -336,7 +336,25 @@ completed_at_ms=1
                 CREATE TABLE incarnation_state (
                     singleton_id INTEGER NOT NULL PRIMARY KEY CHECK (singleton_id = 1),
                     active_incarnation_id TEXT NOT NULL,
-                    created_at_ms INTEGER NOT NULL
+                    created_at_ms INTEGER NOT NULL,
+                    lifecycle_status TEXT NOT NULL DEFAULT 'ACTIVE',
+                    lifecycle_changed_at_ms INTEGER NOT NULL DEFAULT 0,
+                    termination_reason TEXT,
+                    lifecycle_request_id TEXT,
+                    vector_json TEXT,
+                    origin_json TEXT,
+                    omega REAL,
+                    evolution_index INTEGER,
+                    persona_mode TEXT,
+                    persona_start_sub_state TEXT,
+                    last_user_activity_ms INTEGER,
+                    last_runtime_tick_at_ms INTEGER,
+                    shock_active INTEGER,
+                    shock_intensity REAL,
+                    shock_description TEXT,
+                    shock_triggered_at_ms INTEGER,
+                    shock_decay_lambda REAL,
+                    shock_heartbeat_fired INTEGER
                 )
                 """.trimIndent(),
                 0,
@@ -398,7 +416,10 @@ completed_at_ms=1
             )
             driver.execute(
                 null,
-                "INSERT INTO incarnation_state VALUES (1, 'incarnation-a', 0)",
+                """
+                INSERT INTO incarnation_state(singleton_id, active_incarnation_id, created_at_ms)
+                VALUES (1, 'incarnation-a', 0)
+                """.trimIndent(),
                 0,
             )
             driver.execute(

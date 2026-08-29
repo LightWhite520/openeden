@@ -19,6 +19,7 @@ import io.openeden.runtime.diary.DiaryCheckpoint
 import io.openeden.runtime.diary.DiaryTask
 import io.openeden.runtime.diary.DiaryTaskStatus
 import io.openeden.runtime.diary.DiaryTaskStore
+import io.openeden.runtime.diary.DiaryTriggerConfig
 import io.openeden.runtime.diary.DiaryTriggerCoordinator
 import io.openeden.runtime.pipeline.DevelopmentMessagePipeline
 import io.openeden.runtime.pipeline.DevelopmentMessageRequest
@@ -84,6 +85,7 @@ class SqlDelightPipelinePostCommitRecoveryTest {
         assertFailsWith<CancellationException> { firstPipeline.handle(request) }
         val incarnationId = first.transcript.activeIncarnation().id
         val rawMemory = first.memory.recent("CLI:local", 50).single()
+        assertEquals(0.075f, rawMemory.metadata.deltaVec.l, absoluteTolerance = 1e-6f)
         val diaryTaskId = DiaryTriggerCoordinator.taskId("CLI:local", "vector_delta", rawMemory.id)
         val relationshipEvent = first.relationship.events(incarnationId, "CLI:user-1").single()
         val relationshipState = first.relationship.readOrCreate(incarnationId, "CLI:user-1")
@@ -315,6 +317,7 @@ class SqlDelightPipelinePostCommitRecoveryTest {
             taskStore = diaryTaskStore,
             checkpointStore = stores.diary,
             rawMemorySource = stores.memory,
+            config = DiaryTriggerConfig(deltaThreshold = 0.05f),
         ),
         centroidProvider = HomeostasisCentroidProvider { BioVector.Neutral },
         nowMs = { 1_000L },

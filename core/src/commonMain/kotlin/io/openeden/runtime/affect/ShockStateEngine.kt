@@ -64,6 +64,8 @@ object ShockStateEngine {
         internalLogic: String,
         now: Instant = Clock.System.now(),
     ): ShockSignal? {
+        if (!emotionConfidence.isFinite() || emotionConfidence !in 0.0f..1.0f) return null
+        if (vectorDelta.toList().any { !it.isFinite() || it !in -1.0f..1.0f }) return null
         if (emotionConfidence < SHOCK_CONFIDENCE_GATE) return null
         if (vectorDelta.p >= -0.4f || vectorDelta.f <= 0.3f) return null
         return ShockSignal(

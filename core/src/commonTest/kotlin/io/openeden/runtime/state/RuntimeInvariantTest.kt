@@ -7,12 +7,16 @@ import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.affect.ShockStateEngine
 import io.openeden.runtime.affect.ShockSignal
 import io.openeden.runtime.inference.RecordingInferenceExecutor
+import io.openeden.runtime.incarnation.IncarnationStateStore
+import io.openeden.runtime.incarnation.MutableIncarnationStateStore
 import io.openeden.runtime.session.MutableSessionStateStore
 import io.openeden.runtime.session.SessionState
 import io.openeden.runtime.session.SessionStateStore
 
 import io.openeden.bio.BioVector
 import io.openeden.bio.VectorDelta
+import io.openeden.persona.PersonaMode
+import io.openeden.persona.PersonaSubState
 import io.openeden.trace.TraceTag
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.InMemoryTranscriptStore
@@ -205,6 +209,82 @@ class RuntimeInvariantTest {
         )
 
         assertEquals(1, executor.calls)
+    }
+
+    @Test
+    fun `incarnation turn reduces vector under inference isolation and preserves shock ordering`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-reducer")
+        val store = MutableIncarnationStateStore(transcriptStore = transcripts)
+        val initial = IncarnationStateStore.neutral(
+            incarnationId = "incarnation-reducer",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        ).copy(
+            vector = BioVector.Neutral.copy(p = 0.98f),
+            origin = BioVector.Neutral.copy(p = 0.4f),
+            omega = OmegaState(0.2f),
+        )
+        store.write(initial)
+        val executor = RecordingInferenceExecutor()
+        val service = VectorWriteService(
+            incarnationStore = store,
+            inferenceExecutor = executor,
+        )
+
+        val result = service.commitIncarnationTurn(
+            incarnationId = initial.incarnationId,
+            baseSnapshot = initial.vector,
+            preTickedSnapshot = initial.vector,
+            delta = VectorDelta(p = 0.1f),
+            shockSignal = ShockSignal(
+                description = "structured shock",
+                intensity = 1.0f,
+                decayLambda = 0.001f,
+                triggeredAt = Instant.fromEpochMilliseconds(100L),
+            ),
+            lastUserActivityMs = 100L,
+            reductionContext = VectorDeltaContext.Ordinary,
+            reductionAtMs = 100L,
+        )
+
+        val reduction = assertNotNull(result.vectorReduction)
+        assertEquals(0.1f, reduction.proposedDelta.p)
+        assertTrue(reduction.effectiveDelta.p in 0.0f..0.02f)
+        assertEquals(VectorDelta.Zero, reduction.homeostaticDelta)
+        assertEquals(reduction.result, result.state.vector)
+        assertTrue(result.state.vector.p in 0.98f..<0.99f)
+        assertEquals(1L, result.state.evolutionIndex)
+        assertEquals(0.4f, assertNotNull(result.state.shockState).intensity, absoluteTolerance = 0.0001f)
+        assertEquals(0.26f, result.state.omega.value, absoluteTolerance = 0.0001f)
+        assertTrue(executor.calls >= 3)
+    }
+
+    @Test
+    fun `incarnation commit does not persist invalid vector or centroid coordinates`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-invalid-state")
+        val store = MutableIncarnationStateStore(transcriptStore = transcripts)
+        val initial = IncarnationStateStore.neutral(
+            incarnationId = "incarnation-invalid-state",
+            personaMode = PersonaMode.GROWTH,
+            personaStartSubState = PersonaSubState.PRE_COMMAND,
+        ).copy(
+            vector = BioVector.Neutral.copy(p = Float.NaN),
+            origin = BioVector.Neutral.copy(p = Float.NaN),
+        )
+        store.write(initial)
+
+        val result = VectorWriteService(incarnationStore = store).commitIncarnationTurn(
+            incarnationId = initial.incarnationId,
+            baseSnapshot = initial.vector,
+            preTickedSnapshot = initial.vector,
+            delta = VectorDelta.Zero,
+            shockSignal = null,
+            lastUserActivityMs = null,
+        )
+
+        assertTrue(result.state.vector.toList().all { it.isFinite() && it in 0.0f..1.0f })
+        assertTrue(result.state.origin.toList().all { it.isFinite() && it in 0.0f..1.0f })
+        assertTrue(assertNotNull(result.vectorReduction).reasons.contains("origin_rejected"))
     }
 
     @Test

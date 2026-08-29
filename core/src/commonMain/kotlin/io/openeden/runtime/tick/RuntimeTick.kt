@@ -31,7 +31,7 @@ data class RuntimeTickResult(
 class RuntimeTickScheduler(
     private val store: SessionStateStore,
     private val writer: VectorWriteService,
-    private val fluctuation: SineWaveFluctuationEngine,
+    private val fluctuation: SineWaveFluctuationEngine? = null,
     private val inferenceExecutor: InferenceExecutor,
     private val config: RuntimeConfig = RuntimeConfig.Default,
     private val clock: RuntimeClock = SystemRuntimeClock,
@@ -43,6 +43,9 @@ class RuntimeTickScheduler(
     suspend fun evaluateOnce(nowMs: Long = clock.nowMs()): List<RuntimeTickResult> {
         if (incarnationStore != null && transcriptStore != null) {
             return evaluateIncarnationOnce(incarnationStore, transcriptStore, nowMs)
+        }
+        val sessionFluctuation = checkNotNull(fluctuation) {
+            "Session-scoped runtime ticks require a fluctuation engine"
         }
         val results = mutableListOf<RuntimeTickResult>()
         for (sessionId in store.sessionIds()) {
@@ -58,7 +61,7 @@ class RuntimeTickScheduler(
                     val previousElapsed = (previousTickAtMs - startedAtMs).coerceAtLeast(0L)
                     val currentElapsed = (nowMs - startedAtMs).coerceAtLeast(previousElapsed)
                     val tickMath = inferenceExecutor.run {
-                        val driftDelta = fluctuation.deltaBetween(previousElapsed, currentElapsed)
+                        val driftDelta = sessionFluctuation.deltaBetween(previousElapsed, currentElapsed)
                         val driftedVector = latest.vector.apply(driftDelta)
                         val decayedShock = latest.shockState?.let { ShockStateEngine.decay(it, elapsed) }
                         val omega = OmegaAccumulationEngine.accumulate(
@@ -108,45 +111,7 @@ class RuntimeTickScheduler(
     ): List<RuntimeTickResult> {
         val incarnationId = transcriptStore.activeIncarnation().id
         val result = runCatching {
-            writer.applyRuntimeTickForIncarnation(incarnationId) { latest ->
-                val previousTickAtMs = latest.lastRuntimeTickAtMs
-                if (previousTickAtMs == null) {
-                    return@applyRuntimeTickForIncarnation latest.copy(lastRuntimeTickAtMs = nowMs) to
-                        setOf(TraceTag.RuntimeTickBaseline)
-                }
-                val elapsed = (nowMs - previousTickAtMs).coerceAtLeast(0L)
-                val previousElapsed = (previousTickAtMs - startedAtMs).coerceAtLeast(0L)
-                val currentElapsed = (nowMs - startedAtMs).coerceAtLeast(previousElapsed)
-                val tickMath = inferenceExecutor.run {
-                    val driftDelta = fluctuation.deltaBetween(previousElapsed, currentElapsed)
-                    val driftedVector = latest.vector.apply(driftDelta)
-                    val decayedShock = latest.shockState?.let { ShockStateEngine.decay(it, elapsed) }
-                    val omega = OmegaAccumulationEngine.accumulate(
-                        omega = latest.omega,
-                        vector = driftedVector,
-                        elapsedMillis = elapsed,
-                        config = config.omega,
-                    )
-                    TickMath(
-                        vector = driftedVector,
-                        shockState = decayedShock,
-                        omega = omega,
-                        shockDecayed = decayedShock != latest.shockState,
-                        omegaChanged = omega != latest.omega,
-                    )
-                }
-                val traceTags = buildSet {
-                    add(TraceTag.BackgroundDrift)
-                    if (tickMath.shockDecayed) add(TraceTag.ShockStateDecayed)
-                    if (tickMath.omegaChanged) add(TraceTag.OmegaAccumulated)
-                }
-                latest.copy(
-                    vector = tickMath.vector,
-                    shockState = tickMath.shockState,
-                    omega = tickMath.omega,
-                    lastRuntimeTickAtMs = nowMs,
-                ) to traceTags
-            }
+            writer.applyBackgroundDynamicsTickForIncarnation(incarnationId, nowMs)
         }.getOrElse {
             VectorWriteResult(
                 state = incarnationStore.read(incarnationId),
