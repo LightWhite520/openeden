@@ -1,7 +1,5 @@
 package io.openeden.prompt
 
-import io.openeden.hash.Sha256
-
 data class PromptManifest(val entries: List<PromptManifestEntry>) {
     fun traceAttributes(): Map<String, String> = buildMap {
         put("entry_count", this@PromptManifest.entries.size.toString())
@@ -13,14 +11,13 @@ data class PromptManifest(val entries: List<PromptManifestEntry>) {
 
     companion object {
         fun from(prompt: BuiltPrompt): PromptManifest = PromptManifest(
-            listOf(
-                "system" to prompt.systemText,
-                "persona" to prompt.personaText,
-                "context" to prompt.contextText,
-                "user" to prompt.userText,
-            ).filter { it.second.isNotBlank() }.map { (id, text) ->
-                val bytes = text.encodeToByteArray()
-                PromptManifestEntry(id, bytes.size, Sha256.hex(bytes))
+            prompt.cachePrefixSegments().map { segment ->
+                val utf8Bytes = if (segment.kind == PromptSegmentKind.HISTORY) {
+                    segment.wireItems.sumOf { it.text.encodeToByteArray().size }
+                } else {
+                    segment.text.encodeToByteArray().size
+                }
+                PromptManifestEntry(segment.id, utf8Bytes, segment.fingerprint)
             },
         )
     }

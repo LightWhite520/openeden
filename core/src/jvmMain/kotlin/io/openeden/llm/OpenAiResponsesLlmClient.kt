@@ -12,6 +12,7 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.util.logging.*
 import io.ktor.utils.io.*
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.PromptSegmentKind
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerialName
@@ -138,7 +139,7 @@ class OpenAiResponsesLlmClient private constructor(
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput = complete(prompt, defaultGenerationSettings)
 
     override suspend fun complete(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): LlmOutput {
-        log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.contextText}\n${prompt.userText}")
+        log.info("\nPrompt:\n${prompt.textPreview()}")
         val response = execute(prompt, generationSettings, stream = false)
         requireSuccess(response)
         val llmOutput = parseBufferedResponse(response.bodyAsText())
@@ -148,7 +149,7 @@ class OpenAiResponsesLlmClient private constructor(
     override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = stream(prompt, defaultGenerationSettings)
 
     override fun stream(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): Flow<LlmStreamEvent> = flow {
-        log.info("\nPrompt:\n${prompt.systemText}\n${prompt.personaText}\n${prompt.contextText}\n${prompt.userText}")
+        log.info("\nPrompt:\n${prompt.textPreview()}")
         val response = execute(prompt, generationSettings, stream = true)
         requireSuccess(response)
         if (response.contentType()?.withoutParameters() != ContentType.Text.EventStream) {
@@ -234,18 +235,17 @@ class OpenAiResponsesLlmClient private constructor(
                     maxOutputTokens = generationSettings.maxOutputTokens,
                     reasoning = ResponsesReasoning(reasoningEffort.value),
                     input = buildList {
-                        add(textMessage(role = "system", text = prompt.systemText))
-                        add(
-                            textMessage(
-                                role = "developer",
-                                text = prompt.personaText,
-                                breakpoint = cacheBreakpoint,
-                            ),
-                        )
-                        if (prompt.contextText.isNotBlank()) {
-                            add(textMessage(role = "developer", text = prompt.contextText))
+                        prompt.wireMessages().forEach { message ->
+                            add(
+                                textMessage(
+                                    role = message.role.apiValue,
+                                    text = message.content,
+                                    breakpoint = cacheBreakpoint.takeIf {
+                                        message.segmentKind == PromptSegmentKind.INCARNATION_ANCHOR
+                                    },
+                                ),
+                            )
                         }
-                        add(textMessage(role = "user", text = prompt.userText))
                     },
                     text = TextFormat(
                         format = JsonSchemaFormat(
@@ -300,8 +300,7 @@ class OpenAiResponsesLlmClient private constructor(
         if (promptCachingMode.usesCache()) {
             val stablePrefix = buildString {
                 append(model).append('\u0000')
-                append(prompt.systemText).append('\u0000')
-                append(prompt.personaText).append('\u0000')
+                append(prompt.cacheIdentity).append('\u0000')
                 append(llmOutputSchema)
             }
             MessageDigest.getInstance("SHA-256")

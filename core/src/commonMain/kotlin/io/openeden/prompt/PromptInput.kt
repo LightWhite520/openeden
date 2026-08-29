@@ -10,7 +10,7 @@ import io.openeden.relationship.UserAffectState
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.runtime.affect.ShockState
 import io.openeden.runtime.time.TemporalContext
-import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.PromptHistorySnapshot
 
 data class PromptInput(
     val personaConfig: PersonaConfig,
@@ -27,7 +27,7 @@ data class PromptInput(
     val relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
     val relationshipAddress: String? = null,
     val relationshipState: RelationshipState? = null,
-    val recentTurns: List<ConversationTurn> = emptyList(),
+    val promptHistory: PromptHistorySnapshot = PromptHistorySnapshot(),
 ) {
     init {
         require(relationshipRole == RelationshipRole.HOST || relationshipAddress == null) {

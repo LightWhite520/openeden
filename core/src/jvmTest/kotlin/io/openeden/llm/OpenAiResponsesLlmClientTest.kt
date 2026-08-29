@@ -1,6 +1,12 @@
 package io.openeden.llm
 
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.PromptSegmentKind
+import io.openeden.prompt.testBuiltPrompt
+import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.PromptHistorySerializer
+import io.openeden.transcript.PromptHistorySnapshot
+import io.openeden.transcript.PromptHistorySummary
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
@@ -20,6 +26,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
@@ -45,7 +52,7 @@ class OpenAiResponsesLlmClientTest {
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
 
-        val output = client.complete(BuiltPrompt("system", "persona", "user"))
+        val output = client.complete(simplePrompt())
 
         assertEquals(CacheMetricAvailability.UNOBSERVABLE, output.cacheMetrics?.availability)
     }
@@ -92,7 +99,7 @@ class OpenAiResponsesLlmClientTest {
         )
 
         val events = client.stream(
-            prompt = BuiltPrompt("system", "persona", "user"),
+            prompt = simplePrompt(),
             generationSettings = LlmGenerationSettings(
                 temperature = 0.85f,
                 verbosity = LlmVerbosity.LOW,
@@ -134,7 +141,7 @@ class OpenAiResponsesLlmClientTest {
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
 
-        val events = client.stream(BuiltPrompt("system", "persona", "user")).toList()
+        val events = client.stream(simplePrompt()).toList()
 
         assertEquals(listOf("你好"), events.filterIsInstance<LlmStreamEvent.ResponseDelta>().map { it.text })
         assertEquals("你好", assertIs<LlmStreamEvent.Completed>(events.last()).output.response)
@@ -166,11 +173,12 @@ class OpenAiResponsesLlmClientTest {
         )
 
         val output = client.complete(
-            prompt = BuiltPrompt(
-                systemText = "system",
-                personaText = "persona",
-                userText = "user",
-                contextText = "context",
+            prompt = testBuiltPrompt(
+                PromptSegmentKind.SYSTEM_CONTRACT to "system",
+                PromptSegmentKind.PERSONA to "persona",
+                PromptSegmentKind.INCARNATION_ANCHOR to "incarnation",
+                PromptSegmentKind.BIO to "context",
+                PromptSegmentKind.USER to "user",
             ),
             generationSettings = LlmGenerationSettings(
                 temperature = 0.85f,
@@ -189,15 +197,17 @@ class OpenAiResponsesLlmClientTest {
         assertEquals("https://relay.example.com/v1/responses", requestUrl)
         assertEquals("gpt-5.5", body.getValue("model").jsonPrimitive.content)
         val input = body.getValue("input").jsonArray
-        assertEquals(4, input.size)
+        assertEquals(5, input.size)
         assertEquals("system", input[0].jsonObject.getValue("role").jsonPrimitive.content)
         assertEquals("system", input[0].jsonObject.getValue("content").jsonPrimitive.content)
         assertEquals("developer", input[1].jsonObject.getValue("role").jsonPrimitive.content)
         assertEquals("persona", input[1].jsonObject.getValue("content").jsonPrimitive.content)
         assertEquals("developer", input[2].jsonObject.getValue("role").jsonPrimitive.content)
-        assertEquals("context", input[2].jsonObject.getValue("content").jsonPrimitive.content)
-        assertEquals("user", input[3].jsonObject.getValue("role").jsonPrimitive.content)
-        assertEquals("user", input[3].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("incarnation", input[2].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("developer", input[3].jsonObject.getValue("role").jsonPrimitive.content)
+        assertEquals("context", input[3].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("user", input[4].jsonObject.getValue("role").jsonPrimitive.content)
+        assertEquals("user", input[4].jsonObject.getValue("content").jsonPrimitive.content)
         val format = body.getValue("text").jsonObject.getValue("format").jsonObject
         assertEquals("json_schema", format.getValue("type").jsonPrimitive.content)
         assertEquals(0.85f, body.getValue("temperature").jsonPrimitive.float)
@@ -207,7 +217,85 @@ class OpenAiResponsesLlmClientTest {
     }
 
     @Test
-    fun `uses explicit stable persona breakpoint for gpt 5 6 and keeps dynamic context after it`() = runTest {
+    fun `serializes summary and mixed-role utf8 history in exact wire order`() = runTest {
+        var requestBody = ""
+        val engine = MockEngine { request ->
+            requestBody = request.body.toByteArray().decodeToString()
+            respond(
+                content = """
+                    {"output_text":"{\"internal_logic\":\"logic\",\"vector_delta\":{\"L\":0.0,\"P\":0.0,\"E\":0.0,\"S\":0.0,\"tau\":0.0,\"V\":0.0,\"M\":0.0,\"F\":0.0},\"response\":\"ok\"}"}
+                """.trimIndent(),
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val historyItems = PromptHistorySerializer().createItems(
+            listOf(
+                ConversationTurn(
+                    turnId = "tail-turn",
+                    incarnationId = "incarnation-a",
+                    sessionId = "CLI:local",
+                    platform = "CLI",
+                    scopeId = "local",
+                    userId = "user-1",
+                    userText = "历史用户🙂\n第二行",
+                    assistantText = "历史助手回答：潮声。",
+                    completedAtMs = 1L,
+                ),
+            ),
+        )
+        val history = PromptHistorySnapshot(
+            summary = PromptHistorySummary(
+                text = "较早的记忆：海边🙂",
+                sourceTurnIds = setOf("summary-turn"),
+                fingerprint = "summary-fingerprint",
+                serializerVersion = 2,
+            ),
+            mutableTail = historyItems,
+            sourceTurnIds = setOf("summary-turn", "tail-turn"),
+            cacheEpoch = 4L,
+        )
+        val client = OpenAiResponsesLlmClient(
+            apiKey = "sk-test",
+            model = "gpt-5.5",
+            httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+        )
+
+        client.complete(
+            testBuiltPrompt(
+                PromptSegmentKind.SYSTEM_CONTRACT to "system",
+                PromptSegmentKind.PERSONA to "persona",
+                PromptSegmentKind.INCARNATION_ANCHOR to "incarnation",
+                PromptSegmentKind.BIO to "bio",
+                PromptSegmentKind.USER to "当前问题",
+                promptHistory = history,
+            ),
+        )
+
+        val input = Json.parseToJsonElement(requestBody).jsonObject.getValue("input").jsonArray
+        val roles = input.map { it.jsonObject.getValue("role").jsonPrimitive.content }
+        val contents = input.map { it.jsonObject.getValue("content").jsonPrimitive.content }
+        assertEquals(
+            listOf("system", "developer", "developer", "developer", "user", "assistant", "developer", "user"),
+            roles,
+        )
+        val expectedContents = listOf(
+            "system",
+            "persona",
+            "incarnation",
+            "较早的记忆：海边🙂",
+            "历史用户🙂\n第二行",
+            "历史助手回答：潮声。",
+            "bio",
+            "当前问题",
+        )
+        assertEquals(expectedContents, contents)
+        expectedContents.zip(contents).forEach { (expected, actual) ->
+            assertContentEquals(expected.encodeToByteArray(), actual.encodeToByteArray())
+        }
+    }
+
+    @Test
+    fun `uses explicit stable incarnation breakpoint for gpt 5 6 and keeps dynamic context after it`() = runTest {
         var requestBody = ""
         val engine = MockEngine { request ->
             requestBody = request.body.toByteArray().decodeToString()
@@ -225,11 +313,12 @@ class OpenAiResponsesLlmClientTest {
         )
 
         client.complete(
-            BuiltPrompt(
-                systemText = "stable system",
-                personaText = "stable persona",
-                contextText = "dynamic state",
-                userText = "current user",
+            testBuiltPrompt(
+                PromptSegmentKind.SYSTEM_CONTRACT to "stable system",
+                PromptSegmentKind.PERSONA to "stable persona",
+                PromptSegmentKind.INCARNATION_ANCHOR to "stable incarnation",
+                PromptSegmentKind.BIO to "dynamic state",
+                PromptSegmentKind.USER to "current user",
             ),
         )
 
@@ -237,15 +326,15 @@ class OpenAiResponsesLlmClientTest {
         assertTrue(body.getValue("prompt_cache_key").jsonPrimitive.content.length >= 32)
         assertEquals("explicit", body.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content)
         val input = body.getValue("input").jsonArray
-        val personaContent = input[1].jsonObject.getValue("content").jsonArray
-        assertEquals("stable persona", personaContent[0].jsonObject.getValue("text").jsonPrimitive.content)
+        val anchorContent = input[2].jsonObject.getValue("content").jsonArray
+        assertEquals("stable incarnation", anchorContent[0].jsonObject.getValue("text").jsonPrimitive.content)
         assertEquals(
             "explicit",
-            personaContent[0].jsonObject.getValue("prompt_cache_breakpoint").jsonObject
+            anchorContent[0].jsonObject.getValue("prompt_cache_breakpoint").jsonObject
                 .getValue("mode").jsonPrimitive.content,
         )
-        assertEquals("dynamic state", input[2].jsonObject.getValue("content").jsonPrimitive.content)
-        assertEquals("current user", input[3].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("dynamic state", input[3].jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals("current user", input[4].jsonObject.getValue("content").jsonPrimitive.content)
     }
 
     @Test
@@ -263,8 +352,8 @@ class OpenAiResponsesLlmClientTest {
             body.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
         )
         assertEquals(
-            "stable persona",
-            assertIs<JsonPrimitive>(body.getValue("input").jsonArray[1].jsonObject.getValue("content")).content,
+            "stable incarnation",
+            assertIs<JsonPrimitive>(body.getValue("input").jsonArray[2].jsonObject.getValue("content")).content,
         )
     }
 
@@ -287,26 +376,26 @@ class OpenAiResponsesLlmClientTest {
             mode = OpenAiPromptCachingMode.AUTO,
         )
 
-        val exactPersonaContent = exactOpenAiBody.getValue("input").jsonArray[1].jsonObject
+        val exactAnchorContent = exactOpenAiBody.getValue("input").jsonArray[2].jsonObject
             .getValue("content").jsonArray
-        assertEquals("input_text", exactPersonaContent[0].jsonObject.getValue("type").jsonPrimitive.content)
+        assertEquals("input_text", exactAnchorContent[0].jsonObject.getValue("type").jsonPrimitive.content)
         assertEquals(
             "explicit",
-            exactPersonaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
+            exactAnchorContent[0].jsonObject.getValue("prompt_cache_breakpoint")
                 .jsonObject.getValue("mode").jsonPrimitive.content,
         )
-        val uppercasePersonaContent = uppercaseOpenAiBody.getValue("input").jsonArray[1].jsonObject
+        val uppercaseAnchorContent = uppercaseOpenAiBody.getValue("input").jsonArray[2].jsonObject
             .getValue("content").jsonArray
-        assertEquals("input_text", uppercasePersonaContent[0].jsonObject.getValue("type").jsonPrimitive.content)
+        assertEquals("input_text", uppercaseAnchorContent[0].jsonObject.getValue("type").jsonPrimitive.content)
         assertEquals(
             "explicit",
-            uppercasePersonaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
+            uppercaseAnchorContent[0].jsonObject.getValue("prompt_cache_breakpoint")
                 .jsonObject.getValue("mode").jsonPrimitive.content,
         )
-        val insecurePersonaContent = insecureOpenAiBody.getValue("input").jsonArray[1].jsonObject
+        val insecureAnchorContent = insecureOpenAiBody.getValue("input").jsonArray[2].jsonObject
             .getValue("content")
-        assertIs<JsonPrimitive>(insecurePersonaContent)
-        assertEquals("stable persona", insecurePersonaContent.content)
+        assertIs<JsonPrimitive>(insecureAnchorContent)
+        assertEquals("stable incarnation", insecureAnchorContent.content)
         val lookalikeKey = assertIs<JsonPrimitive>(lookalikeBody.getValue("prompt_cache_key"))
         assertTrue(lookalikeKey.isString)
         assertTrue(lookalikeKey.content.isNotBlank())
@@ -315,9 +404,9 @@ class OpenAiResponsesLlmClientTest {
             lookalikeBody.getValue("prompt_cache_options").jsonObject.getValue("mode").jsonPrimitive.content,
         )
         assertEquals(
-            "stable persona",
+            "stable incarnation",
             assertIs<JsonPrimitive>(
-                lookalikeBody.getValue("input").jsonArray[1].jsonObject.getValue("content"),
+                lookalikeBody.getValue("input").jsonArray[2].jsonObject.getValue("content"),
             ).content,
         )
     }
@@ -329,10 +418,10 @@ class OpenAiResponsesLlmClientTest {
             mode = OpenAiPromptCachingMode.EXPLICIT,
         )
 
-        val personaContent = body.getValue("input").jsonArray[1].jsonObject.getValue("content").jsonArray
+        val anchorContent = body.getValue("input").jsonArray[2].jsonObject.getValue("content").jsonArray
         assertEquals(
             "explicit",
-            personaContent[0].jsonObject.getValue("prompt_cache_breakpoint")
+            anchorContent[0].jsonObject.getValue("prompt_cache_breakpoint")
                 .jsonObject.getValue("mode").jsonPrimitive.content,
         )
     }
@@ -373,8 +462,24 @@ class OpenAiResponsesLlmClientTest {
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
 
-        client.complete(BuiltPrompt("stable system", "stable persona", "first user", "first context"))
-        client.complete(BuiltPrompt("stable system", "stable persona", "second user", "second context"))
+        client.complete(
+            testBuiltPrompt(
+                PromptSegmentKind.SYSTEM_CONTRACT to "stable system",
+                PromptSegmentKind.PERSONA to "stable persona",
+                PromptSegmentKind.INCARNATION_ANCHOR to "stable incarnation",
+                PromptSegmentKind.BIO to "first context",
+                PromptSegmentKind.USER to "first user",
+            ),
+        )
+        client.complete(
+            testBuiltPrompt(
+                PromptSegmentKind.SYSTEM_CONTRACT to "stable system",
+                PromptSegmentKind.PERSONA to "stable persona",
+                PromptSegmentKind.INCARNATION_ANCHOR to "stable incarnation",
+                PromptSegmentKind.BIO to "second context",
+                PromptSegmentKind.USER to "second user",
+            ),
+        )
 
         val first = Json.parseToJsonElement(requestBodies[0]).jsonObject
         val second = Json.parseToJsonElement(requestBodies[1]).jsonObject
@@ -400,7 +505,7 @@ class OpenAiResponsesLlmClientTest {
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
 
-        val output = client.complete(BuiltPrompt("system", "persona", "user"))
+        val output = client.complete(simplePrompt())
 
         assertEquals("ok", output.response)
         assertEquals(null, output.cacheMetrics)
@@ -423,7 +528,7 @@ class OpenAiResponsesLlmClientTest {
         )
 
         client.complete(
-            prompt = BuiltPrompt("system", "persona", "user"),
+            prompt = simplePrompt(),
             generationSettings = LlmGenerationSettings(
                 temperature = 0.65f,
                 verbosity = LlmVerbosity.HIGH,
@@ -452,7 +557,7 @@ class OpenAiResponsesLlmClientTest {
             httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
         )
 
-        client.complete(BuiltPrompt("system", "persona", "user"))
+        client.complete(simplePrompt())
 
         val body = Json.parseToJsonElement(requestBody).jsonObject
         assertEquals("high", body.getValue("reasoning").jsonObject.getValue("effort").jsonPrimitive.content)
@@ -470,7 +575,7 @@ class OpenAiResponsesLlmClientTest {
         )
 
         val error = assertFailsWith<IllegalStateException> {
-            client.complete(BuiltPrompt("system", "persona", "user"))
+            client.complete(simplePrompt())
         }
 
         assertEquals("OpenAI Responses API request failed: 401 Unauthorized: bad key", error.message)
@@ -501,11 +606,12 @@ class OpenAiResponsesLlmClientTest {
 
         try {
             client.complete(
-                BuiltPrompt(
-                    systemText = "stable system",
-                    personaText = "stable persona",
-                    userText = "current user",
-                    contextText = "dynamic state",
+                testBuiltPrompt(
+                    PromptSegmentKind.SYSTEM_CONTRACT to "stable system",
+                    PromptSegmentKind.PERSONA to "stable persona",
+                    PromptSegmentKind.INCARNATION_ANCHOR to "stable incarnation",
+                    PromptSegmentKind.BIO to "dynamic state",
+                    PromptSegmentKind.USER to "current user",
                 ),
             )
         } finally {
@@ -514,4 +620,11 @@ class OpenAiResponsesLlmClientTest {
 
         return Json.parseToJsonElement(requestBody).jsonObject
     }
+
+    private fun simplePrompt(): BuiltPrompt = testBuiltPrompt(
+        PromptSegmentKind.SYSTEM_CONTRACT to "system",
+        PromptSegmentKind.PERSONA to "persona",
+        PromptSegmentKind.INCARNATION_ANCHOR to "incarnation",
+        PromptSegmentKind.USER to "user",
+    )
 }

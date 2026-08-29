@@ -10,9 +10,7 @@ class OpenAiTokenCounter(
     private val encoding: Encoding = Encodings.newDefaultEncodingRegistry()
         .getEncoding(EncodingType.O200K_BASE),
 ) {
-    fun count(prompt: BuiltPrompt): Int = encoding.countTokens(
-        listOf(prompt.systemText, prompt.personaText, prompt.contextText, prompt.userText)
-            .filter(String::isNotEmpty)
-            .joinToString("\n\n"),
-    )
+    fun count(prompt: BuiltPrompt): Int = prompt.wireMessages().sumOf { message ->
+        encoding.countTokens(message.role.apiValue) + encoding.countTokens(message.content)
+    }
 }

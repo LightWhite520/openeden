@@ -8,6 +8,7 @@ import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.model.LocalModelArtifactLoader
 import io.openeden.persona.PersonaFileLoader
 import io.openeden.prompt.BuiltPrompt
+import io.openeden.prompt.PromptSegmentKind
 import io.openeden.runtime.inference.JvmInferenceExecutor
 import io.openeden.runtime.inference.RecordingInferenceExecutor
 import io.openeden.runtime.incarnation.MutableIncarnationStateStore
@@ -129,12 +130,14 @@ class ArtifactBackedKernelSmokeTest {
             assertTrue(recordingExecutor.calls > 0, "Expected pipeline inference boundary crossings")
             assertEquals(2, llmCalls)
             assertEquals(result.prompt, receivedPrompts.first())
-            assertContains(receivedPrompts[1].systemText, "[Codebook Grounding Repair]")
+            assertContains(receivedPrompts[1].segmentText(PromptSegmentKind.BIO), "[Codebook Grounding Repair]")
             assertEquals(BioVector.Neutral.apply(expectedDelta), result.updatedVector)
 
             val selectedPatchKey = "persona.patch.${personaConfig.startSubState.name.lowercase()}"
             val selectedPatch = personaConfig.promptSections.getValue(selectedPatchKey).trim()
-            val personaPrompt = Json.parseToJsonElement(result.prompt.personaText).jsonObject
+            val personaPrompt = Json.parseToJsonElement(
+                result.prompt.segmentText(PromptSegmentKind.PERSONA),
+            ).jsonObject
             assertEquals(
                 selectedPatch,
                 personaPrompt.getValue("sub_state_patch").jsonPrimitive.content,
@@ -149,8 +152,10 @@ class ArtifactBackedKernelSmokeTest {
                     )
                 }
 
-            val contextPrompt = Json.parseToJsonElement(result.prompt.contextText).jsonObject
-            val bioCoreState = contextPrompt.getValue("bio_core_state").jsonObject
+            val bioPrompt = Json.parseToJsonElement(
+                result.prompt.segmentText(PromptSegmentKind.BIO),
+            ).jsonObject
+            val bioCoreState = bioPrompt.getValue("bio_core_state").jsonObject
             assertEquals(
                 neutralQuantization.activeNodes,
                 bioCoreState.getValue("active_nodes").jsonArray.map { it.jsonPrimitive.content },
@@ -159,12 +164,7 @@ class ArtifactBackedKernelSmokeTest {
                 neutralQuantization.semanticDefinitions,
                 bioCoreState.getValue("definitions").jsonArray.map { it.jsonPrimitive.content },
             )
-            val mergedPrompt = listOf(
-                result.prompt.systemText,
-                result.prompt.personaText,
-                result.prompt.contextText,
-                result.prompt.userText,
-            ).joinToString("\n\n")
+            val mergedPrompt = result.prompt.textPreview()
             assertTrue(
                 mergedPrompt.indexOf("\"bio_core_state\"") < mergedPrompt.indexOf(userInput),
                 "Expected codebook state before user input",
@@ -183,6 +183,9 @@ class ArtifactBackedKernelSmokeTest {
             executor.close()
         }
     }
+
+    private fun BuiltPrompt.segmentText(kind: PromptSegmentKind): String =
+        segments.single { it.kind == kind }.text
 
     private fun zeroDelta(): Map<String, Float> = mapOf(
         "L" to 0.0f,

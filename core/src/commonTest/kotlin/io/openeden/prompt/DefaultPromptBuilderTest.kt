@@ -24,6 +24,9 @@ import io.openeden.relationship.RelationshipRole
 import io.openeden.relationship.RelationshipState
 import io.openeden.runtime.affect.OmegaState
 import io.openeden.transcript.ConversationTurn
+import io.openeden.transcript.PromptHistorySerializer
+import io.openeden.transcript.PromptHistorySnapshot
+import io.openeden.transcript.PromptHistorySummary
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -35,44 +38,115 @@ import kotlin.test.assertTrue
 
 class DefaultPromptBuilderTest {
     @Test
+    fun `history precedes every current dynamic segment and preserves wire items`() = runTest {
+        val historyTurn = ConversationTurn(
+            turnId = "history-turn",
+            incarnationId = "incarnation-a",
+            sessionId = "CLI:local",
+            platform = "CLI",
+            scopeId = "local",
+            userId = "user-1",
+            userText = "history user text",
+            assistantText = "history assistant text",
+            completedAtMs = 1L,
+        )
+        val historyItems = PromptHistorySerializer().createItems(listOf(historyTurn))
+
+        val prompt = DefaultPromptBuilder().build(
+            promptInput().copy(
+                promptHistory = PromptHistorySnapshot(
+                    mutableTail = historyItems,
+                    sourceTurnIds = setOf(historyTurn.turnId),
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                PromptSegmentKind.SYSTEM_CONTRACT,
+                PromptSegmentKind.PERSONA,
+                PromptSegmentKind.INCARNATION_ANCHOR,
+                PromptSegmentKind.HISTORY,
+                PromptSegmentKind.BIO,
+                PromptSegmentKind.RELATIONSHIP,
+                PromptSegmentKind.RAG,
+                PromptSegmentKind.TEMPORAL,
+                PromptSegmentKind.USER,
+            ),
+            prompt.segments.map { it.kind },
+        )
+        val history = prompt.segments.single { it.kind == PromptSegmentKind.HISTORY }
+        assertEquals(listOf(PromptRole.USER, PromptRole.ASSISTANT), history.wireItems.map { it.role })
+        assertEquals(historyItems.map { it.text }, history.wireItems.map { it.text })
+        assertEquals(historyItems.map { it.turnId }, history.wireItems.flatMap { it.turnIds })
+        assertEquals(historyItems.map { it.fingerprint }, history.wireItems.map { it.fingerprint })
+    }
+
+    @Test
+    fun `history summary preserves lineage fingerprint and utf8 text`() = runTest {
+        val summary = PromptHistorySummary(
+            text = "较早的记忆：海边🙂",
+            sourceTurnIds = setOf("summary-turn-2", "summary-turn-1"),
+            fingerprint = "summary-fingerprint",
+            serializerVersion = 2,
+        )
+        val prompt = DefaultPromptBuilder().build(
+            promptInput().copy(
+                promptHistory = PromptHistorySnapshot(
+                    summary = summary,
+                    sourceTurnIds = summary.sourceTurnIds,
+                    cacheEpoch = 3L,
+                ),
+            ),
+        )
+
+        val history = prompt.segments.single { it.kind == PromptSegmentKind.HISTORY }
+        val summaryItem = history.wireItems.single()
+        assertEquals(PromptRole.DEVELOPER, summaryItem.role)
+        assertEquals("较早的记忆：海边🙂", summaryItem.text)
+        assertEquals(listOf("summary-turn-1", "summary-turn-2"), summaryItem.turnIds)
+        assertEquals("summary-fingerprint", summaryItem.fingerprint)
+        assertEquals(listOf("summary-turn-1", "summary-turn-2"), history.turnIds)
+    }
+
+    @Test
     fun `build injects codebook state before user input`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput(userInput = "hello"))
 
-        val merged = listOf(built.systemText, built.personaText, built.contextText, built.userText).joinToString("\n")
+        val merged = listOf(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), built.segmentText(PromptSegmentKind.PERSONA), built.dynamicText(), built.segmentText(PromptSegmentKind.USER)).joinToString("\n")
 
         assertTrue(merged.indexOf("\"bio_core_state\"") < merged.indexOf("hello"))
-        assertContains(built.contextText, "\"active_nodes\":")
-        assertContains(built.contextText, "\"NODE_088\"")
-        assertContains(built.contextText, "\"Definition A\"")
-        assertFalse(built.contextText.contains("\"system_time\""))
-        assertEquals("hello", built.userText)
+        assertContains(built.dynamicText(), "\"active_nodes\":")
+        assertContains(built.dynamicText(), "\"NODE_088\"")
+        assertContains(built.dynamicText(), "\"Definition A\"")
+        assertFalse(built.dynamicText().contains("\"system_time\""))
+        assertEquals("hello", built.segmentText(PromptSegmentKind.USER))
     }
 
     @Test
     fun `build injects memory creation time`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
-        assertContains(built.contextText, "\"created_at\": \"2026-08-22 15:43\"")
+        assertContains(built.dynamicText(), "\"created_at\": \"2026-08-22 15:43\"")
     }
 
     @Test
-    fun `recent turns are transcript data and rag recent memories stay separate`() = runTest {
+    fun `history wire items and rag memories stay separate`() = runTest {
         val base = promptInput(userInput = "刚才说了什么")
+        val transcriptTurn = ConversationTurn(
+            turnId = "transcript-turn",
+            incarnationId = "incarnation-a",
+            sessionId = "CLI:local",
+            platform = "CLI",
+            scopeId = "local",
+            userId = "user-1",
+            userText = "transcript user text",
+            assistantText = "transcript assistant text",
+            completedAtMs = 1_787_384_632_000L,
+        )
         val built = DefaultPromptBuilder().build(
             base.copy(
-                recentTurns = listOf(
-                    ConversationTurn(
-                        turnId = "transcript-turn",
-                        incarnationId = "incarnation-a",
-                        sessionId = "CLI:local",
-                        platform = "CLI",
-                        scopeId = "local",
-                        userId = "user-1",
-                        userText = "transcript user text",
-                        assistantText = "transcript assistant text",
-                        completedAtMs = 1_787_384_632_000L,
-                    ),
-                ),
+                promptHistory = promptHistory(listOf(transcriptTurn)),
                 retrievalResult = base.retrievalResult.copy(
                     recentMemories = listOf(
                         base.retrievalResult.memories.single().copy(
@@ -84,17 +158,14 @@ class DefaultPromptBuilderTest {
             ),
         )
 
-        val recentTurnsSection = built.contextText
-            .substringAfter("\"recent_turns\":")
-            .substringBefore("\"memories\":")
-        assertContains(recentTurnsSection, "transcript user text")
-        assertContains(recentTurnsSection, "transcript assistant text")
-        assertTrue("rag recent memory" !in recentTurnsSection)
-        assertContains(built.contextText, "rag recent memory")
+        val history = built.segments.single { it.kind == PromptSegmentKind.HISTORY }
+        assertEquals(listOf("transcript user text", "transcript assistant text"), history.wireItems.map { it.text })
+        assertTrue(history.wireItems.none { "rag recent memory" in it.text })
+        assertContains(built.segmentText(PromptSegmentKind.RAG), "rag recent memory")
     }
 
     @Test
-    fun `builder renders the exact recent turns supplied by pipeline`() = runTest {
+    fun `builder renders the exact prompt history supplied by pipeline`() = runTest {
         val base = promptInput(userInput = "hello")
         val turns = (0..3).map { index ->
             ConversationTurn(
@@ -110,10 +181,11 @@ class DefaultPromptBuilderTest {
             )
         }
 
-        val built = DefaultPromptBuilder().build(base.copy(recentTurns = turns))
+        val built = DefaultPromptBuilder().build(base.copy(promptHistory = promptHistory(turns)))
+        val history = built.segments.single { it.kind == PromptSegmentKind.HISTORY }
 
         turns.forEach { turn ->
-            assertContains(built.contextText, turn.turnId)
+            assertTrue(history.wireItems.any { turn.turnId in it.turnIds })
         }
     }
 
@@ -121,7 +193,7 @@ class DefaultPromptBuilderTest {
     fun `build injects explicit identity from persona data`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
-        assertContains(built.personaText, "identity from data")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "identity from data")
     }
 
     @Test
@@ -132,8 +204,8 @@ class DefaultPromptBuilderTest {
 
         val built = DefaultPromptBuilder().build(input)
 
-        assertContains(built.personaText, "我是会选择也会负责的机器人。")
-        assertFalse(built.contextText.contains("我是会选择也会负责的机器人。"))
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "我是会选择也会负责的机器人。")
+        assertFalse(built.dynamicText().contains("我是会选择也会负责的机器人。"))
     }
 
     @Test
@@ -145,9 +217,9 @@ class DefaultPromptBuilderTest {
             promptInput(evolutionIndex = 2),
         )
 
-        assertEquals(first.systemText, later.systemText)
-        assertEquals(first.personaText, later.personaText)
-        assertNotEquals(first.contextText, later.contextText)
+        assertEquals(first.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), later.segmentText(PromptSegmentKind.SYSTEM_CONTRACT))
+        assertEquals(first.segmentText(PromptSegmentKind.PERSONA), later.segmentText(PromptSegmentKind.PERSONA))
+        assertNotEquals(first.dynamicText(), later.dynamicText())
     }
 
     @Test
@@ -182,14 +254,14 @@ class DefaultPromptBuilderTest {
             ),
         )
 
-        assertContains(stranger.personaText, "STRANGER")
-        assertContains(stranger.personaText, "USER")
-        assertContains(stranger.personaText, "ASSISTANT")
-        assertContains(stranger.personaText, "第一次见面，请多关照。")
-        assertContains(stranger.personaText, "登记进库存")
-        assertEquals(stranger.personaText, couple.personaText)
-        assertContains(stranger.contextText, "\"phase\": \"STRANGER\"")
-        assertContains(couple.contextText, "\"phase\": \"COUPLE\"")
+        assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "STRANGER")
+        assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "USER")
+        assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "ASSISTANT")
+        assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "第一次见面，请多关照。")
+        assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "登记进库存")
+        assertEquals(stranger.segmentText(PromptSegmentKind.PERSONA), couple.segmentText(PromptSegmentKind.PERSONA))
+        assertContains(stranger.dynamicText(), "\"phase\": \"STRANGER\"")
+        assertContains(couple.dynamicText(), "\"phase\": \"COUPLE\"")
     }
 
     @Test
@@ -209,12 +281,12 @@ class DefaultPromptBuilderTest {
         )
         val original = DefaultPromptBuilder().build(baseInput)
 
-        assertEquals(original.systemText, changed.systemText)
-        assertNotEquals(original.personaText, changed.personaText)
-        assertNotEquals(original.contextText, changed.contextText)
-        assertContains(changed.personaText, "updated identity from data")
-        assertContains(changed.contextText, "NODE_999")
-        assertContains(changed.contextText, "Updated definition")
+        assertEquals(original.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), changed.segmentText(PromptSegmentKind.SYSTEM_CONTRACT))
+        assertNotEquals(original.segmentText(PromptSegmentKind.PERSONA), changed.segmentText(PromptSegmentKind.PERSONA))
+        assertNotEquals(original.dynamicText(), changed.dynamicText())
+        assertContains(changed.segmentText(PromptSegmentKind.PERSONA), "updated identity from data")
+        assertContains(changed.dynamicText(), "NODE_999")
+        assertContains(changed.dynamicText(), "Updated definition")
     }
 
     @Test
@@ -226,27 +298,27 @@ class DefaultPromptBuilderTest {
             ),
         )
 
-        assertContains(built.contextText, "\"relationship_role\": \"HOST\"")
-        assertContains(built.contextText, "\"relationship_address\": \"Captain\"")
-        assertContains(built.systemText, "Do not assume the current user is the host")
-        assertContains(built.systemText, "Use relationship_address only when relationship_role is HOST")
+        assertContains(built.dynamicText(), "\"relationship_role\": \"HOST\"")
+        assertContains(built.dynamicText(), "\"relationship_address\": \"Captain\"")
+        assertContains(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), "Do not assume the current user is the host")
+        assertContains(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), "Use relationship_address only when relationship_role is HOST")
     }
 
     @Test
     fun `system prompt defines signed vector delta semantics`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
-        assertContains(built.systemText, "vector_delta is a signed change from the current physiological state")
-        assertContains(built.systemText, "a negative value when the current event lowers it")
-        assertContains(built.systemText, "do not default all dimensions to positive values")
+        assertContains(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), "vector_delta is a signed change from the current physiological state")
+        assertContains(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), "a negative value when the current event lowers it")
+        assertContains(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), "do not default all dimensions to positive values")
     }
 
     @Test
     fun `build injects null address for interlocutor`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
-        assertContains(built.contextText, "\"relationship_role\": \"INTERLOCUTOR\"")
-        assertContains(built.contextText, "\"relationship_address\": null")
+        assertContains(built.dynamicText(), "\"relationship_role\": \"INTERLOCUTOR\"")
+        assertContains(built.dynamicText(), "\"relationship_address\": null")
     }
 
     @Test
@@ -273,16 +345,16 @@ class DefaultPromptBuilderTest {
     fun `pre command starting point keeps its patch and examples at high evolution index`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput(evolutionIndex = 500))
 
-        assertContains(built.contextText, "\"persona_start_sub_state\": \"PRE_COMMAND\"")
-        assertContains(built.contextText, "\"evolution_index\": 500")
-        assertContains(built.personaText, "behavior rules from data")
-        assertContains(built.personaText, "pre command patch from data")
-        assertContains(built.personaText, "COMMON_GENERATION")
-        assertContains(built.personaText, "COMMON_SIGNATURE")
-        assertContains(built.personaText, "PRE_EXAMPLE")
-        assertTrue("true self patch from data" !in built.personaText)
-        assertTrue("TRUE_EXAMPLE" !in built.personaText)
-        assertTrue("AWAKE_EXAMPLE" !in built.personaText)
+        assertContains(built.dynamicText(), "\"persona_start_sub_state\": \"PRE_COMMAND\"")
+        assertContains(built.dynamicText(), "\"evolution_index\": 500")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "behavior rules from data")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "pre command patch from data")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "COMMON_GENERATION")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "COMMON_SIGNATURE")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "PRE_EXAMPLE")
+        assertTrue("true self patch from data" !in built.segmentText(PromptSegmentKind.PERSONA))
+        assertTrue("TRUE_EXAMPLE" !in built.segmentText(PromptSegmentKind.PERSONA))
+        assertTrue("AWAKE_EXAMPLE" !in built.segmentText(PromptSegmentKind.PERSONA))
     }
 
     @Test
@@ -311,14 +383,14 @@ class DefaultPromptBuilderTest {
             promptInput(evolutionIndex = 0, personaConfigOverride = persona),
         )
 
-        assertContains(built.contextText, "\"persona_start_sub_state\": \"TRUE_SELF\"")
-        assertContains(built.personaText, "true self patch from data")
-        assertContains(built.personaText, "COMMON_GENERATION")
-        assertContains(built.personaText, "COMMON_SIGNATURE")
-        assertContains(built.personaText, "TRUE_EXAMPLE")
-        assertTrue("pre command patch from data" !in built.personaText)
-        assertTrue("PRE_EXAMPLE" !in built.personaText)
-        assertTrue("AWAKE_EXAMPLE" !in built.personaText)
+        assertContains(built.dynamicText(), "\"persona_start_sub_state\": \"TRUE_SELF\"")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "true self patch from data")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "COMMON_GENERATION")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "COMMON_SIGNATURE")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "TRUE_EXAMPLE")
+        assertTrue("pre command patch from data" !in built.segmentText(PromptSegmentKind.PERSONA))
+        assertTrue("PRE_EXAMPLE" !in built.segmentText(PromptSegmentKind.PERSONA))
+        assertTrue("AWAKE_EXAMPLE" !in built.segmentText(PromptSegmentKind.PERSONA))
     }
 
     @Test
@@ -331,48 +403,48 @@ class DefaultPromptBuilderTest {
             ),
         )
 
-        assertContains(built.contextText, "\"persona_start_sub_state\": \"AWAKENED\"")
-        assertContains(built.contextText, "\"evolution_index\": 0")
-        assertContains(built.personaText, "awakened patch from data")
-        assertContains(built.personaText, "COMMON_GENERATION")
-        assertContains(built.personaText, "COMMON_SIGNATURE")
-        assertContains(built.personaText, "AWAKE_EXAMPLE")
-        assertTrue("PRE_EXAMPLE" !in built.personaText)
-        assertTrue("TRUE_EXAMPLE" !in built.personaText)
+        assertContains(built.dynamicText(), "\"persona_start_sub_state\": \"AWAKENED\"")
+        assertContains(built.dynamicText(), "\"evolution_index\": 0")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "awakened patch from data")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "COMMON_GENERATION")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "COMMON_SIGNATURE")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "AWAKE_EXAMPLE")
+        assertTrue("PRE_EXAMPLE" !in built.segmentText(PromptSegmentKind.PERSONA))
+        assertTrue("TRUE_EXAMPLE" !in built.segmentText(PromptSegmentKind.PERSONA))
     }
 
     @Test
     fun `heartbeat context is injected from persona data`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput(userInput = HEARTBEAT_TRIGGER))
 
-        assertContains(built.contextText, "heartbeat text from data")
-        assertTrue("heartbeat text from data" !in built.personaText)
+        assertContains(built.dynamicText(), "heartbeat text from data")
+        assertTrue("heartbeat text from data" !in built.segmentText(PromptSegmentKind.PERSONA))
     }
 
     @Test
     fun `style guidance is injected from persona data`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
-        assertContains(built.personaText, "\"style\":")
-        assertContains(built.personaText, "\"generation_mechanics\": \"COMMON_GENERATION\"")
-        assertContains(built.personaText, "\"signature_examples\": \"COMMON_SIGNATURE\"")
-        assertContains(built.personaText, "\"active_stage_examples\": \"PRE_EXAMPLE\"")
-        assertContains(built.personaText, "style summary from data")
-        assertContains(built.personaText, "source language notes from data")
-        assertContains(built.personaText, "do item one")
-        assertContains(built.personaText, "do item two")
-        assertContains(built.personaText, "avoid item one")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "\"style\":")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "\"generation_mechanics\": \"COMMON_GENERATION\"")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "\"signature_examples\": \"COMMON_SIGNATURE\"")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "\"active_stage_examples\": \"PRE_EXAMPLE\"")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "style summary from data")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "source language notes from data")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "do item one")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "do item two")
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "avoid item one")
     }
 
     @Test
     fun `private operational log conditions normal dialogue from persona data`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
-        assertContains(built.personaText, "PRIVATE_OPERATIONAL_LOG_FROM_PERSONA")
-        assertContains(built.systemText, "private operational log")
-        assertContains(built.systemText, "observable event")
-        assertContains(built.systemText, "exact active codebook node identifier")
-        assertTrue("Traceable reasoning process" !in built.systemText)
+        assertContains(built.segmentText(PromptSegmentKind.PERSONA), "PRIVATE_OPERATIONAL_LOG_FROM_PERSONA")
+        assertContains(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), "private operational log")
+        assertContains(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), "observable event")
+        assertContains(built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT), "exact active codebook node identifier")
+        assertTrue("Traceable reasoning process" !in built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT))
     }
 
     @Test
@@ -428,18 +500,17 @@ class DefaultPromptBuilderTest {
             fieldNames,
         )
 
-        val context = document.root.fields.first { it.name == "context" }.value as PromptObject
         assertEquals(
             listOf(
-                "bio_core_state",
-                "runtime_state",
-                "observed_user_state",
-                "relationship_role",
-                "relationship_address",
-                "relationship_context",
-                "memory_retrieval",
+                "system",
+                "persona",
+                "incarnation_anchor",
+                "bio",
+                "relationship",
+                "rag",
+                "temporal",
             ),
-            context.fields.map { it.name },
+            document.root.fields.map { it.name },
         )
     }
 
@@ -451,7 +522,6 @@ class DefaultPromptBuilderTest {
         personaConfigOverride: PersonaConfig? = null,
         relationshipRole: RelationshipRole = RelationshipRole.INTERLOCUTOR,
         relationshipAddress: String? = null,
-        recentTurns: List<ConversationTurn> = emptyList(),
     ): PromptInput = PromptInput(
         personaConfig = personaConfigOverride ?: PersonaConfig(
             mode = personaMode,
@@ -508,8 +578,24 @@ class DefaultPromptBuilderTest {
         userInput = userInput,
         relationshipRole = relationshipRole,
         relationshipAddress = relationshipAddress,
-        recentTurns = recentTurns,
     )
+
+    private fun promptHistory(turns: List<ConversationTurn>): PromptHistorySnapshot = PromptHistorySnapshot(
+        mutableTail = PromptHistorySerializer().createItems(turns),
+        sourceTurnIds = turns.mapTo(linkedSetOf(), ConversationTurn::turnId),
+    )
+
+    private fun BuiltPrompt.segmentText(kind: PromptSegmentKind): String =
+        segments.single { it.kind == kind }.text
+
+    private fun BuiltPrompt.dynamicText(): String = segments
+        .filter { it.kind !in setOf(
+            PromptSegmentKind.SYSTEM_CONTRACT,
+            PromptSegmentKind.PERSONA,
+            PromptSegmentKind.HISTORY,
+            PromptSegmentKind.USER,
+        ) }
+        .joinToString("\n") { it.text }
 
     private fun relationshipState(phase: RelationshipPhase): RelationshipState = RelationshipState(
         incarnationId = "incarnation-a",

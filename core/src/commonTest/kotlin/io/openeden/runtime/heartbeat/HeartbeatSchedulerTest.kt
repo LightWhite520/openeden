@@ -210,11 +210,7 @@ class HeartbeatSchedulerTest {
         assertEquals(listOf("QQ:group-42"), delivery.calls.map { it.sessionId })
         assertEquals(listOf("owner"), delivery.calls.map { it.userId })
         assertFalse("QQ:owner" in store.sessionIds())
-        assertTrue(
-            listOf(prompts.last().systemText, prompts.last().personaText, prompts.last().contextText, prompts.last().userText)
-                .joinToString("\n")
-                .contains("group-context-message"),
-        )
+        assertTrue(prompts.last().textPreview().contains("group-context-message"))
         assertEquals(2L, incarnationStore.read("incarnation-a").evolutionIndex)
     }
 

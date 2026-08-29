@@ -28,6 +28,7 @@ import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
 import io.openeden.prompt.PromptManifest
+import io.openeden.prompt.PromptSegmentKind
 import io.openeden.relationship.*
 import io.openeden.runtime.affect.EmotionSignal
 import io.openeden.runtime.affect.OmegaState
@@ -295,22 +296,27 @@ class DevelopmentMessagePipeline(
             )
         }
         trace(traceContext, "quantization", tags = inference.quantization.traceTags)
-        var recentTurns = emptyList<ConversationTurn>()
+        var promptHistory = io.openeden.transcript.PromptHistorySnapshot()
         var transcriptTags = emptySet<String>()
         if (transcriptStore != null) {
             try {
-                recentTurns = transcriptStore.recentForSession(sessionId, RECENT_HISTORY_LIMIT)
+                promptHistory = transcriptStore.promptHistory(
+                    sessionId = sessionId,
+                    requiredTailTurns = if (request.text.requiresRecentContext()) {
+                        RECENT_CONTEXT_TURNS * 2
+                    } else {
+                        RECENT_CONTEXT_TURNS
+                    },
+                    tokenBudget = PROMPT_HISTORY_CHUNK_TOKEN_BUDGET,
+                )
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
-                // Transcript is the sole source for recent_turns; memory recency is intentionally not a fallback.
-                recentTurns = emptyList()
+                // Transcript is the sole source for prompt history; memory recency is intentionally not a fallback.
+                promptHistory = io.openeden.transcript.PromptHistorySnapshot()
                 transcriptTags = setOf(TraceTag.TranscriptDegraded)
             }
         }
-        val injectedRecentTurns = recentTurns.takeLast(
-            if (request.text.requiresRecentContext()) RECENT_CONTEXT_TURNS * 2 else RECENT_CONTEXT_TURNS,
-        )
         trace(traceContext, "transcript_recent", tags = transcriptTags)
         val retrievalResult = inferenceExecutor.run {
             memoryRetriever.retrieve(
@@ -324,7 +330,7 @@ class DevelopmentMessagePipeline(
                     incarnationId = incarnationId,
                     canonicalSubjectId = canonicalSubjectId,
                     exclusionContext = MemoryExclusionContext(
-                        sourceTurnIds = injectedRecentTurns.mapTo(hashSetOf()) { it.turnId },
+                        sourceTurnIds = promptHistory.sourceTurnIds,
                     ),
                 ),
             )
@@ -350,7 +356,7 @@ class DevelopmentMessagePipeline(
                 relationshipRole = resolvedRelationship.role,
                 relationshipAddress = resolvedRelationship.address,
                 relationshipState = relationship,
-                recentTurns = injectedRecentTurns,
+                promptHistory = promptHistory,
             ),
         )
         trace(traceContext, "prompt_construction")
@@ -421,9 +427,9 @@ class DevelopmentMessagePipeline(
                     TraceTag.LlmGroundingFailed,
                     TraceTag.LlmGroundingRegenerated,
                 )
-                val repairPrompt = prompt.copy(
-                    systemText = prompt.systemText +
-                        "\n\n[Codebook Grounding Repair]\n" +
+                val repairPrompt = prompt.appendDynamic(
+                    PromptSegmentKind.BIO,
+                    "[Codebook Grounding Repair]\n" +
                         "The previous JSON was schema-valid but did not reference an active codebook node. " +
                         "Regenerate the complete JSON. In internal_logic, include one exact identifier from: " +
                         inference.quantization.activeNodes.joinToString(", ") + ".",
@@ -471,9 +477,10 @@ class DevelopmentMessagePipeline(
                 output = requireNotNull(validation.output),
                 prompt = prompt,
                 generationSettings = inference.generationSettings,
-                recentAssistantResponses = recentTurns
-                    .filterNot { it.turnId == request.turnId }
-                    .map(ConversationTurn::assistantText),
+                recentAssistantResponses = promptHistory.flattenItems()
+                    .filter { it.role == "assistant" && it.turnId != request.turnId }
+                    .map { it.text }
+                    .takeLast(RECENT_ASSISTANT_VALIDATION_TURNS),
                 llmCacheMeasurements = llmCacheMeasurements,
             )
         }
@@ -781,9 +788,7 @@ class DevelopmentMessagePipeline(
                 centroidTags +
                 sourceTags,
             prompt = prompt,
-            promptPreview = listOf(prompt.systemText, prompt.personaText, prompt.contextText, prompt.userText)
-                .filter(String::isNotEmpty)
-                .joinToString("\n\n"),
+            promptPreview = prompt.textPreview(),
             response = validation.output?.response,
             updatedVector = write.state.vector,
             evolutionIndex = write.state.evolutionIndex,
@@ -830,14 +835,13 @@ class DevelopmentMessagePipeline(
         return LlmOutputValidator.validate(responseOnly, policy, recentAssistantResponses)
     }
 
-    private fun publicVoiceRewritePrompt(prompt: BuiltPrompt, output: LlmOutput): BuiltPrompt = prompt.copy(
-        systemText = prompt.systemText +
-            "\n\n[Public Response Rewrite]\n" +
+    private fun publicVoiceRewritePrompt(prompt: BuiltPrompt, output: LlmOutput): BuiltPrompt = prompt.appendDynamic(
+        PromptSegmentKind.TEMPORAL,
+        "[Public Response Rewrite]\n" +
             "The previous output is schema-valid but its public response violates the active persona output policy. " +
             "Rewrite response exactly once and return the complete required JSON schema. " +
-            "Keep internal_logic and every vector_delta value exactly unchanged.",
-        contextText = prompt.contextText +
-            "\n\n[Previous Structured Output]\n" +
+            "Keep internal_logic and every vector_delta value exactly unchanged.\n\n" +
+            "[Previous Structured Output]\n" +
             "internal_logic: ${output.internalLogic}\n" +
             "vector_delta: ${output.vectorDelta}\n" +
             "response: ${output.response}",
@@ -958,8 +962,9 @@ class DevelopmentMessagePipeline(
     }
 
     companion object {
-        private const val RECENT_HISTORY_LIMIT = 8
         private const val RECENT_CONTEXT_TURNS = 2
+        private const val RECENT_ASSISTANT_VALIDATION_TURNS = 8
+        private const val PROMPT_HISTORY_CHUNK_TOKEN_BUDGET = 4_096
         private const val DEVELOPMENT_INCARNATION_ID = "development"
 
         fun create(

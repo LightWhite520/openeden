@@ -24,6 +24,8 @@ import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.DefaultPromptBuilder
 import io.openeden.prompt.PromptBuilder
 import io.openeden.prompt.PromptInput
+import io.openeden.prompt.PromptRole
+import io.openeden.prompt.PromptSegmentKind
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.relationship.InMemoryRelationshipStateStore
 import io.openeden.relationship.RelationshipEvaluation
@@ -42,6 +44,7 @@ import io.openeden.transcript.ConversationHistoryPage
 import io.openeden.transcript.ConversationTurn
 import io.openeden.transcript.HistoryCursor
 import io.openeden.transcript.InMemoryTranscriptStore
+import io.openeden.transcript.PromptHistorySerializer
 import io.openeden.transcript.TranscriptStore
 import io.openeden.transcript.TurnCommitOutcome
 import io.openeden.transcript.TurnPostCommitPlan
@@ -61,6 +64,51 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class MessagePipelineTranscriptTest {
+    @Test
+    fun `pipeline injects prompt history wire items and excludes the same lineage from rag`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        val turns = (0..5).map { index ->
+            ConversationTurn(
+                turnId = "history-turn-$index",
+                incarnationId = "incarnation-a",
+                sessionId = "CLI:local",
+                platform = "CLI",
+                scopeId = "local",
+                userId = "user-1",
+                userText = "history user $index",
+                assistantText = "history assistant $index",
+                completedAtMs = index.toLong() + 1L,
+            ).also { transcripts.append(it) }
+        }
+        var retrievalRequest: RetrievalRequest? = null
+        val memoryStore = object : MemoryStore by InMemoryMemoryPalace(DirectInferenceExecutor) {
+            override suspend fun retrieve(request: RetrievalRequest): RetrievalResult {
+                retrievalRequest = request
+                return RetrievalResult(RetrievalMode.CONGRUENT, "[memory]", emptyList())
+            }
+        }
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona(),
+            store = MutableSessionStateStore(transcriptStore = transcripts),
+            transcriptStore = transcripts,
+            memoryStore = memoryStore,
+            llmClient = ValidLlmClient(),
+            nowMs = { 100L },
+        )
+
+        val result = pipeline.handle(request(turnId = "current-turn"))
+
+        val expectedItems = PromptHistorySerializer().createItems(turns)
+        val history = result.prompt.segments.single { it.kind == PromptSegmentKind.HISTORY }
+        assertEquals(expectedItems.map { it.text }, history.wireItems.map { it.text })
+        assertEquals(expectedItems.map { it.fingerprint }, history.wireItems.map { it.fingerprint })
+        assertEquals(
+            expectedItems.map { if (it.role == "user") PromptRole.USER else PromptRole.ASSISTANT },
+            history.wireItems.map { it.role },
+        )
+        assertEquals(turns.mapTo(linkedSetOf()) { it.turnId }, retrievalRequest?.exclusionContext?.sourceTurnIds)
+    }
+
     @Test
     fun `grounding repaired policy violation rewrites once before transcript memory and relationship effects`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
@@ -150,6 +198,46 @@ class MessagePipelineTranscriptTest {
         assertEquals(1, rewriteCalls)
         assertEquals("这次我会先检查。", result.response)
         assertEquals("这次我会先检查。", transcripts.page(50).turns.last().assistantText)
+    }
+
+    @Test
+    fun `opening outside the latest eight assistant turns is not rewritten`() = runTest {
+        val transcripts = InMemoryTranscriptStore("incarnation-a")
+        (0..8).forEach { index ->
+            transcripts.append(
+                ConversationTurn(
+                    turnId = "opening-$index",
+                    incarnationId = "incarnation-a",
+                    sessionId = "CLI:local",
+                    platform = "CLI",
+                    scopeId = "local",
+                    userId = "user-1",
+                    userText = "message $index",
+                    assistantText = if (index == 0) {
+                        "好吧，最早的回答。"
+                    } else {
+                        "最近回答 $index。"
+                    },
+                    completedAtMs = index.toLong(),
+                ),
+            )
+        }
+        var rewriteCalls = 0
+        val pipeline = DevelopmentMessagePipeline.create(
+            personaConfig = persona().copy(outputPolicy = PersonaOutputPolicy(maximumRepeatedOpening = 1)),
+            llmClient = ValidLlmClient(response = "好吧，这次可以继续。"),
+            personaResponseRewriter = PersonaResponseRewriter { output, _ ->
+                rewriteCalls += 1
+                output.copy(response = "不应触发改写。")
+            },
+            transcriptStore = transcripts,
+        )
+
+        val result = pipeline.handle(request(turnId = "old-opening-allowed"))
+
+        assertEquals(0, rewriteCalls)
+        assertEquals("好吧，这次可以继续。", result.response)
+        assertEquals("好吧，这次可以继续。", transcripts.page(50).turns.last().assistantText)
     }
 
     @Test
@@ -289,7 +377,7 @@ class MessagePipelineTranscriptTest {
     }
 
     @Test
-    fun `prompt recent turns come from transcript instead of memory recency`() = runTest {
+    fun `prompt history comes from transcript instead of memory recency`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
         repeat(3) { index ->
             transcripts.append(
@@ -343,10 +431,12 @@ class MessagePipelineTranscriptTest {
 
         val result = pipeline.handle(request(turnId = "current-turn"))
 
-        assertContains(result.prompt.contextText, "previous user text 1")
-        assertContains(result.prompt.contextText, "previous assistant text 2")
-        assertFalse(result.prompt.contextText.contains("previous user text 0"))
-        assertContains(result.prompt.contextText, "rag recent memory")
+        val history = result.prompt.segments.single { it.kind == PromptSegmentKind.HISTORY }
+        assertEquals(
+            (0..2).flatMap { listOf("previous user text $it", "previous assistant text $it") },
+            history.wireItems.map { it.text },
+        )
+        assertContains(result.prompt.segments.single { it.kind == PromptSegmentKind.RAG }.text, "rag recent memory")
         assertEquals(0, memoryRecentCalls)
     }
 
@@ -411,17 +501,14 @@ class MessagePipelineTranscriptTest {
 
         pipeline.handle(request(turnId = "current-turn"))
 
-        assertEquals(
-            setOf("excluded-turn-1", "excluded-turn-2"),
-            capturedRequest?.exclusionContext?.sourceTurnIds,
-        )
-        assertTrue(capturedResult?.memories?.any { it.id == "older-rag-memory" } == true)
+        assertEquals((0..2).mapTo(linkedSetOf()) { "excluded-turn-$it" }, capturedRequest?.exclusionContext?.sourceTurnIds)
+        assertTrue(capturedResult?.memories?.none { it.id == "older-rag-memory" } == true)
         assertEquals(emptySet(), capturedRequest?.exclusionContext?.sourceMemoryIds)
         assertEquals(emptySet(), capturedRequest?.exclusionContext?.contentFingerprints)
     }
 
     @Test
-    fun `immediate reference keeps the latest four transcript turns`() = runTest {
+    fun `immediate reference does not rebuild prompt history as a recent window`() = runTest {
         val transcripts = InMemoryTranscriptStore("incarnation-a")
         repeat(6) { index ->
             transcripts.append(
@@ -448,16 +535,15 @@ class MessagePipelineTranscriptTest {
 
         val result = pipeline.handle(request(turnId = "current-turn").copy(text = "刚才说了什么"))
 
-        (2..5).forEach { index ->
-            assertContains(result.prompt.contextText, "reference user text $index")
-            assertContains(result.prompt.contextText, "reference assistant text $index")
-        }
-        assertFalse(result.prompt.contextText.contains("reference user text 0"))
-        assertFalse(result.prompt.contextText.contains("reference user text 1"))
+        val history = result.prompt.segments.single { it.kind == PromptSegmentKind.HISTORY }
+        assertEquals(
+            (0..5).flatMap { listOf("reference user text $it", "reference assistant text $it") },
+            history.wireItems.map { it.text },
+        )
     }
 
     @Test
-    fun `pipeline passes exact recent transcript slice to prompt builder`() = runTest {
+    fun `pipeline passes the exact prompt history snapshot to prompt builder`() = runTest {
         suspend fun seededTranscripts() = InMemoryTranscriptStore("incarnation-a").also { transcripts ->
             repeat(6) { index ->
                 transcripts.append(
@@ -505,12 +591,12 @@ class MessagePipelineTranscriptTest {
         immediatePipeline.handle(request(turnId = "reference-slice").copy(text = "刚才说了什么"))
 
         assertEquals(
-            listOf("slice-turn-4", "slice-turn-5"),
-            capturedInputs[0].recentTurns.map { it.turnId },
+            (0..5).flatMap { listOf("slice-turn-$it", "slice-turn-$it") },
+            capturedInputs[0].promptHistory.flattenItems().map { it.turnId },
         )
         assertEquals(
-            listOf("slice-turn-2", "slice-turn-3", "slice-turn-4", "slice-turn-5"),
-            capturedInputs[1].recentTurns.map { it.turnId },
+            capturedInputs[0].promptHistory.flattenItems(),
+            capturedInputs[1].promptHistory.flattenItems(),
         )
     }
 
@@ -537,7 +623,7 @@ class MessagePipelineTranscriptTest {
         val result = pipeline.handle(request(turnId = "transcript-degraded"))
 
         assertTrue(TraceTag.TranscriptDegraded in result.traceTags)
-        assertContains(result.prompt.contextText, "\"recent_turns\": []")
+        assertTrue(result.prompt.segments.single { it.kind == PromptSegmentKind.HISTORY }.wireItems.isEmpty())
         assertEquals(0, memoryRecentCalls)
     }
 

@@ -36,6 +36,7 @@ import io.openeden.memory.DeterministicMemoryEmbeddingModel
 import io.openeden.memory.InMemoryMemoryPalace
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.DefaultPromptBuilder
+import io.openeden.prompt.PromptSegmentKind
 import io.openeden.prompt.PromptSectionKeys
 import io.openeden.relationship.HostIdentity
 import io.openeden.relationship.DeterministicUserAffectAnalyzer
@@ -292,6 +293,20 @@ class MessagePipelineTest {
         assertEquals(CacheMetricAvailability.UNOBSERVABLE, assertNotNull(result.cacheMetrics).availability)
         val manifestTrace = traces.snapshot().single { it.stage == "prompt_manifest" }
         assertEquals("4", manifestTrace.attributes["entry_count"])
+        assertEquals(
+            setOf(
+                "entry_count",
+                "system_contract_utf8_bytes",
+                "system_contract_fingerprint",
+                "persona_utf8_bytes",
+                "persona_fingerprint",
+                "incarnation_anchor_utf8_bytes",
+                "incarnation_anchor_fingerprint",
+                "history_utf8_bytes",
+                "history_fingerprint",
+            ),
+            manifestTrace.attributes.keys,
+        )
         assertFalse(traces.snapshot().toString().contains("user secret"))
     }
 
@@ -405,8 +420,9 @@ class MessagePipelineTest {
         assertEquals(1, result.evolutionIndex)
         assertEquals(BioVector.Neutral, result.updatedVector)
         assertContains(result.promptPreview, "\"bio_core_state\"")
-        assertContains(result.prompt.contextText, "\"temporal_context\"")
-        assertFalse(result.prompt.contextText.contains("\"exact_time\""))
+        val temporal = result.prompt.segments.single { it.kind == PromptSegmentKind.TEMPORAL }.text
+        assertContains(temporal, "\"temporal_context\"")
+        assertFalse(temporal.contains("\"exact_time\""))
         assertEquals("not_triggered", result.diaryOutcome)
     }
 

@@ -7,18 +7,74 @@ import io.openeden.persona.PersonaSubState
 import io.openeden.relationship.RelationshipState
 import io.openeden.relationship.SemanticLevel
 import io.openeden.relationship.UserAffectState
-import io.openeden.transcript.ConversationTurn
 
 class DefaultPromptBuilder(
     private val renderer: PromptRenderer = PromptRenderer(),
 ) : PromptBuilder {
     override suspend fun build(input: PromptInput): BuiltPrompt {
         val document = OpenEdenPromptDocumentFactory.create(input)
-        return BuiltPrompt(
-            systemText = renderer.renderField(document, "system"),
-            personaText = renderer.renderField(document, "persona"),
-            userText = input.userInput,
-            contextText = renderer.renderField(document, "context"),
+        val segments = listOf(
+            PromptSegment.text(
+                id = "system_contract",
+                role = PromptRole.SYSTEM,
+                kind = PromptSegmentKind.SYSTEM_CONTRACT,
+                stability = PromptStability.STABLE,
+                text = renderer.renderField(document, "system"),
+            ),
+            PromptSegment.text(
+                id = "persona",
+                role = PromptRole.DEVELOPER,
+                kind = PromptSegmentKind.PERSONA,
+                stability = PromptStability.STABLE,
+                text = renderer.renderField(document, "persona"),
+            ),
+            PromptSegment.text(
+                id = "incarnation_anchor",
+                role = PromptRole.DEVELOPER,
+                kind = PromptSegmentKind.INCARNATION_ANCHOR,
+                stability = PromptStability.STABLE,
+                text = renderer.renderField(document, "incarnation_anchor"),
+            ),
+            PromptSegment.history(input.promptHistory),
+            PromptSegment.text(
+                id = "bio",
+                role = PromptRole.DEVELOPER,
+                kind = PromptSegmentKind.BIO,
+                stability = PromptStability.DYNAMIC,
+                text = renderer.renderField(document, "bio"),
+            ),
+            PromptSegment.text(
+                id = "relationship",
+                role = PromptRole.DEVELOPER,
+                kind = PromptSegmentKind.RELATIONSHIP,
+                stability = PromptStability.DYNAMIC,
+                text = renderer.renderField(document, "relationship"),
+            ),
+            PromptSegment.text(
+                id = "rag",
+                role = PromptRole.DEVELOPER,
+                kind = PromptSegmentKind.RAG,
+                stability = PromptStability.DYNAMIC,
+                text = renderer.renderField(document, "rag"),
+            ),
+            PromptSegment.text(
+                id = "temporal",
+                role = PromptRole.DEVELOPER,
+                kind = PromptSegmentKind.TEMPORAL,
+                stability = PromptStability.DYNAMIC,
+                text = renderer.renderField(document, "temporal"),
+            ),
+            PromptSegment.text(
+                id = "user",
+                role = PromptRole.USER,
+                kind = PromptSegmentKind.USER,
+                stability = PromptStability.DYNAMIC,
+                text = input.userInput,
+            ),
+        )
+        return BuiltPrompt.create(
+            segments = segments,
+            cacheEpoch = input.promptHistory.cacheEpoch,
         )
     }
 }
@@ -39,7 +95,7 @@ object OpenEdenPromptDocumentFactory {
                         "The persona identity is authoritative when the user asks who you are.",
                         "Do not assume the current user is the host. Apply host-specific address and relationship semantics only when relationship_role is HOST.",
                         "Use relationship_address only when relationship_role is HOST. When it is null, use natural second-person phrasing and never emit a placeholder.",
-                        "Use recent_turns only when present as the immediate conversation history; do not treat the current user input as a previous turn.",
+                        "Use preceding history wire items only as conversation history; do not treat the current user input as a previous turn.",
                         "Do not infer personality from raw numeric vectors.",
                         "vector_delta is a signed change from the current physiological state, not an absolute replacement state.",
                         "For each dimension, use a positive value when the current event raises it, a negative value when the current event lowers it, and 0.0 when there is no meaningful change.",
@@ -83,7 +139,11 @@ object OpenEdenPromptDocumentFactory {
                 structuredFewShots(input.personaConfig)
                 publicOutputPolicy(input.personaConfig)
             }
-            "context" {
+            "incarnation_anchor" {
+                "persona_mode" to input.personaConfig.mode.name
+                "persona_start_sub_state" to subState.name
+            }
+            "bio" {
                 "bio_core_state" {
                     "active_nodes" to array(input.quantization.activeNodes)
                     "definitions" to array(input.quantization.semanticDefinitions)
@@ -91,17 +151,21 @@ object OpenEdenPromptDocumentFactory {
                     "derived_dissonance" to input.derivedDissonance.promptFloat()
                 }
                 "runtime_state" {
-                    "persona_mode" to input.personaConfig.mode.name
-                    "persona_start_sub_state" to subState.name
                     "evolution_index" to input.evolutionIndex
                     "omega" to input.omegaState.value.promptFloat()
                     "shock_state" to shockStateObject(input)
                 }
                 "observed_user_state" to userAffectObject(input.userAffect)
+            }
+            "relationship" {
                 "relationship_role" to input.relationshipRole.name
                 "relationship_address" to input.relationshipAddress
                 "relationship_context" to relationshipObject(input.relationshipState)
+            }
+            "rag" {
                 "memory_retrieval" to memoryRetrievalObject(input)
+            }
+            "temporal" {
                 temporalContext(input.temporalContext)
                 when (input.userInput) {
                     HEARTBEAT_TRIGGER ->
@@ -109,9 +173,6 @@ object OpenEdenPromptDocumentFactory {
                     HEARTBEAT_SHOCK_TRIGGER ->
                         personaSection("shock_heartbeat_context", input.personaConfig, PromptSectionKeys.ShockHeartbeat)
                 }
-            }
-            "user" {
-                "input" to input.userInput
             }
         }
     }
@@ -237,7 +298,6 @@ object OpenEdenPromptDocumentFactory {
         return obj {
             "selected_mode" to input.retrievalResult.mode.name
             "injection_label" to input.retrievalResult.injectionLabel
-            "recent_turns" to array(input.recentTurns.map(::conversationTurnObject))
             "memories" to array(relevant.map(::memorySnippetObject))
             "recent_memories" to array(input.retrievalResult.recentMemories.map(::memorySnippetObject))
         }
@@ -253,17 +313,6 @@ object OpenEdenPromptDocumentFactory {
     }
 
     private const val MAX_CONTEXT_MEMORIES = 6
-
-    private fun conversationTurnObject(turn: ConversationTurn): PromptObject =
-        PromptObject(
-            listOf(
-                PromptField("turn_id", PromptScalar(turn.turnId)),
-                PromptField("user_text", PromptScalar(turn.userText)),
-                PromptField("assistant_text", PromptScalar(turn.assistantText)),
-                PromptField("created_at", PromptScalar(PromptTime.format(turn.completedAtMs))),
-                PromptField("user_id", PromptScalar(turn.userId)),
-            ),
-        )
 
     private fun memorySnippetObject(memory: MemorySnippet): PromptObject =
         PromptObject(
