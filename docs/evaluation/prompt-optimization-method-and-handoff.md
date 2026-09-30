@@ -1,6 +1,6 @@
 # OpenEden 提示词优化方法与上下文交接
 
-更新：2026-09-30。本文整理本项目已经采用的优化思路、验证方法及下一步边界，供新上下文继续改善人格与陪伴表达。它不是新的系统提示词，也不是生产验收通过报告。
+历史方法记录：2026-09-30；2026-10-01 清理时更新入口。当前状态与后续工作以 [当前待办](../TODO-next-context.md) 为准，下面的阶段结果不代表最终版本验收。本文整理本项目已经采用的优化思路、验证方法及下一步边界，供新上下文继续改善人格与陪伴表达。它不是新的系统提示词，也不是生产验收通过报告。
 
 ## 1. 先读结论与当前方向
 
@@ -8,10 +8,10 @@
 
 当前优先级是具体表达问题和记忆语义保真，不是继续拉高缓存数字。用户已经接受缓存修复后的水平，明确不希望用反复长跑 benchmark 代替根因分析。
 
-- 当前真实验证固定使用 `gpt-6-luna`，支持订阅与 API；不要换模型制造改善。
+- 历史主要验证使用 `gpt-6-luna`，随后按用户要求做过 Astra 对照。生产模型未切换；用户叫停昂贵评测后，不自动恢复真实模型调用。
 - 保留完整 VQ-VAE、8D、RAG、近端上下文及回复质量，不用删状态、删记忆或填充静态文本换缓存率。
 - 先读 [下一上下文 TODO](../TODO-next-context.md) 与仓库 `AGENTS.md`；当前状态以这些文件和实际代码为准，旧设计文档不自动代表已实现。
-- 本次整理时 HEAD 为 `574d2b0eb605fba09f8ca8d633e491a65657be27`，工作区有未提交修改。HEAD 不代表全部当前运行代码；接手时重新核对。
+- 相关源码与测试已在 `8a41d97` 推送；接手时仍需核对实际 Git 状态。
 - 不部署、不重置生产记忆、不碰 8080 上的其他服务、不向外部聊天平台发测试消息，除非用户另行要求。
 
 ## 2. 需求是怎样拆开的
@@ -153,7 +153,7 @@ SYSTEM_CONTRACT → PERSONA → INCARNATION_ANCHOR → HISTORY
 | 真实压缩 epoch 0→1，来源交集 0 | 压缩落盘与新 trace 可观测 | 摘要全保真或非空 RAG 容量足够 |
 | 暖续接 93.64% / 93.45% | 修复后该样本缓存已可复用 | 每轮至少 95% 或长期 SLA |
 
-这些是已保存报告的结果，本次文档整理未重新运行模型。具体配置、样本与限制见 [P2 定向验证](2026-09-30-p2-controlled-verification.md) 和 [后续诊断](2026-09-30-p2-followup-diagnostics.md)。
+这些是已保存报告的结果，本次文档整理未重新运行模型。具体配置、样本与限制见 [P2 最终验证](2026-09-30-p2-resolution.md)；被替代的中间报告可在 Git 提交 `8a41d97` 中读取。
 
 正式门槛见 [质量 rubric](companion-quality-rubric.md)：浪漫与热恋回应分别至少 90%、非操作语境程序化措辞低于 2%、pairwise 至少 70% 且无事实回退，另含记忆、Bio、缓存和来源认证条件。日常优化不用每次执行正式三对长跑；准备正式发布且确有需要时再满足其重复次数与独立信任根要求。没有热恋机会时该指标是未观测，不得按 100% 计。
 
@@ -175,7 +175,6 @@ SYSTEM_CONTRACT → PERSONA → INCARNATION_ANCHOR → HISTORY
 ## 10. 历史设计入口
 
 - [统一优化设计](../superpowers/specs/2026-08-25-unified-companion-quality-and-prompt-cache-optimization-design.md)
-- [统一优化实现计划](../superpowers/plans/2026-08-27-unified-companion-quality-and-prompt-cache.md)
 - [ATRI 人格重蒸馏设计](../superpowers/specs/2026-07-16-atri-persona-redistillation-design.md)
 - [原创 voice 示例设计](../superpowers/specs/2026-07-16-atri-voice-few-shot-redistillation-design.md)
 - [生产导出与重置边界](../operations/companion-quality-production-rollout.md)

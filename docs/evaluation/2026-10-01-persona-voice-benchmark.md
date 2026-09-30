@@ -6,7 +6,7 @@
 
 这是单条轨迹、同模型参与生成与评审的小样本结果，不是人类满意率或传播度证明。没有修改生产模型选择或生产 Bio 状态；用户随后授权提交并推送全部工作区代码，部署不在本次范围内。
 
-完整的 **85 条已交付回复**、逐轮状态与配对评价整理在本地 `docs/evaluation/results/persona-voice-20261001.json`。原始聊天记录未随源码推送。此前的原著语料与社交媒体研究见 [公开语气与口癖调整](2026-09-30-persona-conversational-voice.md)。
+完整的 **85 条已交付回复**、逐轮状态与配对评价整理在本地 `build/cleanup-archive-20261001/results/persona-voice-20261001.json`。原始聊天记录未随源码推送。此前的原著语料与社交媒体研究见 [公开语气与口癖调整](2026-09-30-persona-conversational-voice.md)。
 
 ## 修复内容
 

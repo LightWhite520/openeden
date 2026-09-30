@@ -62,3 +62,7 @@ Thumbs.db
 *.swp
 *.swo
 .worktrees/
+
+# Local evaluation outputs (may contain private transcripts)
+/test-artifacts/
+/docs/evaluation/results/
