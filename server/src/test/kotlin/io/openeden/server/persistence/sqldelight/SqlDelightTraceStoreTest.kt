@@ -47,6 +47,20 @@ class SqlDelightTraceStoreTest {
     }
 
     @Test
+    fun `long lineage evidence survives persistence and restart without truncation`() = runTest {
+        val lineage = (1..128).joinToString(",", "[", "]") { "\"turn-$it\"" }
+        val store = SqlDelightTraceStore.open(dbPath)
+        try {
+            store.append(TraceSpan(context = TraceContext("trace", "turn", "S"), spanId = "lineage",
+                stage = "retrieval", status = TraceStatus.OK, startedAtMs = 1,
+                attributes = mapOf("history_source_turn_ids" to lineage)))
+        } finally { store.close() }
+        val reopened = SqlDelightTraceStore.open(dbPath)
+        try { assertEquals(lineage, reopened.readAll().single().attributes["history_source_turn_ids"]) }
+        finally { reopened.close() }
+    }
+
+    @Test
     fun `append executes sqlite write away from caller thread`() = runTest {
         val delegate = JdbcSqliteDriver(
             "jdbc:sqlite:${dbPath.toAbsolutePath()}",

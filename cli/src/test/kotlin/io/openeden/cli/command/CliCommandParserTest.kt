@@ -9,6 +9,15 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class CliCommandParserTest {
+    @Test
+    fun `model command supports fetch and selection`() {
+        val parser = CliCommandParser()
+        assertEquals(CliCommand.Model(), parser.parse("/model"))
+        assertEquals(CliCommand.Model(), parser.parse("/model refresh"))
+        assertEquals(CliCommand.Model("2"), parser.parse("/model 2"))
+        assertEquals(CliCommand.Model("provider/model"), parser.parse("/model provider/model"))
+        assertFailsWith<IllegalArgumentException> { parser.parse("/model a b") }
+    }
     private val parser = CliCommandParser()
 
     @Test
@@ -94,10 +103,10 @@ class CliCommandParserTest {
     @Test
     fun `root completion is stable and prefix filtered`() {
         assertEquals(
-            listOf("/help", "/state", "/history", "/mode", "/inspect", "/clear", "/exit"),
+            listOf("/help", "/state", "/history", "/mode", "/model", "/inspect", "/clear", "/exit"),
             parser.complete("/").map { it.value },
         )
-        assertEquals(listOf("/mode"), parser.complete("/mo").map { it.value })
+        assertEquals(listOf("/mode", "/model"), parser.complete("/mo").map { it.value })
         assertEquals(listOf("/inspect"), parser.complete("/ins").map { it.value })
     }
 
@@ -142,7 +151,7 @@ class CliCommandParserTest {
 
     @Test
     fun `completion candidates expose stable product metadata`() {
-        val candidate = parser.complete("/mo").single()
+        val candidate = parser.complete("/mo").first()
 
         assertIs<CommandCandidate>(candidate)
         assertEquals("/mode", candidate.value)

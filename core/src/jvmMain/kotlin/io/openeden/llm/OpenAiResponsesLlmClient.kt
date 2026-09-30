@@ -16,6 +16,8 @@ import io.openeden.prompt.PromptSegmentKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.single
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
@@ -35,6 +37,7 @@ class OpenAiResponsesLlmClient private constructor(
     private val capabilityProvider: OpenAiCapabilityProvider,
     private val cacheKeyContext: OpenAiCacheKeyContext,
     constructorMarker: Unit,
+    private val subscriptionToken: (suspend () -> String)? = null,
 ) : StreamingLlmClient, AutoCloseable {
     constructor(
         apiKey: String,
@@ -174,9 +177,15 @@ class OpenAiResponsesLlmClient private constructor(
 
     override val supportsStrictStructuredStreaming: Boolean = true
 
+    private var modelProvider: (suspend () -> String)? = null
+
+    /** Configure before publishing the client to runtime consumers. */
+    fun usingModelProvider(provider: suspend () -> String): OpenAiResponsesLlmClient = apply { modelProvider = provider }
+
     override suspend fun complete(prompt: BuiltPrompt): LlmOutput = complete(prompt, defaultGenerationSettings)
 
     override suspend fun complete(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): LlmOutput {
+        if (subscriptionToken != null) return stream(prompt, generationSettings).filterIsInstance<LlmStreamEvent.Completed>().single().output
         log.info("\nPrompt:\n${prompt.textPreview()}")
         val response = execute(prompt, generationSettings, stream = false)
         val llmOutput = parseBufferedResponse(response.bodyAsText())
@@ -188,7 +197,9 @@ class OpenAiResponsesLlmClient private constructor(
     override fun stream(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): Flow<LlmStreamEvent> = flow {
         log.info("\nPrompt:\n${prompt.textPreview()}")
         val response = execute(prompt, generationSettings, stream = true)
-        if (response.contentType()?.withoutParameters() != ContentType.Text.EventStream) {
+        val responseType = response.contentType()?.withoutParameters()
+        if (responseType != ContentType.Text.EventStream && !(subscriptionToken != null && responseType == null)) {
+            check(subscriptionToken == null) { "ChatGPT subscription requires an SSE response" }
             emit(LlmStreamEvent.Completed(parseBufferedResponse(response.bodyAsText())))
             return@flow
         }
@@ -231,7 +242,7 @@ class OpenAiResponsesLlmClient private constructor(
                     completed = true
                 }
 
-                "response.failed", "error" -> throw IllegalStateException("OpenAI response stream failed")
+                "response.failed", "response.incomplete", "error" -> throw IllegalStateException("OpenAI response stream failed")
             }
         }
 
@@ -256,14 +267,19 @@ class OpenAiResponsesLlmClient private constructor(
         stream: Boolean,
     ): HttpResponse {
         val authoritativePrompt = prompt.authoritativeSnapshot()
-        val metadata = cachePolicy.requestMetadata(resolveCapabilities())
-        val first = post(authoritativePrompt, generationSettings, stream, metadata)
+        val selectedModel = modelProvider?.invoke() ?: model
+        val metadata = if (subscriptionToken != null) {
+            OpenAiRequestCacheMetadata(cacheKey = true, cacheOptions = false, breakpoint = false)
+        } else cachePolicy.requestMetadata(
+            if (selectedModel == model) resolveCapabilities() else OpenAiProviderCapabilities.unavailable(System.currentTimeMillis()),
+        )
+        val first = post(authoritativePrompt, generationSettings, stream, metadata, selectedModel)
         if (first.status.isSuccess()) return first
 
         val firstError = first.bodyAsText().take(MAX_ERROR_BODY_LENGTH)
         if (isRecognizedUnsupportedCacheField(first.status, firstError, metadata)) {
             return requireSuccessful(
-                post(authoritativePrompt, generationSettings, stream, OpenAiRequestCacheMetadata.None),
+                post(authoritativePrompt, generationSettings, stream, OpenAiRequestCacheMetadata.None, selectedModel),
             )
         }
         throw providerFailure(first.status, firstError)
@@ -274,14 +290,18 @@ class OpenAiResponsesLlmClient private constructor(
         generationSettings: LlmGenerationSettings,
         stream: Boolean,
         metadata: OpenAiRequestCacheMetadata,
+        selectedModel: String,
     ): HttpResponse = httpClient.post("${baseUrl.trimEnd('/')}/responses") {
             val cacheBreakpoint = ResponsesPromptCacheBreakpoint("explicit").takeIf { metadata.breakpoint }
-            bearerAuth(apiKey)
+            val cacheKey = promptCacheKey(prompt, selectedModel)
+            bearerAuth(subscriptionToken?.invoke() ?: apiKey)
+            if (subscriptionToken != null) header(ChatGptSubscriptionRequests.SESSION_ID_HEADER, cacheKey)
+            if (stream) accept(ContentType.Text.EventStream)
             contentType(ContentType.Application.Json)
             setBody(
                 ResponsesRequest(
-                    model = model,
-                    promptCacheKey = promptCacheKey(prompt).takeIf { metadata.cacheKey },
+                    model = selectedModel,
+                    promptCacheKey = cacheKey.takeIf { metadata.cacheKey },
                     promptCacheOptions = ResponsesPromptCacheOptions("explicit").takeIf { metadata.cacheOptions },
                     temperature = generationSettings.temperature,
                     maxOutputTokens = generationSettings.maxOutputTokens,
@@ -309,7 +329,10 @@ class OpenAiResponsesLlmClient private constructor(
                         verbosity = generationSettings.verbosity.apiValue,
                     ),
                     stream = stream,
-                ),
+                ).let { request ->
+                    if (subscriptionToken == null) requestJson.encodeToJsonElement(request)
+                    else ChatGptSubscriptionRequests.adapt(requestJson.encodeToJsonElement(request).jsonObject)
+                },
             )
         }
 
@@ -320,6 +343,7 @@ class OpenAiResponsesLlmClient private constructor(
     }
 
     private fun providerFailure(status: HttpStatusCode, errorBody: String): IllegalStateException {
+        if (subscriptionToken != null) return IllegalStateException("ChatGPT Responses request failed: HTTP ${status.value}")
         val suffix = if (errorBody.isBlank()) "" else ": $errorBody"
         return IllegalStateException("OpenAI Responses API request failed: ${status.value} ${status.description}$suffix")
     }
@@ -373,11 +397,11 @@ class OpenAiResponsesLlmClient private constructor(
         }.getOrNull()
     }
 
-    private fun promptCacheKey(prompt: BuiltPrompt): String {
+    private fun promptCacheKey(prompt: BuiltPrompt, selectedModel: String): String {
         val material = buildString {
             listOf(
                 cacheKeyContext.providerPolicyRevision,
-                model,
+                selectedModel,
                 cachePolicy.name,
                 cacheKeyContext.systemSchemaRevision,
                 cacheKeyContext.personaRevision,
@@ -419,6 +443,23 @@ class OpenAiResponsesLlmClient private constructor(
     override fun close() = httpClient.close()
 
     companion object {
+        private val requestJson = Json { encodeDefaults = true; explicitNulls = false }
+        fun withChatGptSubscription(
+            tokenProvider: suspend () -> String,
+            model: String,
+            reasoningEffort: ReasoningEffort = ReasoningEffort.MEDIUM,
+            httpClient: HttpClient = httpClient(CIO.create()),
+            defaultGenerationSettings: LlmGenerationSettings = LlmGenerationSettings.Default,
+        ): OpenAiResponsesLlmClient = OpenAiResponsesLlmClient(
+            apiKey = "", model = model, reasoningEffort = reasoningEffort,
+            baseUrl = ChatGptSubscriptionRequests.BASE_URL, httpClient = httpClient,
+            json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false },
+            defaultGenerationSettings = defaultGenerationSettings,
+            cachePolicy = OpenAiCachePolicy.OBSERVE_ONLY,
+            capabilityProvider = unavailableCapabilityProvider(), cacheKeyContext = OpenAiCacheKeyContext.Default,
+            constructorMarker = Unit, subscriptionToken = tokenProvider,
+        )
+
         private const val MAX_ERROR_BODY_LENGTH = 1_000
         private val RECOGNIZED_UNSUPPORTED_STATUS_CODES = setOf(400, 422)
         private val UNSUPPORTED_FIELD_MARKERS = listOf(

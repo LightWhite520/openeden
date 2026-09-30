@@ -1,5 +1,8 @@
 package io.openeden.relationship
 
+import io.openeden.llm.ChatGptSubscriptionRequests
+import io.openeden.llm.completedResponsesStream
+import io.ktor.http.contentType
 import io.ktor.client.HttpClient
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.header
@@ -31,12 +34,23 @@ class OpenAiRelationshipEventEvaluator(
     private val httpClient: HttpClient,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val administrativeEventsAuthorized: Boolean = false,
+    private val subscriptionToken: (suspend () -> String)? = null,
+    private val modelProvider: (suspend () -> String)? = null,
 ) : RelationshipEventEvaluator {
     override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
-        val response = httpClient.post("${baseUrl.trimEnd('/')}/responses") {
-            bearerAuth(apiKey)
+        val endpoint = if (subscriptionToken != null) ChatGptSubscriptionRequests.BASE_URL else baseUrl.trimEnd('/')
+        val selectedModel = modelProvider?.invoke() ?: model
+        val response = httpClient.post("$endpoint/responses") {
+            bearerAuth(subscriptionToken?.invoke() ?: apiKey)
+            if (subscriptionToken != null) header(HttpHeaders.Accept, ContentType.Text.EventStream.toString())
             header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-            setBody(requestBody(turn))
+            setBody(requestBody(turn, selectedModel).let { if (subscriptionToken == null) it else ChatGptSubscriptionRequests.adapt(it) })
+        }
+        if (subscriptionToken != null) {
+            check(response.status.value in 200..299) { "ChatGPT relationship evaluation failed: HTTP ${response.status.value}" }
+            val responseType = response.contentType()?.withoutParameters()
+            check(responseType == null || responseType == ContentType.Text.EventStream) { "ChatGPT subscription requires SSE" }
+            return parseEvaluation(completedResponsesStream(response.bodyAsChannel()), turn)
         }
         val body = boundedBody(response.bodyAsChannel())
         check(response.status.value in 200..299) {
@@ -45,8 +59,8 @@ class OpenAiRelationshipEventEvaluator(
         return parseEvaluation(body, turn)
     }
 
-    private fun requestBody(turn: RelationshipTurn): JsonObject = buildJsonObject {
-        put("model", model)
+    private fun requestBody(turn: RelationshipTurn, selectedModel: String): JsonObject = buildJsonObject {
+        put("model", selectedModel)
         put("max_output_tokens", MaxOutputTokens)
         put(
             "input",

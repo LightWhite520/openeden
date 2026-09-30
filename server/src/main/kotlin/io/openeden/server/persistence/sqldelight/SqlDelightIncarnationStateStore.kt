@@ -136,7 +136,10 @@ class SqlDelightIncarnationStateStore(
             if (driver is JdbcSqliteDriver) driver.closeCurrentThreadConnection()
             driver.close()
         }
-        (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
+        // Dispatchers.IO implements ExecutorCoroutineDispatcher but is process-owned.
+        if (ioDispatcher !== Dispatchers.IO) {
+            (ioDispatcher as? ExecutorCoroutineDispatcher)?.close()
+        }
     }
 
     private fun readInitialized(incarnationId: String): IncarnationState =

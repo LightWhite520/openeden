@@ -110,30 +110,7 @@ class SqlDelightTranscriptStore private constructor(
         evaluation: RelationshipEvaluation,
     ): RelationshipEvaluation = withContext(ioDispatcher) {
         var chosen = evaluation
-        database.transaction {
-            val current = queries.selectTurnPostCommit(turnId) { planJson, stagesJson ->
-                TurnPostCommitState(
-                    plan = Json.decodeFromString<TurnPostCommitPlan>(planJson),
-                    completedStages = Json.decodeFromString<Set<TurnPostCommitStage>>(stagesJson),
-                )
-            }.executeAsOneOrNull() ?: error("No post-commit plan exists for turn '$turnId'")
-            current.plan.relationshipEvaluation?.let { persisted ->
-                chosen = persisted
-                return@transaction
-            }
-            require(TurnPostCommitStage.RELATIONSHIP in current.plan.requiredStages) {
-                "Turn '$turnId' does not require relationship evaluation"
-            }
-            queries.updateTurnPostCommitPlan(
-                planJson = Json.encodeToString(current.plan.copy(relationshipEvaluation = evaluation)),
-                turnId = turnId,
-            )
-        }
-        chosen
-    }
-
-    override suspend fun markPostCommitStageCompleted(turnId: String, stage: TurnPostCommitStage) {
-        withContext(ioDispatcher) {
+        retrySqliteBusy {
             database.transaction {
                 val current = queries.selectTurnPostCommit(turnId) { planJson, stagesJson ->
                     TurnPostCommitState(
@@ -141,10 +118,37 @@ class SqlDelightTranscriptStore private constructor(
                         completedStages = Json.decodeFromString<Set<TurnPostCommitStage>>(stagesJson),
                     )
                 }.executeAsOneOrNull() ?: error("No post-commit plan exists for turn '$turnId'")
-                queries.updateTurnPostCommitStages(
-                    completedStagesJson = Json.encodeToString(current.completedStages + stage),
+                current.plan.relationshipEvaluation?.let { persisted ->
+                    chosen = persisted
+                    return@transaction
+                }
+                require(TurnPostCommitStage.RELATIONSHIP in current.plan.requiredStages) {
+                    "Turn '$turnId' does not require relationship evaluation"
+                }
+                queries.updateTurnPostCommitPlan(
+                    planJson = Json.encodeToString(current.plan.copy(relationshipEvaluation = evaluation)),
                     turnId = turnId,
                 )
+            }
+        }
+        chosen
+    }
+
+    override suspend fun markPostCommitStageCompleted(turnId: String, stage: TurnPostCommitStage) {
+        withContext(ioDispatcher) {
+            retrySqliteBusy {
+                database.transaction {
+                    val current = queries.selectTurnPostCommit(turnId) { planJson, stagesJson ->
+                        TurnPostCommitState(
+                            plan = Json.decodeFromString<TurnPostCommitPlan>(planJson),
+                            completedStages = Json.decodeFromString<Set<TurnPostCommitStage>>(stagesJson),
+                        )
+                    }.executeAsOneOrNull() ?: error("No post-commit plan exists for turn '$turnId'")
+                    queries.updateTurnPostCommitStages(
+                        completedStagesJson = Json.encodeToString(current.completedStages + stage),
+                        turnId = turnId,
+                    )
+                }
             }
         }
     }

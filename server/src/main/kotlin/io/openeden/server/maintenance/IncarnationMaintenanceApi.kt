@@ -42,6 +42,7 @@ data class IncarnationMaintenanceReadinessDto(
     val activeIncarnationId: String?,
     val resetReadiness: String,
     val incompleteResetCount: Int,
+    val secureExportDirectoryHandlesAvailable: Boolean? = null,
 )
 
 interface ServerIncarnationMaintenance {

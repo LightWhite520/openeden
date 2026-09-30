@@ -22,14 +22,21 @@ data class PreparedIncarnationExportPaths(
     internal val targetName: Path = target.fileName,
     internal val stagingName: Path = staging.fileName,
     internal val publicationToken: String,
+    internal val nativeHandles: WindowsIncarnationExportPathGuard.Handles? = null,
 ) : AutoCloseable {
     override fun close() {
+        nativeHandles?.close()
         stagingHandle?.close()
         parentHandle?.close()
     }
 }
 
 interface IncarnationExportPathGuard {
+    fun writeFile(paths: PreparedIncarnationExportPaths, name: String, bytes: ByteArray): Boolean = false
+    fun flushDirectory(paths: PreparedIncarnationExportPaths, staging: Boolean): Boolean = false
+    // Null means this guard does not advertise production handle capabilities.
+    fun secureDirectoryHandlesAvailable(): Boolean? = null
+
     fun prepare(target: Path): PreparedIncarnationExportPaths
     fun revalidate(paths: PreparedIncarnationExportPaths)
 
@@ -131,6 +138,10 @@ class IncarnationExportCapabilityException(message: String) : IllegalStateExcept
 
 class SecureNioIncarnationExportPathGuard(exportRoot: Path) : IncarnationExportPathGuard {
     private val root = Files.createDirectories(exportRoot.toAbsolutePath().normalize()).toRealPath()
+
+    override fun secureDirectoryHandlesAvailable(): Boolean =
+        Files.newDirectoryStream(root).use { it is SecureDirectoryStream<*> }
+
 
     override fun prepare(target: Path): PreparedIncarnationExportPaths {
         val absolute = target.toAbsolutePath().normalize()

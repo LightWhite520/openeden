@@ -38,6 +38,7 @@ class CliSessionController(
     private val diagnosticsToken: String? = System.getenv("OPENEDEN_CLI_DIAGNOSTICS_TOKEN"),
     private val size: () -> Size = { Size(80, 24) },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val modelSettingsToken: String? = System.getenv("OPENEDEN_MODEL_SETTINGS_TOKEN"),
 ) : AutoCloseable {
     @Volatile
     var state: CliUiState = CliUiState.initial(userId)
@@ -50,6 +51,9 @@ class CliSessionController(
     private var stopped = false
     private val stateLock = Any()
     private val commandLock = Any()
+    private var modelOptions: List<io.openeden.client.ModelOption> = emptyList()
+    private var modelPage = 0
+    private var currentModel = ""
 
     fun accept(event: CliTerminalEvent) {
         if (stopped) return
@@ -175,6 +179,31 @@ class CliSessionController(
         }
         when (command) {
             CliCommand.Help -> dispatch(CliEvent.Notice(HELP_TEXT))
+            is CliCommand.Model -> launchTrackedCommand {
+                val token = modelSettingsToken
+                if (token.isNullOrBlank()) {
+                    dispatch(CliEvent.Notice("Set OPENEDEN_MODEL_SETTINGS_TOKEN on the server and CLI, or run gradlew :server:models locally."))
+                    return@launchTrackedCommand
+                }
+                try {
+                    val selection = command.selection
+                    if (selection == "next" || selection == "prev") {
+                        require(modelOptions.isNotEmpty()) { "Run /model to fetch models first" }
+                        modelPage += if (selection == "next") 1 else -1
+                        showModelPage()
+                        return@launchTrackedCommand
+                    }
+                    val number = selection?.toIntOrNull()
+                    val id = if (number != null) modelOptions.getOrNull(number - 1)?.id
+                        ?: error("Run /model first and choose a number from the list") else selection
+                    val catalog = if (id == null) api.models(token) else api.selectModel(id, token)
+                    modelOptions = catalog.models
+                    currentModel = catalog.current
+                    modelPage = 0
+                    showModelPage()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled
+                } catch (error: Exception) { dispatch(CliEvent.Notice(error.message ?: "Model selection unavailable")) }
+            }
             CliCommand.State -> launchTrackedCommand {
                 runCatching { api.state(userId) }
                     .onSuccess { publicState ->
@@ -200,6 +229,23 @@ class CliSessionController(
             CliCommand.Exit -> stopped = true
             is CliCommand.Unknown -> dispatch(CliEvent.Notice("Unknown command: ${command.name}"))
         }
+    }
+
+    private fun showModelPage() {
+        val pageSize = (size().rows - 12).coerceIn(1, 8)
+        val pages = ((modelOptions.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+        modelPage = modelPage.coerceIn(0, pages - 1)
+        val width = (size().columns - 10).coerceAtLeast(15)
+        fun clean(text: String) = text.filterNot(Char::isISOControl).take(width)
+        dispatch(CliEvent.Notice(buildString {
+            append("Current model: ").append(clean(currentModel)).append('\n')
+            modelOptions.withIndex().drop(modelPage * pageSize).take(pageSize).forEach { (index, model) ->
+                append(if (model.id == currentModel) "* " else "  ").append(index + 1).append(". ")
+                append(clean("${model.name} [${model.id}]")).append('\n')
+            }
+            if (modelOptions.isEmpty()) append("No models returned.\n")
+            append("Page ${modelPage + 1}/$pages | /model next|prev|refresh\n/model <number|model-id> to select")
+        }))
     }
 
     private fun cancelActiveRequest() {
@@ -295,7 +341,7 @@ class CliSessionController(
     )
 
     private companion object {
-        const val HELP_TEXT = "/state  /history older  /help  /exit\n/mode inline|full  /inspect on|off  /clear"
+        const val HELP_TEXT = "/state  /history older  /model  /help  /exit\n/mode inline|full  /inspect on|off  /clear"
         const val RENDER_INTERVAL_NANOS = 33_000_000L
         const val HISTORY_PAGE_SIZE = 50
         const val HISTORY_UNAVAILABLE_MESSAGE = "Conversation history unavailable."

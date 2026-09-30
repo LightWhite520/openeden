@@ -32,6 +32,24 @@ import kotlin.test.assertTrue
 
 class MaintenanceApiTest {
     @Test
+    fun `unsupported export filesystem has a typed unavailable response`() = testApplication {
+        val service = object : ServerIncarnationMaintenance by FakeMaintenance {
+            override suspend fun export(request: IncarnationMaintenanceExportDto): IncarnationExportManifest =
+                throw io.openeden.server.maintenance.IncarnationExportCapabilityException("private filesystem detail")
+        }
+        application { maintenanceApplication(service) }
+        val response = client.post(EXPORT_PATH) {
+            bearerAuth("maintenance-secret")
+            contentType(ContentType.Application.Json)
+            setBody("""{"incarnationId":"old","targetDirectory":"export"}""")
+        }
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        val body = response.bodyAsText()
+        assertEquals("EXPORT_CAPABILITY_UNAVAILABLE", Json.decodeFromString<IncarnationMaintenanceErrorDto>(body).code)
+        assertFalse(body.contains("private filesystem detail"))
+    }
+
+    @Test
     fun `maintenance route is hidden when disabled`() = testApplication {
         application {
             attributes.put(MaintenanceAccessKey, MaintenanceAccess.disabled())

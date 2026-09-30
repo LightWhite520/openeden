@@ -41,6 +41,7 @@ dependencies {
     implementation(libs.logback.classic)
     implementation(libs.sqldelight.sqlite.driver)
     implementation(libs.jna.platform)
+    implementation("com.nimbusds:nimbus-jose-jwt:10.5")
     implementation(project(":core"))
     implementation(project(":onebot"))
 
@@ -48,4 +49,34 @@ dependencies {
     testImplementation(ktorLibs.client.mock)
     testImplementation(ktorLibs.client.websockets)
     testImplementation(ktorLibs.server.testHost)
+}
+
+// Local OAuth operator command; independent from runtime startup and production state.
+tasks.register<JavaExec>("chatgptAuth") {
+    group = "application"
+    description = "Sign in to ChatGPT or manage OpenEden subscription credentials"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("io.openeden.server.auth.ChatGptAuthCommandKt")
+}
+
+tasks.register<JavaExec>("models") {
+    group = "application"
+    description = "Fetch available models and select a model for OpenEden"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("io.openeden.server.llm.ModelCommandKt")
+    standardInput = System.`in`
+}
+
+tasks.register<JavaExec>("subscriptionEvaluation") {
+    group = "verification"
+    description = "Run an explicit JSON evaluation request using the selected ChatGPT account"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("io.openeden.server.evaluation.SubscriptionEvaluationCommandKt")
+}
+
+tasks.register<JavaExec>("relationshipEvaluationProbe") {
+    group = "verification"
+    description = "Probe the real subscription relationship evaluator without fallback or runtime writes"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("io.openeden.server.evaluation.RelationshipEvaluationProbeCommandKt")
 }

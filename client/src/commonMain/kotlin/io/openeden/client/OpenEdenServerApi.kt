@@ -9,5 +9,7 @@ interface OpenEdenServerApi {
     suspend fun history(limit: Int = 50, before: String? = null): ConversationHistoryPage
     suspend fun state(userId: String): PublicState
     suspend fun diagnostics(userId: String, token: String): DiagnosticState
+    suspend fun models(token: String): ModelCatalog = error("Model selection is unavailable on this server")
+    suspend fun selectModel(model: String, token: String): ModelCatalog = error("Model selection is unavailable on this server")
     fun close()
 }

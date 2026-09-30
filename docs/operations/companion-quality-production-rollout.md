@@ -34,9 +34,13 @@ Both scripts first call the authenticated live readiness endpoint. They require 
   -OpenEdenPort <configured-openeden-port>
 ```
 
-The live server acquires the shared global incarnation mutation gate, takes an exact-incarnation SQLite snapshot, and writes deterministic JSONL files. The target must be a direct child of the server-configured export root. Production export opens that root and its unique unguessable staging directory through `SecureDirectoryStream`; payload creation, directory flushes, and the final rename are handle-relative with no-follow semantics. Each file and `manifest.json` is forced to storage before the relative rename is exposed.
+The live server acquires the shared global incarnation mutation gate, takes an exact-incarnation SQLite snapshot, and writes deterministic JSONL files. The target must be a direct child of the server-configured export root. On Unix, production export uses `SecureDirectoryStream`. On Windows, it pins the ancestor/root directories without delete sharing and uses root-relative native handles for staging, payload creation and publication. Reparse points are rejected. The final rename does not replace an existing target, including one created after preparation. Each file and `manifest.json` is forced to storage before publication; directory metadata is flushed around publication and identity-marker removal.
 
-The capability check is fail closed. If the deployed filesystem provider cannot supply `SecureDirectoryStream`, the server rejects export before writing payload data. The standard Windows JDK filesystem provider on the current verification host does not expose this capability, so Windows production export is unavailable until a reviewed native handle-relative implementation is supplied. Do not bypass this result with the test-only path boundary or a standalone process.
+The capability check is fail closed. Unix requires `SecureDirectoryStream`. Windows probes native non-reparse directory opens, stable file identities and a root metadata flush on the configured filesystem. Unsupported filesystems remain unavailable. Do not bypass this result with the test-only path boundary or a standalone process.
+
+The readiness response includes `secureExportDirectoryHandlesAvailable`: `false` means the configured filesystem lacks secure directory handles, and `null` means capability is unknown. The export script requires `true` before submitting a mutation. This probe does not guarantee directory durability or export success; all export-time checks remain mandatory. An unsupported capability encountered during export returns HTTP `503` with `EXPORT_CAPABILITY_UNAVAILABLE`.
+
+Windows native export is covered by real filesystem tests for durable publication, full database snapshot verification, junction rejection, pinned-directory replacement and target collision. Reset readiness describes database/saga state independently of export capability, so existing saga recovery remains available.
 
 Store the completed export read-only. Do not edit its JSONL files or manifest.
 

@@ -673,7 +673,8 @@ class JLineTerminalSessionTest {
 
         completer.complete(line = "/mo", candidates = candidates)
 
-        val candidate = assertIs<org.jline.reader.Candidate>(candidates.single())
+        assertEquals(listOf("/mode", "/model"), candidates.map { it.value() })
+        val candidate = assertIs<org.jline.reader.Candidate>(candidates.first())
         assertEquals("/mode", candidate.value())
         assertEquals("Select the terminal display mode", candidate.descr())
         assertNotEquals("/mo", candidate.value())

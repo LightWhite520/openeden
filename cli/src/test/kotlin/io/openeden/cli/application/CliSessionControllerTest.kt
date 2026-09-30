@@ -38,6 +38,32 @@ import kotlin.test.assertTrue
 
 class CliSessionControllerTest {
     @Test
+    fun `model selector fetches then resolves displayed number to id`() = runTest {
+        var current = "a"
+        val api = object : OpenEdenServerApi by RecordingHistoryApi() {
+            override suspend fun models(token: String): io.openeden.client.ModelCatalog {
+                assertEquals("model-secret", token)
+                return io.openeden.client.ModelCatalog(current, listOf(
+                    io.openeden.client.ModelOption("a", "First"), io.openeden.client.ModelOption("b", "Second"),
+                ))
+            }
+            override suspend fun selectModel(model: String, token: String): io.openeden.client.ModelCatalog {
+                current = model
+                return models(token)
+            }
+        }
+        val controller = CliSessionController("local", api, CapturingRenderer(), modelSettingsToken = "model-secret")
+        try {
+            controller.accept(CliTerminalEvent.Submit("/model"))
+            controller.drain()
+            assertTrue(controller.state.notice.orEmpty().contains("2. Second [b]"))
+            controller.accept(CliTerminalEvent.Submit("/model 2"))
+            controller.drain()
+            assertEquals("b", current)
+            assertTrue(controller.state.notice.orEmpty().contains("Current model: b"))
+        } finally { controller.close() }
+    }
+    @Test
     fun `pre-start cancelled command clears slot for drain and later commands`() = runTest {
         val dispatcher = PausingDispatcher()
         val scope = CoroutineScope(SupervisorJob() + dispatcher)

@@ -33,6 +33,7 @@ class HeartbeatScheduler(
     private val onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
     private val incarnationStore: IncarnationStateStore? = null,
     private val transcriptStore: TranscriptStore? = null,
+    private val onEvaluationFailed: (Exception) -> Unit = {},
 ) {
     fun decide(state: SessionState, now: Long): HeartbeatDecision {
         return decide(state.lastUserActivityMs, state.shockState, now)
@@ -110,7 +111,19 @@ class HeartbeatScheduler(
     fun start(scope: CoroutineScope): Job = scope.launch {
         while (isActive) {
             delay(interval.nextDelayMs())
-            evaluateOnce()
+            try {
+                evaluateOnce()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                try {
+                    onEvaluationFailed(failure)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Observability must not prevent the next independently scheduled turn.
+                }
+            }
         }
     }
 

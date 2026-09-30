@@ -294,7 +294,19 @@ private suspend fun Application.startRuntime(
         )
     }
     startupClosers.addFirst { memoryStore.close() }
-    val capabilityProvider: OpenAiCapabilityProvider = if (serverConfig.openAiCache.capabilityProbeEnabled) {
+    val subscription = if (serverConfig.chatGptAuth) io.openeden.server.auth.ChatGptOAuth() else null
+    val modelCatalog = io.openeden.server.llm.LlmModelCatalog(
+        serverConfig.apiKey, serverConfig.baseUrl, serverConfig.model, subscription,
+    )
+    startupClosers.addFirst { modelCatalog.close() }
+    attributes.put(io.openeden.server.api.route.LlmModelCatalogKey, modelCatalog)
+    if (subscription != null) {
+        startupClosers.addFirst { subscription.close() }
+        subscription.accessToken()
+        // The picker catalog is not exhaustive: an explicitly configured model may still be callable.
+        // Inference remains authoritative; do not silently replace it with a catalog default.
+    }
+    val capabilityProvider: OpenAiCapabilityProvider = if (subscription == null && serverConfig.openAiCache.capabilityProbeEnabled) {
         val capabilityCache = OpenAiCapabilityCache()
         val capabilityProbe = OpenAiCapabilityProbe(
             apiKey = serverConfig.apiKey,
@@ -309,14 +321,20 @@ private suspend fun Application.startRuntime(
         OpenAiCapabilityProvider { OpenAiProviderCapabilities.unavailable(System.currentTimeMillis()) }
     }
     attributes.put(OpenAiCapabilityProviderKey, capabilityProvider)
-    if (serverConfig.openAiCache.capabilityProbeEnabled) capabilityProvider.capabilities()
-    val llmClient = OpenAiResponsesLlmClient(
+    if (subscription == null && serverConfig.openAiCache.capabilityProbeEnabled) capabilityProvider.capabilities()
+    val llmClient = if (subscription != null) OpenAiResponsesLlmClient.withChatGptSubscription(
+        tokenProvider = subscription::accessToken, model = serverConfig.model,
+        reasoningEffort = serverConfig.reasoningEffort, defaultGenerationSettings = staticGenerationSettings,
+    ) else OpenAiResponsesLlmClient(
         apiKey = serverConfig.apiKey,
         model = serverConfig.model,
         reasoningEffort = serverConfig.reasoningEffort,
         baseUrl = serverConfig.baseUrl,
         cachePolicy = serverConfig.openAiCache.policy,
-        capabilityProvider = capabilityProvider,
+        capabilityProvider = OpenAiCapabilityProvider {
+            if (modelCatalog.current() == serverConfig.model) capabilityProvider.capabilities()
+            else OpenAiProviderCapabilities.unavailable(System.currentTimeMillis())
+        },
         cacheKeyContext = OpenAiCacheKeyContext(
             providerPolicyRevision = serverConfig.cacheProviderPolicyRevision,
             systemSchemaRevision = serverConfig.cacheSystemSchemaRevision,
@@ -325,6 +343,7 @@ private suspend fun Application.startRuntime(
         ),
         defaultGenerationSettings = staticGenerationSettings,
     )
+    llmClient.usingModelProvider(modelCatalog::current)
     startupClosers.addFirst { llmClient.close() }
     val relationshipEvaluatorClient = relationshipEvaluatorHttpClient()
     startupClosers.addFirst { relationshipEvaluatorClient.close() }
@@ -334,8 +353,13 @@ private suspend fun Application.startRuntime(
             model = serverConfig.model,
             baseUrl = serverConfig.baseUrl,
             httpClient = relationshipEvaluatorClient,
+            subscriptionToken = subscription?.let { it::accessToken },
+            modelProvider = modelCatalog::current,
         ),
         fallback = DeterministicRelationshipEventEvaluator(),
+        onPrimaryFailure = { failure ->
+            log.warn("relationship=EVALUATOR_FALLBACK cause={}", failure.javaClass.simpleName)
+        },
     )
     val diaryCoordinator = DiaryTriggerCoordinator(
         diaryTaskStore, diaryTaskStore, memoryStore,
@@ -479,6 +503,9 @@ private suspend fun Application.startRuntime(
         delivery = oneBotAdapter?.let { OneBotHeartbeatDelivery(it.registry, it.actions) }
             ?: NoopHeartbeatDelivery,
         interval = SecureRandomHeartbeatInterval(),
+        onEvaluationFailed = { failure ->
+            log.warn("source=HEARTBEAT heartbeat=EVALUATION_FAILED; next scheduled turn will proceed", failure)
+        },
         routeResolver = OwnerHeartbeatRouteResolver(runtimeConfig.owner),
         onDeliveryDropped = { sessionId, target, failure ->
             log.warn(
@@ -524,6 +551,8 @@ private suspend fun Application.startRuntime(
             { relationshipStore.close() },
             { oneBotAdapter?.shutdown() },
             { relationshipEvaluatorClient.close() },
+            { subscription?.close() },
+            { modelCatalog.close() },
             { llmClient.close() },
             { models.close() },
             { inferenceExecutor.close() },
@@ -636,6 +665,7 @@ private fun resolveFromRoot(relative: Path): Path {
 }
 
 private data class ServerRuntimeConfig(
+    val chatGptAuth: Boolean,
     val apiKey: String,
     val model: String,
     val reasoningEffort: ReasoningEffort,
@@ -697,8 +727,11 @@ private fun loadServerRuntimeConfig(config: io.ktor.server.config.ApplicationCon
     val heartbeatOwner = loadHeartbeatOwner(config)
     validateOneBotHeartbeatOwner(oneBot.enabled, heartbeatOwner)
     val openAiCache = loadOpenAiCacheBootstrapConfig(config)
+    val authMode = optional("openeden.llm.authMode", "api_key").lowercase()
+    require(authMode in setOf("api_key", "chatgpt")) { "Unsupported LLM authentication mode" }
     return ServerRuntimeConfig(
-        apiKey = required("openeden.llm.apiKey"),
+        chatGptAuth = authMode == "chatgpt",
+        apiKey = if (authMode == "chatgpt") "" else required("openeden.llm.apiKey"),
         model = required("openeden.llm.model"),
         reasoningEffort = ReasoningEffort.parse(optional("openeden.llm.reasoningEffort", "medium")),
         baseUrl = required("openeden.llm.baseUrl"),

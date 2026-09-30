@@ -67,6 +67,16 @@ class OpenEdenServerClient(
         httpClient.close()
     }
 
+    override suspend fun models(token: String): ModelCatalog =
+        httpClient.get("$baseUrl/api/v1/models") { header(HttpHeaders.Authorization, "Bearer $token") }.decodeSuccess()
+
+    override suspend fun selectModel(model: String, token: String): ModelCatalog =
+        httpClient.post("$baseUrl/api/v1/models") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(mapOf("model" to model))
+        }.decodeSuccess()
+
     private suspend inline fun <reified T> HttpResponse.decodeSuccess(): T {
         requireSuccess()
         return body()

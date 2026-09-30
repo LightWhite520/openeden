@@ -12,7 +12,7 @@ object RetrievalModeSelector {
     ): RetrievalMode = when {
         shockState?.active == true && shockState.intensity >= 0.6f -> RetrievalMode.CONTRAST
         omegaState.value >= 0.75f -> RetrievalMode.CONTRAST
-        internalVector.p < -0.3f && internalVector.v < -0.2f -> RetrievalMode.MIXED
+        shockState?.active != true && internalVector.p < -0.3f && internalVector.v < -0.2f -> RetrievalMode.MIXED
         else -> RetrievalMode.CONGRUENT
     }
 

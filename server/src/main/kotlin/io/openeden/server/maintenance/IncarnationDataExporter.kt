@@ -21,10 +21,14 @@ class IncarnationDataExporter(
     private val fileIoDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val durability: IncarnationExportDurability = NioIncarnationExportDurability,
     exportRoot: Path? = null,
-    private val pathGuard: IncarnationExportPathGuard = SecureNioIncarnationExportPathGuard(
+    private val pathGuard: IncarnationExportPathGuard = platformIncarnationExportPathGuard(
         requireNotNull(exportRoot) { "Production export requires a configured export root" },
     ),
 ) {
+    suspend fun secureDirectoryHandlesAvailable(): Boolean? = withContext(fileIoDispatcher) {
+        pathGuard.secureDirectoryHandlesAvailable()
+    }
+
     suspend fun export(request: IncarnationExportRequest): IncarnationExportResult {
         require(request.incarnationId.isNotBlank()) { "incarnationId must not be blank" }
         val snapshot = mutationGate.withIncarnation(request.incarnationId) {
@@ -85,14 +89,14 @@ class IncarnationDataExporter(
                 MANIFEST_FILE_NAME,
                 (IncarnationExportIntegrity.manifestJson.encodeToString(manifest) + "\n").encodeToByteArray(),
             )
-            forceDirectory(paths.stagingHandle, staging)
-            forceDirectory(paths.parentHandle, parent)
+            forceDirectory(paths, true, staging)
+            forceDirectory(paths, false, parent)
             pathGuard.publish(paths, durability::atomicMove)
-            forceDirectory(paths.stagingHandle, target)
-            forceDirectory(paths.parentHandle, parent)
+            forceDirectory(paths, true, target)
+            forceDirectory(paths, false, parent)
             pathGuard.finalizePublication(paths)
-            forceDirectory(paths.stagingHandle, target)
-            forceDirectory(paths.parentHandle, parent)
+            forceDirectory(paths, true, target)
+            forceDirectory(paths, false, parent)
             val manifestPath = target.resolve(MANIFEST_FILE_NAME)
             IncarnationExportResult(target, manifestPath, manifest)
         }
@@ -100,6 +104,7 @@ class IncarnationDataExporter(
 
     private fun forceWrite(paths: PreparedIncarnationExportPaths, name: String, bytes: ByteArray) {
         pathGuard.revalidate(paths)
+        if (pathGuard.writeFile(paths, name, bytes)) return
         val stagingHandle = paths.stagingHandle
         if (stagingHandle == null) {
             durability.forceWrite(paths.staging.resolve(name), bytes)
@@ -116,7 +121,9 @@ class IncarnationDataExporter(
         }
     }
 
-    private fun forceDirectory(handle: java.nio.file.SecureDirectoryStream<Path>?, path: Path) {
+    private fun forceDirectory(paths: PreparedIncarnationExportPaths, staging: Boolean, path: Path) {
+        if (pathGuard.flushDirectory(paths, staging)) return
+        val handle = if (staging) paths.stagingHandle else paths.parentHandle
         if (handle == null) {
             durability.forceDirectory(path)
             return

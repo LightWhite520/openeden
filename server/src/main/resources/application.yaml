@@ -1,7 +1,8 @@
 ktor:
   deployment:
-    port: "$OPENEDEN_SERVER_PORT:8080"
+    port: "$OPENEDEN_SERVER_PORT:8081"
   application:
+    startupTimeoutMillis: "$OPENEDEN_STARTUP_TIMEOUT_MS:120000"
     modules:
       - io.openeden.server.api.plugin.SerializationKt.configureSerialization
       - io.openeden.server.api.route.WebsocketsKt.configureWebsockets
@@ -12,6 +13,8 @@ ktor:
 
 openeden:
   llm:
+    authMode: "$OPENEDEN_LLM_AUTH_MODE:api_key"
+    modelSettingsToken: "$?OPENEDEN_MODEL_SETTINGS_TOKEN"
     apiKey: "$OPENEDEN_OPENAI_API_KEY:replace-with-your-api-key"
     model: "$OPENEDEN_OPENAI_MODEL:gpt-5.6-luna"
     baseUrl: "$OPENEDEN_OPENAI_BASE_URL:https://api.openai.com/v1"

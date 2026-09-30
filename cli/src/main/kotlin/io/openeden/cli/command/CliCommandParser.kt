@@ -11,6 +11,10 @@ class CliCommandParser {
         return when (name) {
             "/help" -> withoutArguments(tokens, name, CliCommand.Help)
             "/state" -> withoutArguments(tokens, name, CliCommand.State)
+            "/model" -> {
+                require(tokens.size <= 2) { "Usage: /model [refresh|next|prev|number|model-id]" }
+                CliCommand.Model(tokens.getOrNull(1)?.takeUnless { it == "refresh" })
+            }
             "/history" -> parseHistory(tokens)
             "/clear" -> withoutArguments(tokens, name, CliCommand.Clear)
             "/exit" -> withoutArguments(tokens, name, CliCommand.Exit)
@@ -96,12 +100,18 @@ class CliCommandParser {
             CommandCandidate("/state", "Show the current session state"),
             CommandCandidate("/history", "Browse conversation history"),
             CommandCandidate("/mode", "Select the terminal display mode"),
+            CommandCandidate("/model", "Fetch and select an available model"),
             CommandCandidate("/inspect", "Show or hide diagnostics"),
             CommandCandidate("/clear", "Clear visible conversation history"),
             CommandCandidate("/exit", "Exit the terminal client"),
         )
 
         val ARGUMENT_CANDIDATES = mapOf(
+            "/model" to listOf(
+                CommandCandidate("refresh", "Fetch the latest model list"),
+                CommandCandidate("next", "Show the next model page"),
+                CommandCandidate("prev", "Show the previous model page"),
+            ),
             "/mode" to listOf(
                 CommandCandidate("full", "Use the full-screen display mode"),
                 CommandCandidate("inline", "Use the inline display mode"),

@@ -1,6 +1,7 @@
 package io.openeden.server.api.route
 
 import io.openeden.server.api.dto.ChatRequestDto
+import io.openeden.server.auth.ChatGptAuthException
 import io.openeden.server.api.dto.ChatResponseDto
 import io.openeden.server.api.dto.ChatStreamEventDto
 import io.openeden.server.api.dto.ChatStreamRequestDto
@@ -49,6 +50,7 @@ fun Application.configureRouting() {
     val vectorDatabaseStatus = attributes.getOrNull(VectorDatabaseStatusKey)
     routing {
         installMaintenanceRoutes(maintenanceAccess, maintenance)
+        installModelRoutes(attributes.getOrNull(LlmModelCatalogKey), environment.config.propertyOrNull("openeden.llm.modelSettingsToken")?.getString())
         get("/") {
             call.respondText("OpenEden runtime skeleton")
         }
@@ -171,6 +173,10 @@ fun Application.configureRouting() {
                         response = result.response,
                     ),
                 )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: ChatGptAuthException) {
+                throw error
             } catch (error: Throwable) {
                 call.respond(
                     HttpStatusCode.InternalServerError,
@@ -238,6 +244,12 @@ fun Application.configureRouting() {
                     }
                 } catch (error: CancellationException) {
                     throw error
+                } catch (error: ChatGptAuthException) {
+                    events.send("error", ChatStreamEventDto.Error(
+                        code = error.code,
+                        message = error.message.orEmpty(),
+                        retryable = error.reason.retryable,
+                    ))
                 } catch (error: Throwable) {
                     events.send(
                         "error",

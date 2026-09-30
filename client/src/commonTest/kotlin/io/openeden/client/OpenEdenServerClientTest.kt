@@ -21,6 +21,24 @@ import kotlin.test.assertTrue
 
 class OpenEdenServerClientTest {
     @Test
+    fun `model fetch and selection send operator authorization and decode catalog`() = runTest {
+        val methods = mutableListOf<String>()
+        val http = HttpClient(MockEngine { request ->
+            assertEquals("/api/v1/models", request.url.encodedPath)
+            assertEquals("Bearer operator", request.headers["Authorization"])
+            methods += request.method.value
+            if (request.method.value == "POST") assertEquals("{\"model\":\"second\"}", request.body.toByteArray().decodeToString())
+            respond("""{"current":"second","models":[{"id":"first","name":"First"},{"id":"second","name":"Second"}]}""",
+                headers = headersOf("Content-Type", "application/json"))
+        }) { install(ContentNegotiation) { json() } }
+        val api = OpenEdenServerClient("https://server.test", http)
+        try {
+            assertEquals(listOf("first", "second"), api.models("operator").models.map { it.id })
+            assertEquals("second", api.selectModel("second", "operator").current)
+            assertEquals(listOf("GET", "POST"), methods)
+        } finally { api.close() }
+    }
+    @Test
     fun `history encodes cursor clamps high limit and decodes public page`() = runTest {
         val requests = mutableListOf<String>()
         val engine = MockEngine { request ->

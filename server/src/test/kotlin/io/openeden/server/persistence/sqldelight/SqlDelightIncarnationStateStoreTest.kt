@@ -25,6 +25,8 @@ import io.openeden.transcript.TurnCommitOutcome
 import io.openeden.transcript.TurnPostCommitPlan
 import io.openeden.transcript.TurnPostCommitStage
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -36,6 +38,13 @@ class SqlDelightIncarnationStateStoreTest {
     private val tempDir = Files.createTempDirectory("openeden-incarnation-state-test")
     private val dbPath = tempDir.resolve("openeden.db")
     private val activeIncarnationId = "active-incarnation"
+
+    @Test
+    fun `shutdown closes default store without closing shared IO dispatcher`() = runTest {
+        val store = SqlDelightIncarnationStateStore.open(dbPath)
+        store.shutdown()
+        assertEquals(42, withContext(Dispatchers.IO) { 42 })
+    }
 
     @AfterTest
     fun cleanup() {

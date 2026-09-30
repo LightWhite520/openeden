@@ -24,6 +24,26 @@ import kotlin.test.assertTrue
 
 class OpenAiRelationshipEventEvaluatorTest {
     @Test
+    fun `subscription evaluator uses official streaming request and selected model`() = runTest {
+        val http = HttpClient(MockEngine { request ->
+            assertEquals("https://api.openai.com/v1/responses", request.url.toString())
+            assertEquals("Bearer subscription-token", request.headers[HttpHeaders.Authorization])
+            val body = Json.parseToJsonElement(request.body.toByteArray().decodeToString()).jsonObject
+            assertEquals("chosen", body.getValue("model").jsonPrimitive.content)
+            assertFalse("max_output_tokens" in body)
+            assertTrue(body.getValue("stream").jsonPrimitive.boolean)
+            assertFalse(body.getValue("store").jsonPrimitive.boolean)
+            assertEquals("developer", body.getValue("input").jsonArray.first().jsonObject.getValue("role").jsonPrimitive.content)
+            respond("""data: {"type":"response.completed","response":{"output_text":"{\"confidence\":0.9,\"events\":[]}"}}""" + "\n\n",
+                headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+        }) { install(ContentNegotiation) { json() } }
+        http.use {
+            val evaluator = OpenAiRelationshipEventEvaluator("unused", "default", "https://relay.test/v1", http,
+                subscriptionToken = { "subscription-token" }, modelProvider = { "chosen" })
+            assertTrue(evaluator.evaluate(turn()).events.isEmpty())
+        }
+    }
+    @Test
     fun `requests strict relationship schema without response field`() = runTest {
         var requestBody = ""
         val evaluator = evaluatorFor { request ->

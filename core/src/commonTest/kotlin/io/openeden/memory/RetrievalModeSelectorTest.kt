@@ -61,4 +61,20 @@ class RetrievalModeSelectorTest {
         assertEquals(RetrievalMode.MIXED, mode)
         assertEquals("[相关记忆 - 尝试寻找平静]", RetrievalModeSelector.injectionLabel(mode))
     }
+    @Test
+    fun `active low intensity shock suppresses mixed retrieval until inactive`() {
+        val shock = ShockState(true, 0.59f, "free text", Instant.fromEpochMilliseconds(0), 0.001f)
+        val vector = neutralInternal.copy(p = -0.31f, v = -0.21f)
+        assertEquals(RetrievalMode.CONGRUENT, RetrievalModeSelector.select(vector, OmegaState(0.2f), shock))
+        assertEquals(RetrievalMode.MIXED, RetrievalModeSelector.select(vector, OmegaState(0.2f), shock.copy(active = false)))
+        assertEquals(RetrievalMode.CONTRAST, RetrievalModeSelector.select(vector, OmegaState(0.75f), shock))
+        assertEquals(RetrievalMode.CONTRAST, RetrievalModeSelector.select(vector, OmegaState(0.2f), shock.copy(intensity = 0.6f)))
+    }
+
+    @Test
+    fun `mixed retrieval thresholds are exclusive`() {
+        for (vector in listOf(neutralInternal.copy(p = -0.3f, v = -0.21f), neutralInternal.copy(p = -0.31f, v = -0.2f))) {
+            assertEquals(RetrievalMode.CONGRUENT, RetrievalModeSelector.select(vector, OmegaState(0.2f), null))
+        }
+    }
 }

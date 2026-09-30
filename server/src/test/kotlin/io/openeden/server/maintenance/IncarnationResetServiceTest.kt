@@ -35,6 +35,40 @@ import kotlin.test.assertTrue
 
 class IncarnationResetServiceTest {
     @Test
+    fun `platform guard exports a complete verifiable database snapshot`() = runTest {
+        val fixture = MaintenanceFixture(exportPathGuardFactory = ::platformIncarnationExportPathGuard)
+        try {
+            assertEquals(true, fixture.exporter.secureDirectoryHandlesAvailable())
+            val export = fixture.export()
+            assertEquals(IncarnationExportStatus.COMPLETED, export.manifest.status)
+            assertEquals(export.manifest, fixture.exporter.verify(export.manifestPath))
+            assertEquals(1L, export.manifest.transcriptCount)
+            assertEquals(1L, export.manifest.memoryCount)
+            assertEquals(1L, export.manifest.relationshipEventCount)
+        } finally { fixture.close() }
+    }
+
+    @Test
+    fun `readiness probes actual export filesystem without writing payloads`() = runTest {
+        val fixture = MaintenanceFixture(exportPathGuardFactory = ::SecureNioIncarnationExportPathGuard)
+        try {
+            val expected = Files.newDirectoryStream(fixture.exportRoot).use {
+                it is java.nio.file.SecureDirectoryStream<*>
+            }
+            val readiness = fixture.liveMaintenance().readiness()
+            assertEquals(expected, readiness.secureExportDirectoryHandlesAvailable)
+            assertEquals("READY", readiness.resetReadiness)
+            assertTrue(Files.list(fixture.exportRoot).use { it.findAny().isEmpty })
+            if (!expected) {
+                assertFailsWith<IncarnationExportCapabilityException> { fixture.export() }
+                assertTrue(Files.list(fixture.exportRoot).use { it.findAny().isEmpty })
+            }
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
     fun `reset clears all incarnation layers and creates one fresh active incarnation`() = runTest {
         val fixture = MaintenanceFixture()
         try {

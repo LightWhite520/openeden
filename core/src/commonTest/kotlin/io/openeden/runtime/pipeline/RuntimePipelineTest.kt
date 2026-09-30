@@ -25,6 +25,33 @@ import kotlinx.coroutines.test.runTest
 
 class RuntimePipelineTest {
     @Test
+    fun `repeated opening feedback reaches both initial generation and response only rewrite`() = runTest {
+        val prompts = mutableListOf<BuiltPrompt>()
+        val store = MutableSessionStateStore()
+        val pipeline = OpenEdenRuntimePipeline.local(
+            personaConfig = testPersonaConfig().copy(outputPolicy = PersonaOutputPolicy(maximumRepeatedOpening = 1)),
+            store = store,
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    prompts += prompt
+                    return LlmOutput(
+                        internalLogic = "event references HEURISTIC_FALLBACK",
+                        vectorDelta = zeroDelta(),
+                        response = if (prompts.size <= 2) "All right, I understand." else "I understand what you mean.",
+                    )
+                }
+            },
+        )
+        pipeline.handle(LocalRuntimeRequest("first", "owner", "first input", emotionConfidence = 0f))
+        val result = pipeline.handle(LocalRuntimeRequest("second", "owner", "second input", emotionConfidence = 0f))
+        assertEquals(3, prompts.size)
+        assertContains(prompts[1].textPreview(), "excluded_openings: [\"allright\"]")
+        assertContains(prompts[2].textPreview(), "response repeats a recent assistant opening")
+        assertEquals("I understand what you mean.", result.response)
+        assertEquals(2, result.evolutionIndex)
+    }
+
+    @Test
     fun `local runtime rewrites a policy violating response once through create defaults`() = runTest {
         var completions = 0
         val pipeline = OpenEdenRuntimePipeline.local(

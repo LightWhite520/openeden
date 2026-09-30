@@ -492,6 +492,8 @@ Responses `verbosity` field, but may not apply it.
 
 ## Quick Start
 
+ChatGPT subscription sign-in and model picker (including fetching available models): [setup guide](docs/operations/chatgpt-and-model-selection.md).
+
 Download the local model artifact if it is missing:
 
 ```powershell

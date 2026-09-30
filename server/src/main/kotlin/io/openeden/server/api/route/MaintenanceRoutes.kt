@@ -1,5 +1,6 @@
 package io.openeden.server.api.route
 
+import io.openeden.server.maintenance.IncarnationExportCapabilityException
 import io.openeden.server.maintenance.IncarnationMaintenanceExportDto
 import io.openeden.server.maintenance.IncarnationMaintenanceResetDto
 import io.openeden.server.maintenance.ServerIncarnationMaintenance
@@ -58,6 +59,11 @@ private suspend fun io.ktor.server.application.ApplicationCall.respondMaintenanc
             else -> HttpStatusCode.Conflict
         }
         respond(status, IncarnationMaintenanceErrorDto(rejected.reason.name, "Maintenance request was rejected"))
+    } catch (_: IncarnationExportCapabilityException) {
+        respond(
+            HttpStatusCode.ServiceUnavailable,
+            IncarnationMaintenanceErrorDto("EXPORT_CAPABILITY_UNAVAILABLE", "The configured filesystem cannot safely export incarnation data"),
+        )
     } catch (_: BadRequestException) {
         respond(HttpStatusCode.BadRequest, IncarnationMaintenanceErrorDto("INVALID_REQUEST", "Request body is invalid"))
     } catch (_: IncarnationMaintenanceValidationException) {

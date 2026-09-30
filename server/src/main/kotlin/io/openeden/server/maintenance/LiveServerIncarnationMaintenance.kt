@@ -90,6 +90,7 @@ class LiveServerIncarnationMaintenance(
                 else -> "READY"
             },
             incompleteResetCount = incomplete.size,
+            secureExportDirectoryHandlesAvailable = exporter.secureDirectoryHandlesAvailable(),
         )
     }
 

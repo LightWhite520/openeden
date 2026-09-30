@@ -6,7 +6,10 @@ object TraceSanitizer {
     fun sanitize(span: TraceSpan): TraceSpan = span.copy(
         attributes = span.attributes
             .filterKeys { key -> secretKeys.none { secret -> key.lowercase().contains(secret) } }
-            .mapValues { (_, value) -> value.take(256) },
+            .mapValues { (key, value) ->
+                if (key in ContextEvidenceSanitizer.keys) ContextEvidenceSanitizer.sanitize(key, value)
+                else value.take(256)
+            },
         errorSummary = span.errorSummary?.take(500),
     )
 }

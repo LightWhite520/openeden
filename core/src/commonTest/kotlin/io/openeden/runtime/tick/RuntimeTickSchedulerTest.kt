@@ -34,6 +34,57 @@ import kotlin.time.Instant
 
 class RuntimeTickSchedulerTest {
     @Test
+    fun `three days on injected clock evolve one incarnation and never consume an interval twice`() = runTest {
+        val clock = io.openeden.runtime.time.MutableRuntimeClock(0L)
+        val sessions = MutableSessionStateStore()
+        val incarnations = MutableIncarnationStateStore(transcriptStore = sessions.transcript)
+        val initial = incarnations.readOrCreate("development", PersonaMode.GROWTH, PersonaSubState.PRE_COMMAND)
+            .copy(
+                vector = BioVector.Neutral.copy(s = 0.8f, f = 0.8f),
+                omega = OmegaState(0.1f),
+                shockState = ShockState(true, 0.8f, "controlled impact", Instant.fromEpochMilliseconds(0L), 0.0001f),
+                lastRuntimeTickAtMs = 0L,
+                lastVectorDynamicsAtMs = 0L,
+            )
+        incarnations.write(initial)
+        val executor = RecordingInferenceExecutor()
+        val fluctuation = SineWaveFluctuationEngine(SineWaveFluctuationProfile(
+            dimensions = List(8) { SineWaveDimension(0.02f, 0.000003f, 0.1f) },
+        ))
+        val writer = VectorWriteService(
+            incarnationStore = incarnations,
+            inferenceExecutor = executor,
+            backgroundDynamicsReducer = BackgroundDynamicsReducer(
+                fluctuation, OmegaAccumulationConfig(sWearRate = 0.000001f, dissonanceWearRate = 0.0f), 0L,
+            ),
+        )
+        val scheduler = RuntimeTickScheduler(
+            store = sessions, writer = writer, inferenceExecutor = executor, clock = clock,
+            incarnationStore = incarnations, transcriptStore = sessions.transcript,
+        )
+        var previous = initial
+        repeat(3) { day ->
+            clock.currentMs = (day + 1) * 86_400_000L
+            val result = scheduler.evaluateOnce().single()
+            val current = incarnations.read("development")
+            assertEquals(clock.currentMs, current.lastVectorDynamicsAtMs)
+            assertTrue(current.omega.value >= previous.omega.value)
+            assertEquals(0L, current.evolutionIndex)
+            assertEquals(initial.personaMode, current.personaMode)
+            assertEquals(initial.personaStartSubState, current.personaStartSubState)
+            assertFalse(current.shockState!!.active)
+            assertTrue(current.vector.toList().all { it.isFinite() && it in 0f..1f })
+            assertContains(result.traceTags, TraceTag.BackgroundDrift)
+            scheduler.evaluateOnce()
+            assertEquals(current, incarnations.read("development"))
+            previous = current
+        }
+        assertTrue(previous.vector != initial.vector)
+        assertTrue(previous.omega.value > initial.omega.value)
+        assertTrue(executor.calls >= 3)
+    }
+
+    @Test
     fun `tick applies each persisted interval once and persists its anchor`() = runTest {
         val store = MutableSessionStateStore()
         val initial = SessionStateStore.neutral("QQ:drift").copy(lastRuntimeTickAtMs = 0L)

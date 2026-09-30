@@ -1,6 +1,8 @@
 package io.openeden.server.api.route
 
 import io.openeden.server.api.dto.ChatResponseDto
+import io.openeden.server.api.dto.ChatGptAuthErrorDto
+import io.openeden.server.auth.ChatGptAuthException
 import io.openeden.server.api.dto.PublicStateDto
 import io.openeden.server.api.plugin.configureSerialization
 import io.openeden.server.api.plugin.configureStatusPages
@@ -35,6 +37,46 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ServerApiTest {
+    @Test
+    fun `chat routes distinguish unavailable authorization from retryable transport failures`() {
+        for (reason in listOf(ChatGptAuthException.Reason.REAUTHORIZATION_REQUIRED,
+            ChatGptAuthException.Reason.PERMISSION_REQUIRED, ChatGptAuthException.Reason.TEMPORARILY_UNAVAILABLE)) {
+            testApplication {
+                val failure = ChatGptAuthException(reason)
+                application {
+                    attributes.put(PipelineKey, DevelopmentMessagePipeline.create(
+                        personaConfig = loadDefaultPersonaConfig(),
+                        llmClient = object : StreamingLlmClient {
+                            override val supportsStrictStructuredStreaming = true
+                            override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = kotlinx.coroutines.flow.flow { throw failure }
+                            override suspend fun complete(prompt: BuiltPrompt): LlmOutput = throw failure
+                        },
+                    ))
+                    configureSerialization()
+                    configureWebsockets()
+                    configureStatusPages()
+                    configureRouting()
+                }
+                val response = client.post("/api/v1/chat") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"userId":"local","text":"hello"}""")
+                }
+                assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+                val body = Json.decodeFromString<ChatGptAuthErrorDto>(response.bodyAsText())
+                assertEquals(failure.code, body.code)
+                assertEquals(reason.retryable, body.retryable)
+                val stream = client.post("/api/v1/chat/stream") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"userId":"local","text":"hello","clientRequestId":"auth_failure"}""")
+                }.bodyAsText()
+                assertTrue(stream.contains("event: error"))
+                assertTrue(stream.contains(failure.code))
+                assertTrue(stream.contains("\"retryable\":${reason.retryable}"))
+                assertFalse(stream.contains("event: completed"))
+            }
+        }
+    }
+
     @Test
     fun `health endpoint reports ready`() = testApplication {
         application {

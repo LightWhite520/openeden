@@ -6,6 +6,11 @@ import io.openeden.persona.PersonaOutputPolicy
 object LlmOutputValidator {
     private val requiredKeys = setOf("L", "P", "E", "S", "tau", "V", "M", "F")
 
+    fun blockedOpenings(policy: PersonaOutputPolicy, recentAssistantResponses: List<String>): List<String> =
+        recentAssistantResponses.mapNotNull { it.normalizedOpening() }
+            .groupingBy { it }.eachCount()
+            .filterValues { it >= policy.maximumRepeatedOpening }.keys.sorted()
+
     fun validate(
         output: LlmOutput,
         emotionConfidence: Float? = null,

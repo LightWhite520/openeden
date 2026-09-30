@@ -57,6 +57,9 @@ Assert-UnderRoot $resolvedExport $resolvedRoot 'ExportDirectory'
 if (Test-Path -LiteralPath $resolvedExport) { throw "ExportDirectory already exists: $resolvedExport" }
 
 $readiness = Invoke-OpenEdenMaintenance 'Get' '/api/v1/maintenance/incarnation/readiness' $null
+if ($readiness.secureExportDirectoryHandlesAvailable -ne $true) {
+    throw 'Server cannot confirm secure export directory handles on the configured filesystem. Check native Windows handle support or Unix SecureDirectoryStream support. No export was requested.'
+}
 $schemaVersion = [int]$readiness.schemaVersion
 if ($schemaVersion -lt 23) { throw "Maintenance requires schema version 23+; server reported $schemaVersion." }
 if ([int64]$readiness.activeIncarnationCount -ne 1) { throw 'Maintenance requires exactly one active incarnation.' }

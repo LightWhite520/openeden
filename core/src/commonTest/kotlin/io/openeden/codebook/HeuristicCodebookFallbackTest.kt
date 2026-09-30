@@ -32,4 +32,11 @@ class HeuristicCodebookFallbackTest {
         assertTrue(result.semanticDefinitions.any { it == "Vitality: EXHAUSTED" })
         assertTrue(result.semanticDefinitions.any { it == "Dissonance (derived): LOW" })
     }
+    @Test
+    fun `vitality uses uniform low and high boundaries`() = runTest {
+        for ((vitality, expected) in listOf(0.2f to "EXHAUSTED", 0.299f to "EXHAUSTED", 0.3f to "MED", 0.6f to "MED", 0.601f to "HIGH")) {
+            val result = HeuristicCodebookFallback().quantize(BioVector.Neutral.copy(v = vitality), 0.0f)
+            assertContains(result.semanticDefinitions, "Vitality: $expected")
+        }
+    }
 }

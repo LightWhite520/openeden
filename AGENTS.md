@@ -151,7 +151,7 @@ Emotional intensity: {HIGH|MED|LOW}   (P)
 Self-model:          {FEELING|NEUTRAL|MECHANICAL} (E > 0.6 = FEELING, E < 0.3 = MECHANICAL)
 System stability:    {STABLE|UNSTABLE|CHAOTIC}    (S)
 Memory pull:         {STRONG|NORMAL|WEAK}         (τ)
-Vitality:            {HIGH|MED|EXHAUSTED}         (V < 0.2 = EXHAUSTED)
+Vitality:            {HIGH|MED|EXHAUSTED}         (V < 0.3 = EXHAUSTED)
 Empathy mirror:      {ACTIVE|PASSIVE}             (M > 0.6 = ACTIVE)
 Fear level:          {HIGH|MED|LOW}               (F)
 Dissonance (derived):{HIGH|MED|LOW}               (D)
@@ -320,7 +320,7 @@ Involuntary surge of joyful memories. The entity does NOT choose to recall these
 ```
 1. ShockState.active AND ShockState.intensity ≥ 0.6  → CONTRAST
 2. Ω ≥ 0.75                                          → CONTRAST
-3. internal_P < -0.3 AND internal_V < -0.2           → MIXED
+3. NOT ShockState.active AND internal_P < -0.3 AND internal_V < -0.2           → MIXED
 4. (default)                                          → CONGRUENT
 ```
 

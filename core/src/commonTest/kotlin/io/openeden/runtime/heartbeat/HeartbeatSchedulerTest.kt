@@ -36,9 +36,16 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.time.Instant
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class HeartbeatSchedulerTest {
     private val now = 100_000_000L
     private val sixMinAgo = now - 6 * 60_000L
@@ -595,7 +602,164 @@ class HeartbeatSchedulerTest {
         assertEquals(1L, scheduler.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
     }
 
+    @Test
+    fun `scheduler recovers from generation failure on a fresh interval even if observer fails`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:shared").copy(lastUserActivityMs = sixMinAgo))
+        val delivery = RecordingDelivery()
+        var attempts = 0
+        var draws = 0
+        val failures = mutableListOf<Exception>()
+        val observedFailure = CompletableDeferred<Unit>()
+        val failure = IllegalStateException("generation failed")
+        val fixture = scheduler(
+            store, delivery,
+            clock = RuntimeClock { now + testScheduler.currentTime },
+            interval = HeartbeatIntervalStrategy { ++draws * 1_000L },
+            onEvaluationFailed = { failures += it; observedFailure.complete(Unit); error("observer failed") },
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    if (++attempts == 1) throw failure
+                    return validLlm().complete(prompt)
+                }
+            },
+        )
+        val job = fixture.start(backgroundScope)
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+        observedFailure.await()
+        runCurrent()
+        assertTrue(job.isActive)
+        assertEquals(1, attempts, "draws=$draws virtual=${testScheduler.currentTime}")
+        assertEquals(listOf<Exception>(failure), failures)
+        assertEquals(0L, fixture.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
+        assertTrue(delivery.calls.isEmpty())
+        advanceTimeBy(1_999)
+        runCurrent()
+        assertEquals(1, attempts)
+        advanceTimeBy(1)
+        runCurrent()
+        delivery.delivered.await()
+        runCurrent()
+        assertEquals(2, attempts)
+        assertEquals(3, draws)
+        assertEquals(1L, fixture.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
+        assertEquals(1, delivery.calls.size)
+        job.cancelAndJoin()
+    }
+
+    @Test
+    fun `scheduler propagates generation cancellation without retry or failure callback`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:shared"))
+        var failures = 0
+        var attempts = 0
+        val fixture = scheduler(
+            store, RecordingDelivery(),
+            interval = HeartbeatIntervalStrategy { 1_000L },
+            onEvaluationFailed = { failures++ },
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    attempts++
+                    throw CancellationException("stopping")
+                }
+            },
+        )
+        val job = fixture.start(backgroundScope)
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+        job.join()
+        assertTrue(job.isCancelled)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(1, attempts)
+        assertEquals(0, failures)
+        assertEquals(0L, fixture.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
+    }
+
     private fun neutral(id: String) = SessionStateStore.neutral(id)
+
+    @Test
+    fun `successful scheduled heartbeats draw a fresh delay after each firing`() = runTest {
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:schedule").copy(lastUserActivityMs = sixMinAgo))
+        var draws = 0
+        var generations = 0
+        val delivered = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val delivery = object : HeartbeatDelivery {
+            override fun isConnected(target: HeartbeatTarget) = true
+            override suspend fun deliver(sessionId: String, target: HeartbeatTarget, shock: Boolean, response: String?) {
+                delivered.send(Unit)
+            }
+        }
+        val fixture = scheduler(
+            store, delivery,
+            clock = RuntimeClock { now + testScheduler.currentTime },
+            interval = HeartbeatIntervalStrategy { ++draws * 300_000L },
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    generations++
+                    return zeroDeltaLlm().complete(prompt)
+                }
+            },
+        )
+        val job = fixture.start(backgroundScope)
+        runCurrent()
+        for (firing in 1..3) {
+            advanceTimeBy(firing * 300_000L - 1)
+            runCurrent()
+            assertEquals(firing - 1, generations)
+            advanceTimeBy(1)
+            runCurrent()
+            delivered.receive()
+            runCurrent()
+            assertEquals(firing, generations)
+            assertEquals(firing + 1, draws)
+        }
+        job.cancelAndJoin()
+        assertEquals(3L, fixture.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
+    }
+
+    @Test
+    fun `multi day silence respects boundary and never replays disconnected heartbeats`() = runTest {
+        val clock = MutableRuntimeClock(now)
+        val store = MutableSessionStateStore()
+        store.write(neutral("QQ:days").copy(lastUserActivityMs = now))
+        var connected = false
+        val responses = mutableListOf<String?>()
+        var generated = 0
+        val delivery = object : HeartbeatDelivery {
+            override fun isConnected(target: HeartbeatTarget) = connected
+            override suspend fun deliver(sessionId: String, target: HeartbeatTarget, shock: Boolean, response: String?) {
+                responses += response
+            }
+        }
+        val fixture = scheduler(store, delivery, clock = clock, llmClient = object : LlmClient {
+            override suspend fun complete(prompt: BuiltPrompt) = zeroDeltaLlm().complete(prompt)
+                .copy(response = "heartbeat ${++generated}")
+        })
+        clock.currentMs = now + 299_999L
+        fixture.evaluateOnce()
+        assertEquals(0, generated)
+        clock.currentMs = now + 300_000L
+        fixture.evaluateOnce()
+        assertEquals(1, generated)
+        assertTrue(responses.isEmpty())
+        for (day in 1..3) {
+            clock.currentMs = now + day * 86_400_000L
+            fixture.evaluateOnce()
+        }
+        assertEquals(4L, fixture.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
+        assertTrue(responses.isEmpty())
+        connected = true
+        clock.currentMs = now + 3 * 86_400_000L + 300_000L
+        fixture.evaluateOnce()
+        assertEquals(listOf<String?>("heartbeat 5"), responses)
+        assertEquals(now, store.read("QQ:days").lastUserActivityMs)
+        assertEquals(5L, fixture.incarnationStore.read(TEST_INCARNATION_ID).evolutionIndex)
+    }
 
     private suspend fun scheduler(
         store: MutableSessionStateStore,
@@ -606,6 +770,8 @@ class HeartbeatSchedulerTest {
         clock: RuntimeClock = MutableRuntimeClock(now),
         onDeliveryDropped: (String, HeartbeatTarget, Exception) -> Unit = { _, _, _ -> },
         llmClient: LlmClient = validLlm(),
+        interval: HeartbeatIntervalStrategy = RandomHeartbeatInterval(),
+        onEvaluationFailed: (Exception) -> Unit = {},
         backgroundDynamicsReducer: BackgroundDynamicsReducer = BackgroundDynamicsReducer.stationary(),
     ): HeartbeatFixture {
         val transcript = InMemoryTranscriptStore(TEST_INCARNATION_ID)
@@ -637,6 +803,8 @@ class HeartbeatSchedulerTest {
                 routeResolver = routeResolver,
                 clock = clock,
                 onDeliveryDropped = onDeliveryDropped,
+                interval = interval,
+                onEvaluationFailed = onEvaluationFailed,
                 incarnationStore = incarnationStore,
                 transcriptStore = transcript,
             ),
@@ -652,6 +820,8 @@ class HeartbeatSchedulerTest {
         val writer: VectorWriteService,
         val transcriptStore: InMemoryTranscriptStore,
     ) {
+        fun start(scope: CoroutineScope) = scheduler.start(scope)
+
         suspend fun evaluateOnce(now: Long? = null) {
             if (now == null) scheduler.evaluateOnce() else scheduler.evaluateOnce(now)
         }
@@ -704,6 +874,7 @@ private class RecordingDelivery(
     data class Call(val sessionId: String, val platform: String, val userId: String, val shock: Boolean, val response: String?)
 
     val calls = mutableListOf<Call>()
+    val delivered = CompletableDeferred<Unit>()
     var connectionChecks = 0
 
     override fun isConnected(target: HeartbeatTarget): Boolean {
@@ -713,5 +884,6 @@ private class RecordingDelivery(
 
     override suspend fun deliver(sessionId: String, target: HeartbeatTarget, shock: Boolean, response: String?) {
         calls += Call(sessionId, target.platform, target.userId, shock, response)
+        delivered.complete(Unit)
     }
 }
