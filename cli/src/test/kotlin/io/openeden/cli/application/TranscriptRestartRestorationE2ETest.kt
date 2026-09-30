@@ -27,10 +27,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.jline.terminal.TerminalBuilder
+import org.jline.utils.AttributedString
 
 class TranscriptRestartRestorationE2ETest {
     @Test
-    fun `server restart restores latest fifty turns before CLI input`() = testApplication {
+    fun `server restart restores latest fifty turns before CLI input`() = verifyRestoredHistory("dumb")
+
+    @Test
+    fun `server restart restores latest fifty turns before colored CLI input`() = verifyRestoredHistory("xterm-256color")
+
+    private fun verifyRestoredHistory(terminalType: String) = testApplication {
         val directory = createTempDirectory("openeden-transcript-restart")
         val dbPath = directory.resolve("runtime.db")
         val firstStore = SqlDelightTranscriptStore.open(dbPath)
@@ -74,6 +80,7 @@ class TranscriptRestartRestorationE2ETest {
             val terminal = TerminalBuilder.builder()
                 .name("openeden-transcript-restart")
                 .system(false)
+                .type(terminalType)
                 .streams(ByteArrayInputStream(ByteArray(0)), terminalOutput)
                 .dumb(true)
                 .build()
@@ -86,7 +93,8 @@ class TranscriptRestartRestorationE2ETest {
                     if (firstRead) {
                         firstRead = false
                         order += "readLine"
-                        restoredBeforeRead = terminalOutput.toString(UTF_8).contains("ATRI: assistant-turn-51")
+                        restoredBeforeRead = AttributedString.fromAnsi(terminalOutput.toString(UTF_8))
+                            .toString().contains("ATRI: assistant-turn-51")
                         "/exit"
                     } else {
                         null
@@ -107,7 +115,7 @@ class TranscriptRestartRestorationE2ETest {
             assertEquals(listOf("history", "readLine"), order)
             assertEquals(listOf<String?>("50"), historyLimits)
 
-            val restoredLines = terminalOutput.toString(UTF_8)
+            val restoredLines = AttributedString.fromAnsi(terminalOutput.toString(UTF_8)).toString()
                 .lineSequence()
                 .map(String::trimEnd)
                 .filter { line -> line.startsWith("> user-turn-") || line.startsWith("ATRI: assistant-turn-") }

@@ -20,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import org.jline.reader.LineReader
 import org.jline.terminal.Terminal
 import org.jline.terminal.TerminalBuilder
+import org.jline.utils.AttributedString
 import java.io.ByteArrayOutputStream
 import java.lang.reflect.Proxy
 import kotlin.io.path.createTempDirectory
@@ -95,6 +96,11 @@ class OpenEdenCliTest {
 
     @Test
     fun `interactive history hydrates and renders once before terminal input starts`() = runTest {
+        verifyHistoryBeforeInput("dumb")
+        verifyHistoryBeforeInput("xterm-256color")
+    }
+
+    private suspend fun verifyHistoryBeforeInput(terminalType: String) {
         val order = mutableListOf<String>()
         val printed = mutableListOf<String>()
         val client = FakeServerClient().apply {
@@ -102,6 +108,7 @@ class OpenEdenCliTest {
             onHistory = { order += "history" }
         }
         val session = FakeTerminalSession(
+            terminalType = terminalType,
             events = flow {
                 order += "readLine"
                 emit(CliTerminalEvent.EndOfFile)
@@ -118,8 +125,9 @@ class OpenEdenCliTest {
         assertEquals(0, cli.runWithTerminal(emptyList(), session))
 
         assertEquals(listOf("history", "readLine"), order)
-        assertEquals(1, printed.count { it.trim() == "> user-restored" })
-        assertEquals(1, printed.count { it.trim() == "ATRI: assistant-restored" })
+        val visibleLines = printed.map { AttributedString.fromAnsi(it).toString().trim() }
+        assertEquals(1, visibleLines.count { it == "> user-restored" }, "$terminalType: $visibleLines")
+        assertEquals(1, visibleLines.count { it == "ATRI: assistant-restored" }, "$terminalType: $visibleLines")
     }
 
     @Test
@@ -314,10 +322,12 @@ class OpenEdenCliTest {
     private class FakeTerminalSession(
         private val events: Flow<CliTerminalEvent> = flowOf(CliTerminalEvent.EndOfFile),
         private val printed: MutableList<String> = mutableListOf(),
+        terminalType: String = "dumb",
     ) : TerminalSession {
         override val terminal: Terminal = TerminalBuilder.builder()
             .name("openeden-cli-fake")
             .system(false)
+            .type(terminalType)
             .streams(java.io.ByteArrayInputStream(ByteArray(0)), ByteArrayOutputStream())
             .dumb(true)
             .build()
