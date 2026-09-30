@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import re
 from pathlib import Path
@@ -151,24 +153,61 @@ def zh_output_tendency(vector: dict[str, float]) -> str:
     if vector["v"] < 0.3:
         return "输出倾向为短句、低能量、保留必要回应"
     if vector["l"] >= 0.6 and vector["s"] < 0.3:
-        return "输出倾向为清晰、克制、结构稳定"
+        return "推理清晰连贯，表达能量随生命力变化，口吻保留人格特点"
     if vector["p"] >= 0.6 and vector["m"] >= 0.6:
         return "输出倾向为贴近用户情绪、语气柔和且回应密度较高"
     if vector["s"] >= 0.6:
         return "输出倾向为轻微断裂、跳跃或不稳定的表达"
-    return "输出倾向为中等强度、可持续且不过度外放"
+    return "输出能量适中、可持续，口吻保留人格特点"
 
 
 def en_output_tendency(vector: dict[str, float]) -> str:
     if vector["v"] < 0.3:
         return "Output tends toward short, low-energy replies that preserve only necessary response"
     if vector["l"] >= 0.6 and vector["s"] < 0.3:
-        return "Output tends toward clear, restrained, structurally stable wording"
+        return "Reasoning stays clear and coherent; expressive energy follows vitality while voice retains its persona traits"
     if vector["p"] >= 0.6 and vector["m"] >= 0.6:
         return "Output tends toward close emotional mirroring with a soft and responsive tone"
     if vector["s"] >= 0.6:
         return "Output tends toward slight fragmentation, jumps, or unstable expression"
-    return "Output tends toward moderate, sustainable expression without excessive overflow"
+    return "Output energy is moderate and sustainable while voice retains its persona traits"
+
+
+def rewrite_output_tendencies(data: dict) -> dict[str, int]:
+    """Refresh only expression guidance, preserving profiles and training inputs."""
+    changed = 0
+    for sample in data["samples"]:
+        vector = as_vector(sample)
+        previous = dict(sample)
+        for key, marker, tendency, stop in (
+            ("definition", "Output tends toward", en_output_tendency(vector), "."),
+            ("definitionEn", "Output tends toward", en_output_tendency(vector), "."),
+            ("definitionZh", "输出倾向为", zh_output_tendency(vector), "。"),
+        ):
+            text = sample[key]
+            # Also accept this revision's prefixes so repeated regeneration is idempotent.
+            markers = [marker, "Reasoning stays", "Output energy is"] if key != "definitionZh" else [marker, "推理清晰连贯", "输出能量适中"]
+            positions = [text.index(m) for m in markers if m in text]
+            if not positions:
+                raise ValueError(f"Missing output guidance for {sample['nodeId']}: {key}")
+            sample[key] = text[:min(positions)] + tendency + stop
+        changed += sample != previous
+    return {"samples": len(data["samples"]), "rewritten": changed}
+
+
+def sync_artifact_definitions(artifact: dict, data: dict) -> None:
+    """Update CSV descriptions without changing node order, tags or model tensors."""
+    rows = list(csv.DictReader(io.StringIO(artifact["codebookCsv"])))
+    samples = {sample["nodeId"]: sample for sample in data["samples"]}
+    if len(samples) != len(data["samples"]) or len(samples) != len(rows) or set(samples) != {row["node_id"] for row in rows}:
+        raise ValueError("Artifact and runtime corpus must contain the same unique nodes")
+    buffer = io.StringIO(newline="")
+    buffer.write("node_id,definition_en,definition_zh,tags\n")
+    writer = csv.writer(buffer, quoting=csv.QUOTE_ALL, lineterminator="\n")
+    for row in rows:
+        sample = samples[row["node_id"]]
+        writer.writerow([row["node_id"], sample["definitionEn"], sample["definitionZh"], row["tags"]])
+    artifact["codebookCsv"] = buffer.getvalue()
 
 
 def template_rewrite(sample: dict) -> dict:
@@ -220,14 +259,28 @@ def main() -> None:
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--report")
+    parser.add_argument("--output-tendencies-only", action="store_true")
+    parser.add_argument("--artifact", help="Existing model artifact whose CSV definitions should be synchronized in place")
     args = parser.parse_args()
 
     data = json.loads(Path(args.input).read_text(encoding="utf-8-sig"))
-    report = rewrite_data(data)
-    if report["dirtyAfter"]:
+    report = rewrite_output_tendencies(data) if args.output_tendencies_only else rewrite_data(data)
+    if report.get("dirtyAfter", 0):
         raise ValueError(f"Runtime definitions still dirty after rewrite: {report['dirtyAfter']}")
 
     Path(args.output).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if args.artifact:
+        artifact_path = Path(args.artifact)
+        original_text = artifact_path.read_text(encoding="utf-8-sig")
+        artifact = json.loads(original_text)
+        sync_artifact_definitions(artifact, data)
+        # Preserve tensor serialization byte-for-byte; only the dictionary is mutable here.
+        replacement = json.dumps(artifact["codebookCsv"], ensure_ascii=False)
+        updated_text, count = re.subn(r'("codebookCsv"\s*:\s*)"(?:\\.|[^"\\])*"',
+                                     lambda match: match.group(1) + replacement, original_text, count=1)
+        if count != 1:
+            raise ValueError("Missing artifact codebookCsv")
+        artifact_path.write_text(updated_text, encoding="utf-8")
     if args.report:
         Path(args.report).parent.mkdir(parents=True, exist_ok=True)
         Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

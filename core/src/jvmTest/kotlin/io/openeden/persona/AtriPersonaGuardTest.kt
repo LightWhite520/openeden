@@ -196,7 +196,13 @@ class AtriPersonaGuardTest {
             "f43b8591e4013235079e7e979a76ded4f7193003fe6b309b3c971dad6542f5ae",
             "f5d757787681ed506d94f6d3c53fcc4576e21d951f940e26fac4b06f5ccfbd5a",
         )
-        val clauseFingerprints = text
+        // The user explicitly approved one short signature on 2026-09-30.
+        // Exempt only that exact phrase; retain all other source-dialogue guards.
+        val approvedSignature = "哼哼，我可是高性能的嘛。"
+        assertEquals(1, Regex(Regex.escape(approvedSignature)).findAll(text).count())
+        assertTrue(approvedSignature in PersonaFileLoader.load(atriYaml)
+            .promptSections.getValue("style.generation_mechanics"))
+        val clauseFingerprints = text.replace(approvedSignature, "")
             .split(Regex("[\\s，。！？；、…]+"))
             .filter { it.isNotBlank() }
             .map(::sha256)

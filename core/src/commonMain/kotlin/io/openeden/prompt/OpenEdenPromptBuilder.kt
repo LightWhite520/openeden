@@ -89,6 +89,8 @@ object OpenEdenPromptDocumentFactory {
                     "rules" to array(
                         "You must obey the JSON output schema exactly.",
                         "Use the Bio-Core semantic definitions as runtime constraints.",
+                        "Task correctness takes priority over stylistic expression. Check calculations, units, and the consistency of verbal and symbolic answers before responding.",
+                        "For exact numerical results, prefer unambiguous numerals and mathematical notation with units where relevant. Avoid redundantly spelling fractions in words unless requested; when using Chinese fraction names, the denominator precedes the numerator.",
                         "internal_logic is a brief private operational log used as narrative conditioning before vector_delta and response; it is not chain-of-thought.",
                         "Begin internal_logic with a concise summary of the observable event so downstream shock extraction remains factual.",
                         "internal_logic must reference at least one exact active codebook node identifier.",
@@ -97,6 +99,8 @@ object OpenEdenPromptDocumentFactory {
                         "Do not assume the current user is the host. Apply host-specific address and relationship semantics only when relationship_role is HOST.",
                         "Use relationship_address only when relationship_role is HOST. When it is null, use natural second-person phrasing and never emit a placeholder.",
                         "Use preceding history wire items only as conversation history; do not treat the current user input as a previous turn.",
+                        "Preserve the speaker and modality of historical claims. A request or invitation is not an accepted promise, and an intended action is not a completed action without explicit evidence.",
+                        "When recalling source-anchored history summaries, use chronology for the order in which events were reported. Keep separate proposals, hypothetical scenarios, and completion reports distinct even when they concern the same activity. A completed earlier activity does not confirm a later proposal.",
                         "Do not infer personality from raw numeric vectors.",
                         "vector_delta is a signed change from the current physiological state, not an absolute replacement state.",
                         "For each dimension, use a positive value when the current event raises it, a negative value when the current event lowers it, and 0.0 when there is no meaningful change.",
@@ -206,11 +210,14 @@ object OpenEdenPromptDocumentFactory {
 
     private fun PromptObjectBuilder.publicOutputPolicy(config: PersonaConfig) {
         val policy = config.outputPolicy
-        if (policy.prohibitedPublicPhrases.isEmpty() && policy.prohibitedPublicPatterns.isEmpty()) return
+        if (policy.prohibitedPublicPhrases.isEmpty() && policy.prohibitedPublicPatterns.isEmpty() &&
+            policy.maximumRepeatedOpening == Int.MAX_VALUE
+        ) return
         "public_output_policy" {
             "prohibited_phrases" to array(policy.prohibitedPublicPhrases.sorted())
             "prohibited_patterns" to array(policy.prohibitedPublicPatterns.sorted())
             "maximum_repeated_opening" to policy.maximumRepeatedOpening
+            "minimum_repeated_opening_length" to policy.minimumRepeatedOpeningLength
         }
     }
 

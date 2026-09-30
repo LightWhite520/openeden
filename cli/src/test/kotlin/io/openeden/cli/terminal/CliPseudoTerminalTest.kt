@@ -57,6 +57,52 @@ class CliPseudoTerminalTest {
                 val connected = transcriptBuffer.awaitMarkerAfter(0, "OpenEden connected")
                 transcriptBuffer.awaitPromptAfter(connected)
 
+                input.write("/")
+                input.flush()
+                transcriptBuffer.awaitScreenState("slash automatically opens command menu") { lines ->
+                    lines.takeLast(30).any { it.startsWith("Commands") } &&
+                        lines.takeLast(30).any { it.startsWith("> /help") }
+                }
+                input.write("mo")
+                input.flush()
+                transcriptBuffer.awaitScreenState("typed command prefix filters menu") { lines ->
+                    lines.takeLast(30).any { it.startsWith("> /mode") && it.contains("Select") } &&
+                        lines.takeLast(30).none { it.contains("Show available commands") }
+                }
+                input.write("\t")
+                input.flush()
+                transcriptBuffer.awaitScreenState("tab opens command arguments") { lines ->
+                    lines.takeLast(30).any { it.startsWith("> full") }
+                }
+                input.write("\u001b[B")
+                input.flush()
+                transcriptBuffer.awaitScreenState("arrow selects next command argument") { lines ->
+                    lines.takeLast(30).any { it.startsWith("> inline") }
+                }
+                input.write("\t")
+                input.flush()
+                transcriptBuffer.awaitScreenState("tab completes argument without sending") { lines ->
+                    lines.takeLast(30).contains("> /mode inline") &&
+                        lines.takeLast(30).none { it.startsWith("Commands") }
+                }
+                input.write("\r")
+                input.flush()
+                transcriptBuffer.awaitScreenState("completed command returns to input") { lines ->
+                    lines.takeLast(30).contains(">") && lines.takeLast(30).none { it.startsWith("Commands") }
+                }
+                input.write("/")
+                input.flush()
+                transcriptBuffer.awaitScreenState("command menu reopens") { lines ->
+                    lines.takeLast(30).any { it.startsWith("Commands") }
+                }
+                input.write("\u001b")
+                input.flush()
+                transcriptBuffer.awaitScreenState("escape dismisses menu and keeps slash draft") { lines ->
+                    lines.takeLast(30).contains("> /") && lines.takeLast(30).none { it.startsWith("Commands") }
+                }
+                input.write("\u0015")
+                input.flush()
+
                 input.write("你好\r")
                 input.flush()
                 val active = transcriptBuffer.awaitScreenState("complete active assistant label") { lines ->
@@ -100,13 +146,41 @@ class CliPseudoTerminalTest {
                 assertFalse(inlineTranscript.contains('\uFFFD'), diagnostics)
                 assertFalse(inlineTranscript.contains("??"), diagnostics)
 
-                input.write("/mode full\r")
+                input.write("/mo")
+                input.flush()
+                transcriptBuffer.awaitScreenState("mode command selected for enter confirmation") { lines ->
+                    lines.takeLast(30).any { it.startsWith("> /mode") && it.contains("Select") }
+                }
+                input.write("\r")
+                input.flush()
+                transcriptBuffer.awaitScreenState("enter opens required arguments") { lines ->
+                    lines.takeLast(30).any { it.startsWith("> full") }
+                }
+                input.write("\r")
                 input.flush()
                 transcriptBuffer.awaitScreenState("full screen frame") { lines ->
                     val visible = lines.takeLast(30)
                     visible.firstOrNull()?.startsWith("OpenEden") == true &&
-                        visible.lastOrNull() == "editor: active=false"
+                        visible.lastOrNull()?.startsWith("4 messages") == true
                 }
+
+                input.write("/")
+                input.flush()
+                transcriptBuffer.awaitScreenState("full screen menu keeps input and footer fixed") { lines ->
+                    val visible = lines.takeLast(30)
+                    visible.getOrNull(28) == "> /" &&
+                        visible.getOrNull(29)?.startsWith("4 messages") == true &&
+                        visible.take(28).any { it.startsWith("Commands") }
+                }
+                input.write("\u001b")
+                input.flush()
+                transcriptBuffer.awaitScreenState("full screen menu dismissal restores conversation") { lines ->
+                    val visible = lines.takeLast(30)
+                    visible.getOrNull(28) == "> /" && visible.none { it.startsWith("Commands") } &&
+                        visible.any { it.contains("ATRI: 第二轮回复：再见") }
+                }
+                input.write("\u0015")
+                input.flush()
 
                 input.write("多字节输入")
                 input.flush()
@@ -115,7 +189,7 @@ class CliPseudoTerminalTest {
                     visible.getOrNull(28) == "> 多字节输入"
                 }
                 assertEquals("> 多字节输入", fullEditing.visibleLines[28], fullEditing.raw.boundedForFailure())
-                assertEquals("editor: active=false", fullEditing.visibleLines[29], fullEditing.raw.boundedForFailure())
+                assertTrue(fullEditing.visibleLines[29].startsWith("4 messages"), fullEditing.raw.boundedForFailure())
 
                 input.write("\u0015")
                 input.flush()

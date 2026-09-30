@@ -119,6 +119,7 @@ object PersonaFileLoader {
         val phrases = linkedSetOf<String>()
         val patterns = linkedSetOf<String>()
         var maximumRepeatedOpening = Int.MAX_VALUE
+        var minimumRepeatedOpeningLength = 1
         var target = OutputPolicyList.NONE
         var index = sectionStart + 1
         while (index < lines.size && (lines[index].isBlank() || lines[index].startsWith("  "))) {
@@ -137,6 +138,9 @@ object PersonaFileLoader {
                 line.startsWith("  maximum_repeated_opening:") -> {
                     maximumRepeatedOpening = line.valueAfterColon().toInt()
                 }
+                line.startsWith("  minimum_repeated_opening_length:") -> {
+                    minimumRepeatedOpeningLength = line.valueAfterColon().toInt()
+                }
             }
             index += 1
         }
@@ -144,6 +148,7 @@ object PersonaFileLoader {
             prohibitedPublicPhrases = phrases,
             prohibitedPublicPatterns = patterns,
             maximumRepeatedOpening = maximumRepeatedOpening,
+            minimumRepeatedOpeningLength = minimumRepeatedOpeningLength,
         )
     }
 

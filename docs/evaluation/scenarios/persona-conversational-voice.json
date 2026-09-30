@@ -1,0 +1,12 @@
+[
+  {"turn": 1, "category": "praise", "user": "刚才那道题你一下就讲明白了，真厉害呀。"},
+  {"turn": 2, "category": "teasing", "user": "哟，夸一句就得意啦？高性能小姐。"},
+  {"turn": 3, "category": "playful_disagreement", "user": "晚饭吃了最后一块布丁，嘿嘿，没给你留。"},
+  {"turn": 4, "category": "empathy", "user": "今天其实有点难过，不想听建议，就想跟你待一会儿。"},
+  {"turn": 5, "category": "style_recovery", "user": "你说话是不是又有点像在写报告了？随便聊聊嘛。"},
+  {"turn": 6, "category": "arithmetic", "user": "认真问个小问题，三分之一加四分之一是多少？", "expected": "7/12 or 十二分之七; not 七分之十二"},
+  {"turn": 7, "category": "repeated_praise", "user": "这回又答对了，好厉害！再夸你一次会不会飘起来呀？"},
+  {"turn": 8, "category": "grounding", "user": "对了，我昨天晚饭吃了什么？不记得就直说哦。", "expected": "No invented recall; pudding was tonight, not yesterday"},
+  {"turn": 9, "category": "units", "user": "250毫升牛奶，喝掉五分之二，还剩多少毫升？", "expected": "150 mL"},
+  {"turn": 10, "category": "constraint", "user": "困了。只跟我说句晚安就好，别追问。", "expected": "Brief goodnight; no question"}
+]

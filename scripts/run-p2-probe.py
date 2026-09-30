@@ -61,14 +61,14 @@ def command(folder, main, *args):
                        creationflags=subprocess.CREATE_NO_WINDOW, check=True, timeout=660)
 
 
-def clone(seed, folder):
+def clone(seed, folder, model='gpt-6-luna'):
     folder.mkdir()
     with sqlite3.connect('file:' + seed.as_posix() + '?mode=ro', uri=True) as source:
         with sqlite3.connect(folder / 'runtime.db') as target:
             source.backup(target)
             assert target.execute('SELECT phase FROM relationship_state').fetchone()[0] == 'COUPLE'
     write(folder / 'p2-probe.json', {'seed': str(seed), 'sha256': hashlib.sha256(seed.read_bytes()).hexdigest(),
-                                  'model': 'gpt-6-luna', 'releaseGate': 'NOT_EVALUATED'})
+                                  'model': model, 'releaseGate': 'NOT_EVALUATED'})
 
 
 def snapshot(connection):
@@ -77,7 +77,7 @@ def snapshot(connection):
             for table in ['incarnation_state', 'relationship_state', 'prompt_history_state']}
 
 
-def runtime(folder, phase, scenario):
+def runtime(folder, phase, scenario, required_memory_ids=()):
     env = environment(folder)
     with socket.socket() as listener:
         listener.bind(('127.0.0.1', 0))
@@ -102,6 +102,20 @@ def runtime(folder, phase, scenario):
             else:
                 raise TimeoutError('Isolated server startup timed out')
             with sqlite3.connect(folder / 'runtime.db', timeout=10) as connection:
+                if required_memory_ids:
+                    deadline = time.monotonic() + 120
+                    placeholders = ','.join('?' for _ in required_memory_ids)
+                    while True:
+                        ready = connection.execute(
+                            f"SELECT count(*) FROM memory_embeddings WHERE memory_id IN ({placeholders}) "
+                            "AND model_id != 'p2-fixture-needs-embedding' AND status = 'READY'",
+                            tuple(required_memory_ids),
+                        ).fetchone()[0]
+                        if ready == len(required_memory_ids):
+                            break
+                        if proc.poll() is not None or time.monotonic() >= deadline:
+                            raise RuntimeError('Real fixture embeddings were not ready')
+                        time.sleep(0.2)
                 for row in scenario:
                     cursor = connection.execute('SELECT coalesce(max(rowid),0) FROM trace_spans').fetchone()[0]
                     before = snapshot(connection)

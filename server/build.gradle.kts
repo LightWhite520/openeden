@@ -51,6 +51,11 @@ dependencies {
     testImplementation(ktorLibs.server.testHost)
 }
 
+tasks.withType<Test>().configureEach {
+    // Gradle's isolated test classloader is not necessarily a URLClassLoader.
+    systemProperty("openeden.test.runtimeClasspath", sourceSets["test"].runtimeClasspath.asPath)
+}
+
 // Local OAuth operator command; independent from runtime startup and production state.
 tasks.register<JavaExec>("chatgptAuth") {
     group = "application"

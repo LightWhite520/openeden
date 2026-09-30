@@ -10,13 +10,14 @@ import com.github.ajalt.mordant.terminal.PrintRequest
 import com.github.ajalt.mordant.terminal.Terminal
 import com.github.ajalt.mordant.terminal.TerminalInfo
 import com.github.ajalt.mordant.terminal.TerminalInterface
+import org.jline.utils.AttributedString
 import kotlin.time.TimeMark
 
-class MarkdownTextRenderer {
+class MarkdownTextRenderer(private val colorEnabled: Boolean = false) {
     fun render(markdown: String, width: Int): String {
         require(width > 0)
         val terminal = Terminal(
-            ansiLevel = AnsiLevel.NONE,
+            ansiLevel = if (colorEnabled) AnsiLevel.ANSI16 else AnsiLevel.NONE,
             theme = Theme.Default,
             terminalInterface = StringTerminalInterface(width),
         )
@@ -25,20 +26,14 @@ class MarkdownTextRenderer {
     }
 
     private fun wrap(text: String, width: Int): List<String> {
-        if (text.isEmpty()) return listOf("")
-        val result = mutableListOf<String>(); var line = StringBuilder(); var used = 0
-        for (cp in text.codePoints().toArray()) {
-            val ch = String(Character.toChars(cp)); val w = DisplayWidth.codePointWidth(cp)
-            if (w > width) {
-                if (line.isNotEmpty()) { result += line.toString(); line = StringBuilder(); used = 0 }
-                result += "?"
-                continue
-            }
-            if (line.isNotEmpty() && used + w > width) { result += line.toString(); line = StringBuilder(); used = 0 }
-            line.append(ch); used += w
+        val attributed = AttributedString.fromAnsi(text)
+        return attributed.columnSplitLength(width).map { line ->
+            val fitted = if (line.columnLength() > width) {
+                // A single wide grapheme cannot fit a one-column terminal.
+                AttributedString("?", line.styleAt(0))
+            } else line
+            if (colorEnabled) fitted.toAnsi() else fitted.toString()
         }
-        if (line.isNotEmpty()) result += line.toString()
-        return result
     }
 }
 
@@ -83,7 +78,7 @@ object DisplayWidth {
 
 private class StringTerminalInterface(private val width: Int) : TerminalInterface {
     override fun info(ansiLevel: AnsiLevel?, hyperlinks: Boolean?, outputInteractive: Boolean?, inputInteractive: Boolean?) =
-        TerminalInfo(AnsiLevel.NONE, false, false, false, false)
+        TerminalInfo(ansiLevel ?: AnsiLevel.NONE, false, false, false, false)
 
     override fun completePrintRequest(request: PrintRequest) = Unit
     override fun readLineOrNull(hideInput: Boolean): String? = error("Markdown renderer cannot read input")

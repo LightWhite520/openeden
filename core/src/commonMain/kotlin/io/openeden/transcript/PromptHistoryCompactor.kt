@@ -25,13 +25,15 @@ interface PromptHistoryCompactor {
 
         fun validated(
             maxRememberedRequests: Int = DEFAULT_MAX_REMEMBERED_REQUESTS,
+            requireSourceAnchors: Boolean = false,
             generate: suspend (Request) -> String,
-        ): PromptHistoryCompactor = ValidatedPromptHistoryCompactor(maxRememberedRequests, generate)
+        ): PromptHistoryCompactor = ValidatedPromptHistoryCompactor(maxRememberedRequests, requireSourceAnchors, generate)
     }
 }
 
 private class ValidatedPromptHistoryCompactor(
     private val maxRememberedRequests: Int,
+    private val requireSourceAnchors: Boolean,
     private val generate: suspend (PromptHistoryCompactor.Request) -> String,
 ) : PromptHistoryCompactor {
     private val stateMutex = Mutex()
@@ -96,8 +98,27 @@ private class ValidatedPromptHistoryCompactor(
         require(document.schemaVersion == PromptHistoryCompactor.SCHEMA_VERSION) {
             "Unsupported prompt history compaction schema ${document.schemaVersion}"
         }
-        val normalized = document.normalized()
+        var normalized = document.normalized()
         require(normalized.chronology.isNotEmpty()) { "Compaction chronology must not be empty" }
+        if (requireSourceAnchors) {
+            normalized = normalized.copy(chronology = PromptHistorySourceValidator.canonicalChronology(
+                stableItems, snapshot.summary?.sourceTurnIds.orEmpty(),
+                normalized.commitments + normalized.relationshipFacts, normalized.chronology,
+            ))
+            PromptHistorySourceValidator.validate(
+                stableItems, snapshot.summary?.sourceTurnIds.orEmpty(),
+                normalized.commitments, normalized.relationshipFacts, normalized.chronology,
+            )
+            // UUIDs do not express temporal order. Expose source positions so separate proposals
+            // about the same activity cannot be mistaken for one proposal followed by completion.
+            val sourceOrder = stableItems.map(PromptHistoryItem::turnId).distinct()
+                .withIndex().associate { it.value to it.index + 1 }
+            normalized = normalized.copy(chronology = normalized.chronology.map { entry ->
+                val references = entry.substring(1, entry.indexOf(']')).split(',').map(String::trim)
+                val positions = references.map { sourceOrder[it]?.toString() ?: "prior_summary" }
+                "$entry (source_order=${positions.joinToString(",")})"
+            })
+        }
         val text = normalized.render()
         val summary = PromptHistorySummary(
             text = text,

@@ -39,6 +39,30 @@ import kotlin.test.assertTrue
 
 class OpenAiResponsesLlmClientTest {
     @Test
+    fun `stream failures expose allowlisted diagnostics without provider message text`() = runTest {
+        for ((event, expectedCode) in listOf(
+            """{"type":"response.failed","response":{"error":{"code":"subscription_sharing_usage_limit_exceeded","message":"private provider text"}}}""" to "subscription_sharing_usage_limit_exceeded",
+            """{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}""" to "max_output_tokens",
+            """{"type":"error","code":"private provider text"}""" to "OTHER",
+        )) {
+            val engine = MockEngine {
+                respond("data: $event\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+            }
+            val client = OpenAiResponsesLlmClient(
+                apiKey = "sk-test", model = "test-model",
+                httpClient = OpenAiResponsesLlmClient.httpClient(engine, installTimeout = false),
+            )
+            try {
+                val failure = assertFailsWith<ResponsesStreamFailure> { client.stream(simplePrompt()).toList() }
+                assertEquals(expectedCode, failure.providerCode)
+                assertFalse(failure.message.orEmpty().contains("private provider text"))
+            } finally {
+                client.close()
+            }
+        }
+    }
+
+    @Test
     fun `marks input token usage without cache details as unobservable`() = runTest {
         val engine = MockEngine {
             respond(

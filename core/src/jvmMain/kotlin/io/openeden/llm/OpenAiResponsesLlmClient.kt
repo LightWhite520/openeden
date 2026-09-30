@@ -242,7 +242,7 @@ class OpenAiResponsesLlmClient private constructor(
                     completed = true
                 }
 
-                "response.failed", "response.incomplete", "error" -> throw IllegalStateException("OpenAI response stream failed")
+                "response.failed", "response.incomplete", "error" -> throw ResponsesStreamFailure.fromEvent(event)
             }
         }
 

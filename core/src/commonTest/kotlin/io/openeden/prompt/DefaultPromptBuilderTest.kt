@@ -223,6 +223,20 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `repetition only policy is injected without prohibited vocabulary`() = runTest {
+        val input = promptInput()
+        val prompt = DefaultPromptBuilder().build(input.copy(
+            personaConfig = input.personaConfig.copy(outputPolicy = PersonaOutputPolicy(
+                maximumRepeatedOpening = 2,
+                minimumRepeatedOpeningLength = 4,
+            )),
+        ))
+        val persona = prompt.segmentText(PromptSegmentKind.PERSONA)
+        assertContains(persona, "\"maximum_repeated_opening\": 2")
+        assertContains(persona, "\"minimum_repeated_opening_length\": 4")
+    }
+
+    @Test
     fun `structured few shots stay stable while relationship phase stays dynamic`() = runTest {
         val baseInput = promptInput().let { input ->
             input.copy(
@@ -239,6 +253,7 @@ class DefaultPromptBuilderTest {
                     outputPolicy = PersonaOutputPolicy(
                         prohibitedPublicPhrases = setOf("登记进库存"),
                         maximumRepeatedOpening = 1,
+                        minimumRepeatedOpeningLength = 4,
                     ),
                 ),
             )
@@ -259,6 +274,7 @@ class DefaultPromptBuilderTest {
         assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "ASSISTANT")
         assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "第一次见面，请多关照。")
         assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "登记进库存")
+        assertContains(stranger.segmentText(PromptSegmentKind.PERSONA), "\"minimum_repeated_opening_length\": 4")
         assertEquals(stranger.segmentText(PromptSegmentKind.PERSONA), couple.segmentText(PromptSegmentKind.PERSONA))
         assertContains(stranger.dynamicText(), "\"phase\": \"STRANGER\"")
         assertContains(couple.dynamicText(), "\"phase\": \"COUPLE\"")

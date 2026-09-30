@@ -36,7 +36,9 @@ suspend fun completedResponsesStream(channel: ByteReadChannel, limit: Int = 64 *
                 check(completed == null) { "Duplicate response completion" }
                 completed = event.getValue("response").jsonObject
             }
-            "response.failed", "response.incomplete", "error" -> error("ChatGPT subscription response did not complete successfully")
+            "response.failed", "response.incomplete", "error" -> {
+                throw ResponsesStreamFailure.fromEvent(event)
+            }
         }
     }
     while (!channel.isClosedForRead) {

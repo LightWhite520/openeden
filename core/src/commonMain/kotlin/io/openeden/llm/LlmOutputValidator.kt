@@ -7,7 +7,7 @@ object LlmOutputValidator {
     private val requiredKeys = setOf("L", "P", "E", "S", "tau", "V", "M", "F")
 
     fun blockedOpenings(policy: PersonaOutputPolicy, recentAssistantResponses: List<String>): List<String> =
-        recentAssistantResponses.mapNotNull { it.normalizedOpening() }
+        recentAssistantResponses.mapNotNull { it.normalizedOpening(policy.minimumRepeatedOpeningLength) }
             .groupingBy { it }.eachCount()
             .filterValues { it >= policy.maximumRepeatedOpening }.keys.sorted()
 
@@ -64,10 +64,10 @@ object LlmOutputValidator {
             if (policy.prohibitedPublicPatterns.any { pattern -> Regex(pattern).containsMatchIn(output.response) }) {
                 errors += "response matches a persona-prohibited public pattern"
             }
-            val opening = output.response.normalizedOpening()
+            val opening = output.response.normalizedOpening(policy.minimumRepeatedOpeningLength)
             if (opening != null) {
                 val repeated = recentAssistantResponses.count { previous ->
-                    previous.normalizedOpening() == opening
+                    previous.normalizedOpening(policy.minimumRepeatedOpeningLength) == opening
                 } + 1
                 if (repeated > policy.maximumRepeatedOpening) {
                     errors += "response repeats a recent assistant opening"
@@ -98,15 +98,17 @@ object LlmOutputValidator {
         )
     }
 
-    private fun String.normalizedOpening(): String? {
+    private fun String.normalizedOpening(minimumLength: Int): String? {
         val normalized = trim()
             .trimStart('"', '\'', '“', '‘', '（', '(', '【', '[')
             .lowercase()
         if (normalized.isEmpty()) return null
-        val boundary = OPENING_BOUNDARY.find(normalized)?.range?.first ?: normalized.length
-        return normalized.substring(0, boundary)
-            .filterNot(Char::isWhitespace)
-            .takeIf(String::isNotEmpty)
+        // Short interjections alone are not a sentence template. Extend comparison
+        // through following clauses so they cannot mask a repeated longer opening.
+        val boundaries = OPENING_BOUNDARY.findAll(normalized).map { it.range.first } +
+            sequenceOf(normalized.length)
+        return boundaries.map { normalized.substring(0, it).filterNot(Char::isWhitespace) }
+            .firstOrNull { candidate -> candidate.count(Char::isLetterOrDigit) >= minimumLength }
     }
 
     private val OPENING_BOUNDARY = Regex("[，,。.!！?？；;：:\\n]")

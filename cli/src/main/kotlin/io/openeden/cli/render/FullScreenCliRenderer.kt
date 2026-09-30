@@ -19,15 +19,18 @@ internal fun interface FullScreenMessageRowRenderer {
 class FullScreenCliRenderer internal constructor(
     private val sink: FullscreenSink,
     private val rowRenderer: FullScreenMessageRowRenderer,
+    private val theme: CliTheme = CliTheme(),
 ) : CliRenderer {
     constructor(
         sink: FullscreenSink,
         inline: InlineCliRenderer = InlineCliRenderer(),
+        theme: CliTheme = CliTheme(),
     ) : this(
         sink,
         FullScreenMessageRowRenderer { message, width ->
             inline.rows(CliUiState(sessionId = "", messages = listOf(message)), width)
         },
+        theme,
     )
 
     private val rowCache = object : LinkedHashMap<String, CachedMessageRows>(16, 0.75f, true) {
@@ -52,8 +55,9 @@ class FullScreenCliRenderer internal constructor(
             entered = true
         }
 
-        val conversationWidth = size.columns - 22
-        val rail = "session ${current.sessionId}"
+        val frameWidth = size.columns - 1
+        val conversationWidth = frameWidth - 2
+        val chrome = CliChrome(theme)
         val diagnostics = if (current.diagnosticsVisible) current.diagnostics?.let {
             listOf(
                 "diagnostics",
@@ -91,17 +95,14 @@ class FullScreenCliRenderer internal constructor(
             )
         }
 
-        val viewportRows = List((viewportHeight - viewport.size).coerceAtLeast(0)) { "" } +
-            viewport.map { "│ ${it.text}" }
-        val rows = listOf("OpenEden  ${current.sessionId}", "┌ $rail ┐") +
+        val viewportRows = if (current.messages.isEmpty() && current.notice == null) {
+            List((viewportHeight - 1).coerceAtLeast(0)) { "" } + theme.muted("  No messages yet.")
+        } else List((viewportHeight - viewport.size).coerceAtLeast(0)) { "" } +
+            viewport.map { theme.muted("│ ") + it.text }
+        val rows = (chrome.header(current, frameWidth) +
             viewportRows +
-            diagnostics +
-            listOf(
-                "─".repeat(size.columns.coerceAtMost(96)),
-                current.stage?.let { "[$it]" } ?: "Ready",
-                "> ",
-                "editor: active=${current.requestActive}",
-            )
+            diagnostics.map(theme::muted) +
+            chrome.footer(current, frameWidth)).map { theme.fit(it, frameWidth) }
         sink.write(rows, inputRow = rows.lastIndex - 1)
         previousHistoryLoading = current.historyLoading
         previousMessageCount = current.messages.size
@@ -150,7 +151,11 @@ class FullScreenCliRenderer internal constructor(
         notice: String?,
     ): List<ConversationRow> {
         val visible = ArrayDeque<ConversationRow>(height)
-        notice?.let { visible.addFirst(ConversationRow(null, 0, -1, "[notice] $it")) }
+        notice?.let {
+            theme.wrap(theme.notice("[notice] $it"), width).takeLast(height).forEach { row ->
+                visible.addLast(ConversationRow(null, 0, -1, row))
+            }
+        }
         var messageIndex = messages.lastIndex
         while (messageIndex >= 0 && visible.size < height) {
             val message = messages[messageIndex]
@@ -172,29 +177,29 @@ class FullScreenCliRenderer internal constructor(
         notice: String?,
         requestedAnchor: ViewportAnchor,
     ): List<ConversationRow> {
+        val noticeRows = notice?.let { theme.wrap(theme.notice("[notice] $it"), width).takeLast(height) }.orEmpty()
+        val messageHeight = height - noticeRows.size
+        if (messageHeight == 0) return noticeRows.map { ConversationRow(null, 0, -1, it) }
         val index = requestedAnchor.messageIndex.coerceIn(0, messages.lastIndex)
         val firstMessage = messages[index]
         val firstRows = rowsFor(firstMessage, width)
         val firstLine = requestedAnchor.lineIndex.coerceIn(0, firstRows.lastIndex.coerceAtLeast(0))
         val visible = ArrayDeque<ConversationRow>(height)
         var messageIndex = index
-        while (messageIndex < messages.size && visible.size < height) {
+        while (messageIndex < messages.size && visible.size < messageHeight) {
             val message = messages[messageIndex]
             val rows = rowsFor(message, width)
             var lineIndex = if (messageIndex == index) firstLine else 0
-            while (lineIndex < rows.size && visible.size < height) {
+            while (lineIndex < rows.size && visible.size < messageHeight) {
                 visible.addLast(ConversationRow(message.id, lineIndex, messageIndex, rows[lineIndex]))
                 lineIndex += 1
             }
             messageIndex += 1
         }
-        if (visible.size < height) {
-            notice?.let { visible.addLast(ConversationRow(null, 0, -1, "[notice] $it")) }
-        }
         messageIndex = index
         var lineIndex = firstLine - 1
         var rows = firstRows
-        while (visible.size < height) {
+        while (visible.size < messageHeight) {
             if (lineIndex >= 0) {
                 val message = messages[messageIndex]
                 visible.addFirst(ConversationRow(message.id, lineIndex, messageIndex, rows[lineIndex]))
@@ -210,6 +215,7 @@ class FullScreenCliRenderer internal constructor(
             val message = messages[top.messageIndex]
             anchor = ViewportAnchor(message.id, top.lineIndex, top.messageIndex, message)
         }
+        noticeRows.forEach { visible.addLast(ConversationRow(null, 0, -1, it)) }
         return visible.toList()
     }
 

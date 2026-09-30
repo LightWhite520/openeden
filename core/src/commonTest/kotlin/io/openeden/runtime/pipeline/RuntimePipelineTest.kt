@@ -47,8 +47,33 @@ class RuntimePipelineTest {
         assertEquals(3, prompts.size)
         assertContains(prompts[1].textPreview(), "excluded_openings: [\"allright\"]")
         assertContains(prompts[2].textPreview(), "response repeats a recent assistant opening")
+        assertContains(prompts[1].textPreview(), "public_output_policy.minimum_repeated_opening_length")
+        assertContains(prompts[2].textPreview(), "a shorter prefix may recur with a different continuation")
         assertEquals("I understand what you mean.", result.response)
         assertEquals(2, result.evolutionIndex)
+    }
+
+    @Test
+    fun `short recurring prefixes do not trigger a rewrite or an extra lived turn`() = runTest {
+        val prompts = mutableListOf<BuiltPrompt>()
+        val replies = listOf("Oh! That worked.", "Oh! Something changed.")
+        val pipeline = OpenEdenRuntimePipeline.local(
+            personaConfig = testPersonaConfig().copy(outputPolicy = PersonaOutputPolicy(
+                maximumRepeatedOpening = 1, minimumRepeatedOpeningLength = 4,
+            )),
+            llmClient = object : LlmClient {
+                override suspend fun complete(prompt: BuiltPrompt): LlmOutput {
+                    prompts += prompt
+                    return LlmOutput("event references HEURISTIC_FALLBACK", zeroDelta(), replies[prompts.lastIndex])
+                }
+            },
+        )
+        pipeline.handle(LocalRuntimeRequest("first", "owner", "first input", emotionConfidence = 0f))
+        val result = pipeline.handle(LocalRuntimeRequest("second", "owner", "second input", emotionConfidence = 0f))
+        assertEquals(2, prompts.size)
+        assertEquals(2, result.evolutionIndex)
+        assertEquals(replies[1], result.response)
+        assertContains(prompts[1].textPreview(), "excluded_openings: [\"oh!thatworked\"]")
     }
 
     @Test

@@ -24,6 +24,10 @@ suspend fun main(args: Array<String>) {
             val result = OpenAiRelationshipEventEvaluator(
                 apiKey = "", model = args[0], baseUrl = "https://api.openai.com/v1",
                 httpClient = client, subscriptionToken = oauth::accessToken,
+                onFailure = { stage, status, failure ->
+                    val streamFailure = failure as? io.openeden.llm.ResponsesStreamFailure
+                    println("relationship=EVALUATOR_FAILURE stage=${stage.name} http_status=$status cause=${failure.javaClass.simpleName} terminal=${streamFailure?.terminalEvent} provider_code=${streamFailure?.providerCode}")
+                },
             ).evaluate(turn)
             withContext(Dispatchers.IO) {
                 Files.writeString(destination, Json.encodeToString(result), StandardOpenOption.CREATE_NEW)

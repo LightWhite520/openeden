@@ -1,5 +1,7 @@
 package io.openeden.cli.terminal
 
+import io.openeden.cli.render.CliTheme
+
 import io.openeden.cli.command.CliCommandCompleter
 import io.openeden.cli.command.CliCommandParser
 
@@ -212,6 +214,7 @@ class JLineTerminalSession private constructor(
     companion object {
         private const val KEYMAP_NAME = "openeden"
         private const val CANCEL_WIDGET = "openeden-cancel"
+        private const val DISMISS_MENU_WIDGET = "openeden-dismiss-menu"
         private const val NEWLINE_WIDGET = "openeden-newline"
         private const val TOGGLE_MODE_WIDGET = "openeden-toggle-mode"
         private const val TOGGLE_DIAGNOSTICS_WIDGET = "openeden-toggle-diagnostics"
@@ -320,12 +323,13 @@ class JLineTerminalSession private constructor(
                 lineReader.history.attach(lineReader)
                 installWidgets(lineReader, eventQueue)
                 installDedicatedKeyMap(lineReader)
+                val prompt = CliTheme.forTerminal(terminal).user("> ")
 
                 return JLineTerminalSession(
                     terminal = terminal,
                     openEdenLineReader = lineReader,
                     richSupported = richSupported,
-                    readLine = readLine ?: { lineReader.readLine("> ") },
+                    readLine = readLine ?: { lineReader.readLine(prompt) },
                     lifecycleOperations = lifecycleOperations
                         ?: RealTerminalLifecycleOperations(terminal, savedAttributes),
                     readDispatcher = Dispatchers.IO.limitedParallelism(1),
@@ -351,10 +355,13 @@ class JLineTerminalSession private constructor(
         }
 
         private fun installWidgets(
-            lineReader: LineReader,
+            lineReader: OpenEdenLineReader,
             events: Channel<CliTerminalEvent>,
         ) {
             lineReader.widgets[CANCEL_WIDGET] = eventWidget(events, CliTerminalEvent.Cancel)
+            lineReader.widgets[DISMISS_MENU_WIDGET] = Widget {
+                lineReader.dismissCommandMenu() || events.trySend(CliTerminalEvent.Cancel).isSuccess
+            }
             lineReader.widgets[TOGGLE_MODE_WIDGET] = eventWidget(events, CliTerminalEvent.ToggleMode)
             lineReader.widgets[TOGGLE_DIAGNOSTICS_WIDGET] =
                 eventWidget(events, CliTerminalEvent.ToggleDiagnostics)
@@ -378,7 +385,8 @@ class JLineTerminalSession private constructor(
                 ambiguousTimeout = source.ambiguousTimeout
                 source.boundKeys.forEach { (sequence, binding) -> bind(binding, sequence) }
                 bind(Reference(NEWLINE_WIDGET), KeyMap.alt("\r"), KeyMap.alt("\n"))
-                bind(Reference(CANCEL_WIDGET), KeyMap.esc(), KeyMap.ctrl('C'))
+                bind(Reference(DISMISS_MENU_WIDGET), KeyMap.esc())
+                bind(Reference(CANCEL_WIDGET), KeyMap.ctrl('C'))
                 bind(Reference(TOGGLE_MODE_WIDGET), KeyMap.ctrl('T'))
                 bind(Reference(TOGGLE_DIAGNOSTICS_WIDGET), KeyMap.alt('i'))
                 lineReader.terminal.getStringCapability(Capability.key_ppage)?.let { pageUp ->
@@ -386,6 +394,8 @@ class JLineTerminalSession private constructor(
                 }
             }
             lineReader.keyMaps[KEYMAP_NAME] = dedicated
+            // readLine starts from MAIN on every invocation.
+            lineReader.keyMaps[LineReader.MAIN] = dedicated
             check(lineReader.setKeyMap(KEYMAP_NAME)) { "Unable to activate OpenEden keymap" }
         }
 

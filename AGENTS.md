@@ -89,7 +89,7 @@ Personality is **fully externalized**.
 #### Persona Few-Shot Examples
  * Persona few-shot examples MUST live only in `persona/*.yaml`.
  * Prompt construction MUST inject common voice examples plus only the examples for the immutable selected starting point. `evolution_index` MUST NOT select, replace, or promote stage examples.
- * Examples MUST be original. Source character names and recognizable source dialogue are forbidden.
+ * Examples MUST be original. Source character names and recognizable source dialogue are forbidden, except the single short catchphrase explicitly approved by the user on 2026-09-30 and recorded in `persona/atri.yaml` under `style.generation_mechanics`. This exception does not authorize any other source dialogue or automatic catchphrase scheduling.
  * Hard constraints in persona data MUST be written in English.
  * Kotlin MUST NOT classify scenes into personality behaviors, schedule catchphrases, or store example-derived personality state.
 

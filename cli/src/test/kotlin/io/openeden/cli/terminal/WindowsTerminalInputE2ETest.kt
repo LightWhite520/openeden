@@ -78,7 +78,7 @@ class WindowsTerminalInputE2ETest {
         }
 
         try {
-            assertTrue(awaitOutput(captured, "Type /help for commands.", 90), diagnosticOutput(captured))
+            assertTrue(awaitOutput(captured, "OpenEden connected.", 90), diagnosticOutput(captured))
             process.outputStream.write(input.toByteArray(StandardCharsets.UTF_8))
             process.outputStream.flush()
             val submittedText = submitted.poll(30, TimeUnit.SECONDS)

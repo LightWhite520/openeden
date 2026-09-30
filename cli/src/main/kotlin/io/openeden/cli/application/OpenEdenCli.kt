@@ -9,6 +9,9 @@ import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import io.openeden.cli.render.InlineCliRenderer
+import io.openeden.cli.render.CliChrome
+import io.openeden.cli.render.CliTheme
+import io.openeden.cli.render.MarkdownTextRenderer
 import io.openeden.cli.render.InlineHistorySink
 import io.openeden.cli.render.FullScreenCliRenderer
 import io.openeden.cli.render.JLineFullscreenSink
@@ -100,12 +103,20 @@ class OpenEdenCli(
         userId: String,
         session: TerminalSession,
     ): Int {
+        val theme = CliTheme.forTerminal(session.terminal)
         val inline = InlineCliRenderer(
             history = InlineHistorySink(session.lineReader::printAbove),
             active = JLineInlineActiveSink(session),
+            markdown = MarkdownTextRenderer(colorEnabled = theme.colorEnabled),
+            theme = theme,
+            separateMessages = true,
         )
         val renderer = SwitchableCliRenderer(inline) {
-            FullScreenCliRenderer(JLineFullscreenSink(session))
+            FullScreenCliRenderer(
+                JLineFullscreenSink(session),
+                InlineCliRenderer(markdown = MarkdownTextRenderer(colorEnabled = theme.colorEnabled), theme = theme),
+                theme,
+            )
         }
         val controller = CliSessionController(
             userId = userId,
@@ -119,7 +130,9 @@ class OpenEdenCli(
                 )
             },
         )
-        session.lineReader.printAbove("OpenEden connected.\nType /help for commands.")
+        session.lineReader.printAbove(
+            CliChrome(theme).welcome("CLI:$userId", (session.terminal.size.columns.takeIf { it > 0 } ?: 80) - 1),
+        )
         return controller.use { controller ->
             controller.initializeHistory()
             controller.run(session.events())

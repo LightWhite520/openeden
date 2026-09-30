@@ -355,6 +355,12 @@ private suspend fun Application.startRuntime(
             httpClient = relationshipEvaluatorClient,
             subscriptionToken = subscription?.let { it::accessToken },
             modelProvider = modelCatalog::current,
+            onFailure = { stage, status, failure ->
+                val streamFailure = failure as? io.openeden.llm.ResponsesStreamFailure
+                log.warn("relationship=EVALUATOR_FAILURE stage={} http_status={} cause={} terminal={} provider_code={}",
+                    stage.name, status, failure.javaClass.simpleName,
+                    streamFailure?.terminalEvent, streamFailure?.providerCode)
+            },
         ),
         fallback = DeterministicRelationshipEventEvaluator(),
         onPrimaryFailure = { failure ->

@@ -48,6 +48,29 @@ class CompletedResponsesStreamTest {
         assertFailsWith<IllegalStateException> { collect("""{"type":"response.output_text.delta","delta":"{}"}""") }
     }
 
+    @Test
+    fun `terminal diagnostics expose only allowlisted codes`() = runTest {
+        val known = assertFailsWith<ResponsesStreamFailure> {
+            collect("""{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"private-token"}}}""")
+        }
+        assertEquals("response.failed", known.terminalEvent)
+        assertEquals("rate_limit_exceeded", known.providerCode)
+        assertFalse(known.toString().contains("private-token"))
+        val unknown = assertFailsWith<ResponsesStreamFailure> {
+            collect("""{"type":"error","code":"private-token","message":"private-account"}""")
+        }
+        assertEquals("OTHER", unknown.providerCode)
+        assertFalse(unknown.toString().contains("private"))
+        val incomplete = assertFailsWith<ResponsesStreamFailure> {
+            collect("""{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}""")
+        }
+        assertEquals("max_output_tokens", incomplete.providerCode)
+        val quota = assertFailsWith<ResponsesStreamFailure> {
+            collect("""{"type":"error","error":{"type":"invalid_request_error","code":"subscription_sharing_usage_limit_exceeded","message":"private details"}}""")
+        }
+        assertEquals("subscription_sharing_usage_limit_exceeded", quota.providerCode)
+    }
+
     private suspend fun collect(vararg frames: String): JsonObject = Json.parseToJsonElement(
         completedResponsesStream(ByteReadChannel(frames.joinToString("") { "data: $it\n\n" })),
     ).jsonObject

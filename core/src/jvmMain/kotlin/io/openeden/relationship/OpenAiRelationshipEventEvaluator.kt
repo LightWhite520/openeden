@@ -13,6 +13,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.utils.io.core.readBytes
 import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -36,27 +37,54 @@ class OpenAiRelationshipEventEvaluator(
     private val administrativeEventsAuthorized: Boolean = false,
     private val subscriptionToken: (suspend () -> String)? = null,
     private val modelProvider: (suspend () -> String)? = null,
+    private val onFailure: (RelationshipEvaluationStage, Int?, Exception) -> Unit = { _, _, _ -> },
 ) : RelationshipEventEvaluator {
     override suspend fun evaluate(turn: RelationshipTurn): RelationshipEvaluation {
-        val endpoint = if (subscriptionToken != null) ChatGptSubscriptionRequests.BASE_URL else baseUrl.trimEnd('/')
-        val selectedModel = modelProvider?.invoke() ?: model
-        val response = httpClient.post("$endpoint/responses") {
-            bearerAuth(subscriptionToken?.invoke() ?: apiKey)
-            if (subscriptionToken != null) header(HttpHeaders.Accept, ContentType.Text.EventStream.toString())
-            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-            setBody(requestBody(turn, selectedModel).let { if (subscriptionToken == null) it else ChatGptSubscriptionRequests.adapt(it) })
+        var stage = RelationshipEvaluationStage.MODEL_SELECTION
+        var httpStatus: Int? = null
+        try {
+            val endpoint = if (subscriptionToken != null) ChatGptSubscriptionRequests.BASE_URL else baseUrl.trimEnd('/')
+            val selectedModel = modelProvider?.invoke() ?: model
+            stage = RelationshipEvaluationStage.AUTHORIZATION
+            val token = subscriptionToken?.invoke() ?: apiKey
+            stage = RelationshipEvaluationStage.REQUEST
+            val response = httpClient.post("$endpoint/responses") {
+                bearerAuth(token)
+                if (subscriptionToken != null) header(HttpHeaders.Accept, ContentType.Text.EventStream.toString())
+                header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+                setBody(requestBody(turn, selectedModel).let { if (subscriptionToken == null) it else ChatGptSubscriptionRequests.adapt(it) })
+            }
+            httpStatus = response.status.value
+            stage = RelationshipEvaluationStage.HTTP_STATUS
+            check(httpStatus in 200..299) { "Relationship evaluation failed: HTTP $httpStatus" }
+            val body = if (subscriptionToken != null) {
+                stage = RelationshipEvaluationStage.CONTENT_TYPE
+                val responseType = response.contentType()?.withoutParameters()
+                check(responseType == null || responseType == ContentType.Text.EventStream) { "ChatGPT subscription requires SSE" }
+                stage = RelationshipEvaluationStage.SSE_COMPLETION
+                completedResponsesStream(response.bodyAsChannel(), MaxStreamBytes).also {
+                    check(it.encodeToByteArray().size <= MaxResponseBodyBytes) {
+                        "Relationship evaluation completed response exceeded limit"
+                    }
+                }
+            } else {
+                stage = RelationshipEvaluationStage.RESPONSE_BODY
+                boundedBody(response.bodyAsChannel())
+            }
+            stage = RelationshipEvaluationStage.EVALUATION_PARSE
+            return parseEvaluation(body, turn)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            try {
+                onFailure(stage, httpStatus, failure)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Diagnostic failures must not change the original failure or fallback behavior.
+            }
+            throw failure
         }
-        if (subscriptionToken != null) {
-            check(response.status.value in 200..299) { "ChatGPT relationship evaluation failed: HTTP ${response.status.value}" }
-            val responseType = response.contentType()?.withoutParameters()
-            check(responseType == null || responseType == ContentType.Text.EventStream) { "ChatGPT subscription requires SSE" }
-            return parseEvaluation(completedResponsesStream(response.bodyAsChannel()), turn)
-        }
-        val body = boundedBody(response.bodyAsChannel())
-        check(response.status.value in 200..299) {
-            "OpenAI relationship evaluation failed: ${response.status.value} ${body.take(1000)}"
-        }
-        return parseEvaluation(body, turn)
     }
 
     private fun requestBody(turn: RelationshipTurn, selectedModel: String): JsonObject = buildJsonObject {
@@ -125,6 +153,9 @@ class OpenAiRelationshipEventEvaluator(
                 supersedesEventId = event["supersedes_event_id"]?.jsonPrimitive?.contentOrNull,
             )
         }
+        require(events.map { it.type }.distinct().size == events.size) {
+            "Relationship evaluation must not repeat an event type within one turn"
+        }
         return RelationshipEvaluation(events, confidence)
     }
 
@@ -150,7 +181,9 @@ class OpenAiRelationshipEventEvaluator(
     private companion object {
         const val MaxOutputTokens = 512
         const val MaxResponseBodyBytes = 64 * 1024
-        const val systemInstructions = "Evaluate only ordinary relationship events from the validated USER and ATRI turn. Return no response text. Do not infer events from proposals, rhetorical questions, or negations. Administrative reset and correction events are forbidden unless explicitly authorized by the caller."
+        // SSE metadata/reasoning frames can greatly exceed the final small JSON evaluation.
+        const val MaxStreamBytes = 1024 * 1024
+        const val systemInstructions = "Evaluate only new ordinary relationship events enacted in the current validated USER and ATRI turn. Return no response text. Historical recollections, summaries, quotations, and reports of earlier promises or preferences are evidence about the past, not new events; a turn that only requests and supplies a recap MUST return events: []. Do not infer events from proposals, rhetorical questions, or negations. A request does not establish the recipient's acceptance. Emit at most one event of each type per turn. Administrative reset and correction events are forbidden unless explicitly authorized by the caller."
 
         val evaluationFields = setOf("confidence", "events")
 

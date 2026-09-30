@@ -162,6 +162,82 @@ class OpenAiRelationshipEventEvaluatorTest {
         assertTrue(failure.message.orEmpty().contains("exceeded limit"))
     }
 
+    @Test
+    fun `diagnostics distinguish provider rejection incomplete stream and invalid evaluation`() = runTest {
+        val cases = listOf(
+            Triple(429, "private provider body", RelationshipEvaluationStage.HTTP_STATUS),
+            Triple(200, "data: [DONE]\n\n", RelationshipEvaluationStage.SSE_COMPLETION),
+            Triple(200, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+                RelationshipEvaluationStage.EVALUATION_PARSE),
+        )
+        for ((status, body, expectedStage) in cases) {
+            var observed: Pair<RelationshipEvaluationStage, Int?>? = null
+            var original: Exception? = null
+            val http = HttpClient(MockEngine {
+                respond(body, io.ktor.http.HttpStatusCode.fromValue(status),
+                    headersOf(HttpHeaders.ContentType, "text/event-stream"))
+            }) { install(ContentNegotiation) { json() } }
+            http.use {
+                val evaluator = OpenAiRelationshipEventEvaluator("unused", "model", "https://unused.test", http,
+                    subscriptionToken = { "private-token" },
+                    onFailure = { stage, code, failure -> observed = stage to code; original = failure })
+                val thrown = assertFailsWith<IllegalStateException> { evaluator.evaluate(turn()) }
+                assertEquals(expectedStage to status, observed)
+                kotlin.test.assertSame(original, thrown)
+                assertFalse(thrown.message.orEmpty().contains("private"))
+            }
+        }
+    }
+
+    @Test
+    fun `authorization cancellation is not reported and diagnostic failure preserves original error`() = runTest {
+        val http = HttpClient(MockEngine { error("request must not run") })
+        http.use {
+            val cancellation = kotlinx.coroutines.CancellationException("cancelled")
+            var reported = false
+            val cancelled = OpenAiRelationshipEventEvaluator("unused", "model", "https://unused.test", http,
+                subscriptionToken = { throw cancellation }, onFailure = { _, _, _ -> reported = true })
+            kotlin.test.assertSame(cancellation,
+                assertFailsWith<kotlinx.coroutines.CancellationException> { cancelled.evaluate(turn()) })
+            assertFalse(reported)
+            val original = IllegalStateException("authorization unavailable")
+            val failed = OpenAiRelationshipEventEvaluator("unused", "model", "https://unused.test", http,
+                subscriptionToken = { throw original }, onFailure = { stage, code, _ ->
+                    assertEquals(RelationshipEvaluationStage.AUTHORIZATION, stage)
+                    assertEquals(null, code)
+                    error("observer failed")
+                })
+            kotlin.test.assertSame(original, assertFailsWith<IllegalStateException> { failed.evaluate(turn()) })
+        }
+    }
+
+    @Test
+    fun `subscription permits framing overhead but still bounds completed evaluation`() = runTest {
+        for (oversized in listOf(false, true)) {
+            val completed = if (oversized) "x".repeat(65 * 1024)
+                else "{\\\"confidence\\\":0.9,\\\"events\\\":[]}"
+            val stream = "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"${"x".repeat(70 * 1024)}\"}\n\n" +
+                "data: {\"type\":\"response.completed\",\"response\":{\"output_text\":\"$completed\"}}\n\n"
+            val http = HttpClient(MockEngine {
+                respond(stream, headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+            }) { install(ContentNegotiation) { json() } }
+            http.use {
+                val evaluator = OpenAiRelationshipEventEvaluator("unused", "model", "https://unused.test", http,
+                    subscriptionToken = { "test-token" })
+                if (oversized) assertFailsWith<IllegalStateException> { evaluator.evaluate(turn()) }
+                else assertTrue(evaluator.evaluate(turn()).events.isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun `rejects repeated event types rather than producing duplicate durable IDs`() = runTest {
+        val evaluator = evaluatorFor {
+            respond("""{"output_text":"{\"confidence\":0.9,\"events\":[{\"type\":\"REPAIR\",\"evidence_digest\":\"first\"},{\"type\":\"REPAIR\",\"evidence_digest\":\"second\"}]}"}""")
+        }
+        assertFailsWith<IllegalArgumentException> { evaluator.evaluate(turn()) }
+    }
+
     private fun evaluatorFor(handler: suspend io.ktor.client.engine.mock.MockRequestHandleScope.(io.ktor.client.request.HttpRequestData) -> io.ktor.client.request.HttpResponseData): OpenAiRelationshipEventEvaluator =
         OpenAiRelationshipEventEvaluator(
             apiKey = "sk-test",

@@ -137,6 +137,27 @@ class LlmOutputValidatorTest {
     }
 
     @Test
+    fun `short interjections remain available but do not hide repeated sentences`() {
+        val policy = PersonaOutputPolicy(maximumRepeatedOpening = 1, minimumRepeatedOpeningLength = 4)
+        val recent = listOf("嘿嘿，我算对啦！", "哼！", "我听见了，你继续。")
+        assertTrue(LlmOutputValidator.validate(validOutput("嘿嘿，你也发现啦？"), policy, recent).isValid)
+        assertTrue(LlmOutputValidator.validate(validOutput("哼，居然不留给我。"), policy, recent).isValid)
+        assertFalse(LlmOutputValidator.validate(validOutput("嘿嘿，我算对啦！下次还找我。"), policy, recent).isValid)
+        assertFalse(LlmOutputValidator.validate(validOutput("我听见了，慢慢说。"), policy, recent).isValid)
+        assertEquals(listOf("嘿嘿，我算对啦", "我听见了"), LlmOutputValidator.blockedOpenings(policy, recent))
+    }
+
+    @Test
+    fun `opening comparison honors configured length and repetition count`() {
+        val policy = PersonaOutputPolicy(maximumRepeatedOpening = 2, minimumRepeatedOpeningLength = 4)
+        val recent = listOf("Oh! That worked.", "oh! that worked! Again.", "Hi!")
+        assertFalse(LlmOutputValidator.validate(validOutput("OH! That worked. Nice."), policy, recent).isValid)
+        assertTrue(LlmOutputValidator.validate(validOutput("Oh! Something changed."), policy, recent).isValid)
+        assertEquals(listOf("oh!thatworked"), LlmOutputValidator.blockedOpenings(policy, recent))
+        assertTrue(LlmOutputValidator.blockedOpenings(policy, recent.take(1)).isEmpty())
+    }
+
+    @Test
     fun `response rewrite runs once only for schema valid policy violations`() = runTest {
         var calls = 0
         val rewriter = PersonaResponseRewriter { output, _ ->

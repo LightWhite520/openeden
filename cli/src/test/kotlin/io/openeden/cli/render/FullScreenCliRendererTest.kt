@@ -9,8 +9,55 @@ import io.openeden.cli.state.CliUiState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.jline.utils.AttributedString
 
 class FullScreenCliRendererTest {
+    @Test
+    fun `paged history reserves space for every help line`() {
+        for (width in listOf(80, 100)) {
+            val sink = FakeFullscreenSink(true)
+            val renderer = FullScreenCliRenderer(sink)
+            val initial = CliUiState("CLI:local", messages = (0 until 100).map { message("m$it", "message-$it") })
+            renderer.render(initial, Size(width, 24))
+            renderer.render(initial.copy(historyLoading = true), Size(width, 24))
+            renderer.render(
+                initial.copy(notice = "/state  /history older  /help  /exit\n/mode inline|full  /inspect on|off  /clear"),
+                Size(width, 24),
+            )
+            assertEquals(24, sink.rows.size)
+            assertTrue(sink.rows.none { '\n' in it })
+            for (command in listOf("/state", "/history", "/help", "/exit", "/mode", "/inspect", "/clear")) {
+                assertTrue(sink.rows.any { command in it }, "Missing $command at width $width")
+            }
+            assertEquals("> ", sink.rows[22])
+        }
+    }
+
+    @Test
+    fun `styled frame fits terminal columns and multiline notices stay above input`() {
+        val theme = CliTheme(colorEnabled = true)
+        for (size in listOf(Size(80, 24), Size(120, 30), Size(180, 40))) {
+            val sink = FakeFullscreenSink(true)
+            val renderer = FullScreenCliRenderer(sink, InlineCliRenderer(theme = theme), theme)
+            renderer.render(
+                CliUiState(
+                    sessionId = "CLI:" + "\u4f60\u597d".repeat(50),
+                    notice = "first line\n" + "\u4f60\u597d".repeat(50) + "\nlast line",
+                    requestActive = true,
+                    stage = "long-stage".repeat(30),
+                ),
+                size,
+            )
+            val rows = sink.rows.map(AttributedString::fromAnsi)
+            assertEquals(size.rows, rows.size)
+            assertTrue(rows.all { it.columnLength() < size.columns })
+            assertTrue(rows.none { it.toString().contains('\n') })
+            assertTrue(rows.any { it.toString().contains("first line") })
+            assertTrue(rows.any { it.toString().contains("last line") })
+            assertEquals("> ", rows[size.rows - 2].toString())
+        }
+    }
+
     @Test fun `falls back when terminal is too small`() {
         val renderer = FullScreenCliRenderer(FakeFullscreenSink(capable = true))
         assertEquals(RenderDecision.FallbackToInline("Terminal too small for full-screen mode."), renderer.render(CliUiState.initial("x"), Size(79, 24)))
@@ -22,7 +69,7 @@ class FullScreenCliRendererTest {
     @Test fun `close is idempotent`() { val sink = FakeFullscreenSink(true); val renderer = FullScreenCliRenderer(sink); renderer.close(); renderer.close(); assertTrue(sink.closed) }
 
     @Test
-    fun `empty conversation keeps input and editor at the bottom of the terminal`() {
+    fun `empty conversation keeps input and history status at the bottom of the terminal`() {
         val sink = FakeFullscreenSink(true)
         val renderer = FullScreenCliRenderer(sink)
 
@@ -30,10 +77,12 @@ class FullScreenCliRendererTest {
 
         assertEquals(29, sink.changes.maxOf { it.index })
         assertEquals("> ", sink.rows[28])
-        assertEquals("editor: active=false", sink.rows[29])
+        assertTrue(sink.rows[29].startsWith("0 messages"))
+        assertTrue(sink.rows[29].endsWith("Recent history"))
+        assertTrue(sink.rows.any { it.contains("No messages yet.") })
     }
 
-    @Test fun `rich layout includes session editor and visible diagnostics`() {
+    @Test fun `rich layout includes session activity and visible diagnostics`() {
         val sink = FakeFullscreenSink(true)
         val renderer = FullScreenCliRenderer(sink)
         val state = CliUiState("CLI:local", requestActive = true, diagnosticsVisible = true,
@@ -41,7 +90,8 @@ class FullScreenCliRendererTest {
         assertEquals(RenderDecision.Rendered, renderer.render(state, Size(100, 30)))
         val output = sink.changes.joinToString("\n") { it.text }
         assertTrue(output.contains("session CLI:local"))
-        assertTrue(output.contains("editor: active=true"))
+        assertTrue(output.contains("[Working]"))
+        assertTrue(output.contains("0 messages"))
         assertTrue(output.contains("diagnostics"))
     }
 

@@ -24,25 +24,27 @@ class InlineCliRenderer(
     private val history: InlineHistorySink? = null,
     private val markdown: MarkdownTextRenderer = MarkdownTextRenderer(),
     private val active: InlineActiveSink? = null,
+    private val theme: CliTheme = CliTheme(),
+    private val separateMessages: Boolean = false,
 ) : CliRenderer {
     private val committed = CommittedMessageOwnership(MAX_REMOVED_MESSAGE_IDS)
 
     fun rows(state: CliUiState, width: Int): List<String> {
         return buildList {
             state.messages.forEach { addAll(messageRows(it, width)) }
-            state.stage?.let { add("[status] $it") }
-            state.notice?.let { add("[notice] $it") }
-            diagnosticsRow(state)?.let(::add)
+            state.stage?.let { addAll(theme.wrap(theme.status("[status] $it"), width)) }
+            state.notice?.let { addAll(theme.wrap(theme.notice("[notice] $it"), width)) }
+            diagnosticsRow(state)?.let { addAll(theme.wrap(theme.muted(it), width)) }
         }
     }
 
     fun activeRows(state: CliUiState, width: Int): List<String> = buildList {
-        state.stage?.let { add("[status] $it") }
+        state.stage?.let { addAll(theme.wrap(theme.status("[status] $it"), width)) }
         state.messages.filter { it.status == CliMessageStatus.STREAMING }.forEach {
             addAll(messageRows(it, width))
         }
-        state.notice?.let { add("[notice] $it") }
-        diagnosticsRow(state)?.let(::add)
+        state.notice?.let { addAll(theme.wrap(theme.notice("[notice] $it"), width)) }
+        diagnosticsRow(state)?.let { addAll(theme.wrap(theme.muted(it), width)) }
     }
 
     override fun render(previous: CliUiState?, current: CliUiState, size: Size): RenderDecision {
@@ -64,14 +66,15 @@ class InlineCliRenderer(
                 notice = null,
                 diagnosticsVisible = false,
             )
-            history?.printAbove(rows(committedState, size.columns).joinToString("\n"))
+            val text = rows(committedState, size.columns).joinToString("\n")
+            history?.printAbove(if (separateMessages) "\n$text\n" else text)
         }
         val provisional = current.messages.filter { it.status == CliMessageStatus.STREAMING }
-        if (provisional.isNotEmpty() || current.requestActive || current.notice != null) {
+        if (provisional.isNotEmpty() || current.requestActive || current.notice != null || diagnosticsRow(current) != null) {
             if (active != null) {
                 active.render(activeRows(current, size.columns))
             } else if (current.notice != null && current.notice != previous?.notice) {
-                history?.printAbove("[notice] ${current.notice}")
+                history?.printAbove(theme.wrap(theme.notice("[notice] ${current.notice}"), size.columns).joinToString("\n"))
             }
         } else {
             if (completedToPrint.isEmpty()) active?.clear()
@@ -94,7 +97,10 @@ class InlineCliRenderer(
             .coerceAtLeast(1)
         val contentWidth = (max - DisplayWidth.of(prefix)).coerceAtLeast(minimumContentWidth)
         return markdown.render(message.markdown, contentWidth).lines().mapIndexed { index, line ->
-            (if (index == 0) prefix else continuation) + line
+            val label = if (index == 0) {
+                if (message.role == CliRole.USER) theme.user(prefix) else theme.assistant(prefix)
+            } else continuation
+            label + line
         }
     }
 

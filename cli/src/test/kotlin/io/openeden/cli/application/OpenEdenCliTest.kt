@@ -118,8 +118,8 @@ class OpenEdenCliTest {
         assertEquals(0, cli.runWithTerminal(emptyList(), session))
 
         assertEquals(listOf("history", "readLine"), order)
-        assertEquals(1, printed.count { it == "> user-restored" })
-        assertEquals(1, printed.count { it == "ATRI: assistant-restored" })
+        assertEquals(1, printed.count { it.trim() == "> user-restored" })
+        assertEquals(1, printed.count { it.trim() == "ATRI: assistant-restored" })
     }
 
     @Test

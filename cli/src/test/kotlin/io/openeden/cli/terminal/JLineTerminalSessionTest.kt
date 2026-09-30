@@ -122,7 +122,7 @@ class JLineTerminalSessionTest {
             val keys = session.lineReader.keys
             assertEquals(Reference("openeden-newline"), keys.getBound(KeyMap.alt("\r")))
             assertEquals(Reference("openeden-newline"), keys.getBound(KeyMap.alt("\n")))
-            assertEquals(Reference("openeden-cancel"), keys.getBound(KeyMap.esc()))
+            assertEquals(Reference("openeden-dismiss-menu"), keys.getBound(KeyMap.esc()))
             assertEquals(Reference("openeden-cancel"), keys.getBound(KeyMap.ctrl('C')))
             assertEquals(Reference("openeden-toggle-mode"), keys.getBound(KeyMap.ctrl('T')))
             assertEquals(

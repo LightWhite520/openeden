@@ -13,6 +13,9 @@ class PersonaFileLoaderTest {
             """
             mode: growth
             start_sub_state: true_self
+            output_policy:
+              maximum_repeated_opening: 2
+              minimum_repeated_opening_length: 4
             prompt_sections:
               persona.base: "base"
               output.layer.rules: "rules"
@@ -33,6 +36,8 @@ class PersonaFileLoaderTest {
 
         assertEquals(PersonaMode.GROWTH, config.mode)
         assertEquals(PersonaSubState.TRUE_SELF, config.startSubState)
+        assertEquals(2, config.outputPolicy.maximumRepeatedOpening)
+        assertEquals(4, config.outputPolicy.minimumRepeatedOpeningLength)
         assertEquals("hb line 1\nhb line 2", config.promptSections["heartbeat.base"])
         assertEquals("shock line", config.promptSections["heartbeat.shock"])
         assertEquals("diary line", config.promptSections["diary.narrative"])
@@ -77,6 +82,7 @@ class PersonaFileLoaderTest {
         )
         assertEquals("first do\nsecond do", config.promptSections["style.do"])
         assertEquals("first avoid", config.promptSections["style.do_not"])
+        assertEquals(1, config.outputPolicy.minimumRepeatedOpeningLength)
     }
 
     @Test

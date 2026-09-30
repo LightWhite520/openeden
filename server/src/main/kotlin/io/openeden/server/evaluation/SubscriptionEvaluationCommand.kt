@@ -46,7 +46,17 @@ suspend fun main(args: Array<String>) {
                 setBody(ChatGptSubscriptionRequests.adapt(body).toString())
             }
             check(response.status.isSuccess()) { "Evaluation provider returned HTTP ${response.status.value}" }
-            val completed = completedResponsesStream(response.bodyAsChannel(), 16 * 1024 * 1024)
+            val completed = try {
+                completedResponsesStream(response.bodyAsChannel(), 16 * 1024 * 1024)
+            } catch (failure: io.openeden.llm.ResponsesStreamFailure) {
+                // Explicit local evaluation artifacts retain provider failures as well as successes.
+                // Never send this raw event to application logs or treat it as successful completion.
+                withContext(Dispatchers.IO) {
+                    Files.writeString(outputPath.resolveSibling(outputPath.fileName.toString() + ".failure.json"),
+                        failure.providerEvent.toString(), StandardOpenOption.CREATE_NEW)
+                }
+                throw failure
+            }
             withContext(Dispatchers.IO) {
                 outputPath.toAbsolutePath().parent?.let(Files::createDirectories)
                 Files.writeString(outputPath, completed, StandardOpenOption.CREATE_NEW)
