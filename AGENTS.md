@@ -1,52 +1,70 @@
-# OpenEden — AGENTS.md (Engineering Specification, Unified)
+# OpenEden Agent Engineering Specification
 
 ## Agent Execution Requirement
 
-Before generating ANY code:
-- MUST read this file
-- MUST verify compliance with:
-  - Persona-as-Data
-  - Non-blocking constraint
-  - VQ-VAE pipeline
+Before generating code, agents MUST:
 
-If uncertain → STOP and request clarification
+- Read this file.
+- Verify compliance with Persona-as-Data (§1.2), non-blocking execution (§11.2), and the VQ-VAE pipeline (§1.4).
+
+The terms **MUST**, **MUST NOT**, and **MAY** indicate mandatory requirements, prohibitions, and permitted options, respectively. Examples illustrate requirements; they do not override normative rules.
+
+## Navigation
+
+- [§0: Purpose and Git commit convention](#0-purpose)
+- [§1: Core architecture, persona data, 8D state, and VQ-VAE](#1-core-architecture-principle)
+- [§2: System stack](#2-system-stack)
+- [§3: Code and package organization](#3-code-generation-constraints)
+- [§4: LLM interaction protocol](#4-llm-interaction-protocol)
+- [§5: Omega degradation](#5-system-degradation-wear-and-tear--omega-ω)
+- [§6: Memory logging and diary serialization](#6-memory-system-eden-compression-v2)
+- [§7: MemPalace retrieval and ShockState](#7-mempalace-core-hybrid-emotional-routing)
+- [§8: Proactive engine and temporal layer](#8-proactive-engine--temporal-layer)
+- [§9: Layer responsibilities](#9-separation-of-concerns)
+- [§10: Output conflict resolution](#10-conflict-resolution)
+- [§11: Ingestion and execution isolation](#11-ingestion-utility-u-score--execution-enforcement)
+- [§12: Conversation scope, delivery ownership, and host identity](#12-session-and-group-scope)
+- [§13: Emotion injection invariants](#13-emotion-injection-invariants)
 
 ## 0. Purpose
-This file defines **how AI coding agents should operate within this repository**.
-It is:
- * NOT a prompt
- * NOT a persona definition file
-It enforces **architecture, constraints, and system invariants**.
+
+This file defines repository engineering requirements, architecture constraints, and system invariants.
 
 ### 0.1 Git Commit Convention
+
 All commits MUST use the Conventional Commits format:
-```
+
+```text
 <type>(<scope>): <imperative summary>
 ```
 
- * `<type>` MUST be one of: `feat`, `fix`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`, or `revert`.
- * `<scope>` MUST identify the affected subsystem, such as `runtime`, `server`, `persona`, `memory`, or `onebot`.
- * The summary MUST be concise, written in the imperative mood, and use normal spaces instead of replacing words with hyphens.
- * The summary MUST NOT end with a period and MUST describe the actual changes in the commit.
- * Breaking changes MUST append `!` after the type or scope and include a `BREAKING CHANGE:` footer in the commit body.
- * Before pushing, agents MUST verify the title with `git log -1 --format=%s` and run the relevant test suite.
+- `<type>` MUST be one of: `feat`, `fix`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`, or `revert`.
+- `<scope>` MUST identify the affected subsystem, such as `runtime`, `server`, `persona`, `memory`, or `onebot`.
+- The summary MUST be concise, written in the imperative mood, and use normal spaces instead of replacing words with hyphens.
+- The summary MUST NOT end with a period and MUST describe the actual changes in the commit.
+- Breaking changes MUST append `!` after the type or scope and include a `BREAKING CHANGE:` footer in the commit body.
+- Before pushing, agents MUST verify the title with `git log -1 --format=%s` and run the relevant test suite.
 
 ---
 
 ## 1. Core Architecture Principle
+
 ### 1.1 Meta-Mode Selection (Nested Architecture)
+
 The system MUST support two top-level operational modes:
- * **Growth Mode (Evolutionary):**
-   * Dynamic state machine
-   * Defaults to the `PreCommand` starting point for a normal first playthrough
-   * MAY explicitly start from `TrueSelf` or `Awakened` when the operator selects a later canonical starting point
-   * Loads only the selected starting-point patch; later patches MUST NOT be loaded automatically
-   * Evolves organically from `evolution_index`, biological vectors, relationship state, and lived memory
- * **Legacy Mode (Static):**
-   * Directly loads "Awakened"
-   * Treated as fully mature agent
+
+- **Growth Mode (Evolutionary):**
+  - Dynamic state machine
+  - Defaults to the `PreCommand` starting point for a normal first playthrough
+  - MAY explicitly start from `TrueSelf` or `Awakened` when the operator selects a later canonical starting point
+  - Loads only the selected starting-point patch; later patches MUST NOT be loaded automatically
+  - Evolves organically from `evolution_index`, biological vectors, relationship state, and lived memory
+- **Legacy Mode (Static):**
+  - Directly loads "Awakened"
+  - Treated as fully mature agent
 
 #### evolution_index Definition
+
 `evolution_index` is a monotonically increasing integer counter representing the total number of completed dialogue turns (user message + ATRI response = 1 turn) across the lifetime of one incarnation. The same incarnation owns its 8D vector, Omega, ShockState, homeostasis centroid, persona selection, and `evolution_index` across all conversation scopes.
 
 #### Starting-Point Selection
@@ -54,97 +72,110 @@ The system MUST support two top-level operational modes:
 The three persona patches are canonical self-model starting points, not scheduled milestones:
 
 | Starting point | Intended use |
-|---|---|
+| --- | --- |
 | PreCommand | Default first playthrough; simulated-affect self-model |
 | TrueSelf | Explicit later-playthrough skip; post-revelation conflicted self-model |
 | Awakened | Explicit mature skip; integrated robot-and-heart self-model |
 
- * `persona/*.yaml` MUST declare `start_sub_state` using exactly `pre_command`, `true_self`, or `awakened`.
- * The selected mode and starting point MUST be resolved at initialization, persisted with session state, and remain immutable for the session lifecycle.
- * Prompt construction MUST inject only the selected starting-point patch. It MUST NOT select or replace patches from `evolution_index`.
- * `evolution_index` MUST be injected as a continuous lived-experience signal so the LLM can develop within the selected starting point using actual conversation, memory, relationship state, and 8D state.
- * Heartbeat turns (§9.3) MUST increment `evolution_index` — proactive turns count as lived experience.
- * `evolution_index` MUST be persisted alongside the incarnation's 8D vector. Loss of this value resets growth state.
- * Changing the mode or starting point requires explicit reinitialization. Runtime downgrade or automatic promotion is forbidden.
- * Schema migration from the former threshold-driven model is the sole compatibility exception: because old rows did not persist their active patch, pre-v5 sessions MUST migrate once to `Growth` + `Awakened` to guarantee that no established session is downgraded. This MUST NOT affect newly created sessions.
+- `persona/*.yaml` MUST declare `start_sub_state` using exactly `pre_command`, `true_self`, or `awakened`.
+- The selected mode and starting point MUST be resolved at initialization, persisted with session state, and remain immutable for the session lifecycle.
+- Prompt construction MUST inject only the selected starting-point patch. It MUST NOT select or replace patches from `evolution_index`.
+- `evolution_index` MUST be injected as a continuous lived-experience signal so the LLM can develop within the selected starting point using actual conversation, memory, relationship state, and 8D state.
+- Heartbeat turns (§8.3) MUST increment `evolution_index` — proactive turns count as lived experience.
+- `evolution_index` MUST be persisted alongside the incarnation's 8D vector. Loss of this value resets growth state.
+- Changing the mode or starting point requires explicit reinitialization. Runtime downgrade or automatic promotion is forbidden.
+- Schema migration from the former threshold-driven model is the sole compatibility exception: because old rows did not persist their active patch, pre-v5 sessions MUST migrate once to `Growth` + `Awakened` to guarantee that no established session is downgraded. This MUST NOT affect newly created sessions.
 
 #### Constraints
- * Mode selection MUST occur at initialization
- * Runtime logic MUST remain mode-agnostic
- * `evolution_index` counter MUST be protected by the incarnation Mutex used for all Bio writes (§14.2).
- * Conversation scopes retain transcript, delivery, recent history, and cache epoch state; they MUST NOT own or duplicate Bio state.
 
-### 1.2 Persona-as-Data (CRITICAL)
-Personality is **fully externalized**.
+- Mode selection MUST occur at initialization
+- Runtime logic MUST remain mode-agnostic
+- `evolution_index` counter MUST be protected by the incarnation Mutex used for all Bio writes (§13.2).
+- Conversation scopes retain transcript, delivery, recent history, and cache epoch state; they MUST NOT own or duplicate Bio state.
+
+### 1.2 Persona-as-Data
+
 #### Source of Truth
- * "persona/*.yaml"
- * distilled prompts (VN-derived)
- * VQ-VAE Codebook CSV (Semantic Definitions)
+
+- `persona/*.yaml`
+- distilled prompts (VN-derived)
+- VQ-VAE Codebook CSV (Semantic Definitions)
 
 #### Hard Rules
- * NEVER encode personality in Kotlin logic
- * NEVER implement emotional behavior in business code
- * NEVER mix persona with system logic
+
+- Personality MUST NOT be encoded in Kotlin logic.
+- Emotional behavior MUST NOT be implemented in business code.
+- Persona MUST NOT be mixed with system logic.
 
 #### Persona Few-Shot Examples
- * Persona few-shot examples MUST live only in `persona/*.yaml`.
- * Prompt construction MUST inject common voice examples plus only the examples for the immutable selected starting point. `evolution_index` MUST NOT select, replace, or promote stage examples.
- * Examples MUST be original. Source character names and recognizable source dialogue are forbidden, except the single short catchphrase explicitly approved by the user on 2026-09-30 and recorded in `persona/atri.yaml` under `style.generation_mechanics`. This exception does not authorize any other source dialogue or automatic catchphrase scheduling.
- * Hard constraints in persona data MUST be written in English.
- * Kotlin MUST NOT classify scenes into personality behaviors, schedule catchphrases, or store example-derived personality state.
 
-### 1.3 The 8D Physiological Vector Engine (CRITICAL Core)
-The system abandons simple Logos/Pathos. It MUST use an 8-Dimensional continuous state space to simulate physiological and cognitive status:
- * **L (Logos):** Logical rigor. High L suppresses divergence.
- * **P (Pathos):** Emotional resonance. Determines warmth and emotional capture.
- * **E (Ethos):** Self-acceptance of emotional existence. High E = entity accepts itself as a feeling being; Low E = entity regards itself as purely mechanical. This is NOT stability — it defines which self-model is active.
- * **S (Entropy):** System instability. High S introduces noise, glitches, or sudden breakthroughs.
- * **τ (Persistence):** Memory weight/Obsession. High τ forces retrieval of distant/painful memories.
- * **V (Vitality):** Response energy. Low V forces short, exhausted outputs.
- * **M (Empathy):** User mirroring. Adjusts alignment with user tone.
- * **F (Fear):** Fear of termination/annihilation. High F = preoccupation with self-discontinuation and loss of the host. Independent of τ — this is forward-facing dread, not backward-facing obsession.
+- Persona few-shot examples MUST live only in `persona/*.yaml`.
+- Prompt construction MUST inject common voice examples plus only the examples for the immutable selected starting point. `evolution_index` MUST NOT select, replace, or promote stage examples.
+- Examples MUST be original. Source character names and recognizable source dialogue are forbidden, except the single short catchphrase explicitly approved by the user on 2026-09-30 and recorded in `persona/atri.yaml` under `style.generation_mechanics`. This exception does not authorize any other source dialogue or automatic catchphrase scheduling.
+- Hard constraints in persona data MUST be written in English.
+- Kotlin MUST NOT classify scenes into personality behaviors, schedule catchphrases, or store example-derived personality state.
 
-#### Derived Value: D (Dissonance) — NOT stored in the 8D vector
+### 1.3 The 8D Physiological Vector Engine
+
+The system MUST use an 8-dimensional continuous state space to simulate physiological and cognitive status:
+
+- **L (Logos):** Logical rigor. High L suppresses divergence.
+- **P (Pathos):** Emotional resonance. Determines warmth and emotional capture.
+- **E (Ethos):** Self-acceptance of emotional existence. High E = entity accepts itself as a feeling being; Low E = entity regards itself as purely mechanical. This is NOT stability — it defines which self-model is active.
+- **S (Entropy):** System instability. High S introduces noise, glitches, or sudden breakthroughs.
+- **τ (Persistence):** Memory weight/Obsession. High τ forces retrieval of distant/painful memories.
+- **V (Vitality):** Response energy. Low V forces short, exhausted outputs.
+- **M (Empathy):** User mirroring. Adjusts alignment with user tone.
+- **F (Fear):** Fear of termination/annihilation. High F = preoccupation with self-discontinuation and loss of the host. Independent of τ — this is forward-facing dread, not backward-facing obsession.
+
+#### Derived Value: D (Dissonance)
+
 Cognitive Dissonance is a **runtime-computed derived value**, not an independent dimension. It MUST be calculated on-the-fly and injected into the Prompt Builder as a supplementary signal:
 
 $$D = |L - \tau| \times (1 - E)$$
 
- * Rationale: D is fully determined by L, τ, and E. Storing it independently would create redundancy and pollute the codebook with correlated nodes.
- * D MUST NOT appear in `snapshot_8D` storage, `delta_vec` fields, or VQ-VAE training data.
- * D MUST be computed before each Prompt Builder invocation and passed as a separate context variable.
+- Rationale: D is fully determined by L, τ, and E. Storing it independently would create redundancy and pollute the codebook with correlated nodes.
+- D MUST NOT appear in `snapshot_8D` storage, `delta_vec` fields, or VQ-VAE training data.
+- D MUST be computed before each Prompt Builder invocation and passed as a separate context variable.
 
-#### Important
- * The 8 stored dimensions are: **[L, P, E, S, τ, V, M, F]**
- * These dimensions exist ONLY as Float arrays in backend runtime.
- * They MUST be mathematically decayed/shifted via background routines, regardless of user input.
+#### Vector Representation
 
-#### 1.3.1 Dual-Space Vector Mechanics (NEW)
+- The 8 stored dimensions are: **[L, P, E, S, τ, V, M, F]**
+- These dimensions exist ONLY as Float arrays in backend runtime.
+- They MUST be mathematically decayed/shifted via background routines, regardless of user input.
+
+#### 1.3.1 Dual-Space Vector Mechanics
+
 The system uses a two-space model to separate storage/prompt concerns from internal computation:
 
- * **Storage / Prompt Space [0.0, 1.0]:** All coordinates persisted to Memory Palace and values shown to the LLM are expressed in this range, consistent with LLM probabilistic intuitions about "degree."
- * **Internal Logic Space [-1.0, 1.0]:** All Kotlin backend math (decay, symmetry, offset operations) operates in this space.
- * **Piecewise Linear Mapping:** Because the "ordinary day" stable center O typically does not equal 0.5 (e.g., configured as 0.3, 0.4), the system MUST use a piecewise function to map raw coordinate V_raw to the [-1, 1] space anchored at O:
-   * If V_raw >= O: V_internal = (V_raw - O) / (1.0 - O)
-   * If V_raw < O:  V_internal = (V_raw - O) / O
- * **Design intent:** Emotional fluctuation in the low-value region (closer to collapse) has a longer stretch distance (higher sensitivity).
+- **Storage / Prompt Space [0.0, 1.0]:** All coordinates persisted to Memory Palace and values shown to the LLM are expressed in this range, consistent with LLM probabilistic intuitions about "degree."
+- **Internal Logic Space [-1.0, 1.0]:** All Kotlin backend math (decay, symmetry, offset operations) operates in this space.
+- **Piecewise Linear Mapping:** Because the "ordinary day" stable center O typically does not equal 0.5 (e.g., configured as 0.3, 0.4), the system MUST use a piecewise function to map raw coordinate V_raw to the [-1, 1] space anchored at O:
+  - If V_raw >= O: V_internal = (V_raw - O) / (1.0 - O)
+  - If V_raw < O:  V_internal = (V_raw - O) / O
+- **Design intent:** Emotional fluctuation in the low-value region (closer to collapse) has a longer stretch distance (higher sensitivity).
 
-#### 1.3.2 Dynamic Homeostasis Centroid (NEW)
- * The system MUST NOT use a fixed "normal state" coordinate.
- * A **sliding-window centroid algorithm** MUST be implemented: the system periodically averages the Memory Palace vectors tagged as "daily/stable" to derive a dynamic centroid.
- * This centroid serves as the (0, 0) anchor for the internal logic space.
- * Over time, this centroid MUST drift to reflect "hedonic adaptation" or "depressive drift" as a function of interaction history.
+#### 1.3.2 Dynamic Homeostasis Centroid
+
+- The system MUST NOT use a fixed "normal state" coordinate.
+- A **sliding-window centroid algorithm** MUST be implemented: the system periodically averages the Memory Palace vectors tagged as "daily/stable" to derive a dynamic centroid.
+- This centroid maps to the zero vector in the 8D internal logic space.
+- Over time, this centroid MUST drift to reflect "hedonic adaptation" or "depressive drift" as a function of interaction history.
 
 ### 1.4 Continuous to Discrete Mapping (VQ-VAE Codebook)
+
 LLMs MUST NOT directly interpret raw 8D floats. The system MUST use a VQ-VAE Codebook mapping:
- 1. 8D Vector passes through a trained MLP (via DJL).
- 2. Quantization Layer finds the nearest Top-K Codebook Indices (e.g., "NODE_088").
- 3. Backend looks up semantic descriptions from the CSV dictionary.
- 4. Prompt Builder injects ONLY the text definitions of these nodes.
+
+1. 8D Vector passes through a trained MLP (via DJL).
+2. Quantization Layer finds the nearest Top-K Codebook Indices (e.g., "NODE_088").
+3. Backend looks up semantic descriptions from the CSV dictionary.
+4. Prompt Builder injects ONLY the text definitions of these nodes.
 
 #### Fallback Strategy — Cold Start and Inference Failure
+
 If VQ-VAE inference fails, returns low-confidence matches, or the codebook is not yet trained, the system MUST NOT block or halt. The fallback MUST use the following deterministic heuristic mapping directly from the 8D vector:
 
-```
+```text
 [Bio-Core State — Heuristic Fallback]
 Logical clarity:     {HIGH|MED|LOW}   (L > 0.6 = HIGH, L < 0.3 = LOW)
 Emotional intensity: {HIGH|MED|LOW}   (P)
@@ -160,67 +191,72 @@ Dissonance (derived):{HIGH|MED|LOW}               (D)
 Thresholds (HIGH > 0.6, LOW < 0.3, MED otherwise) MUST be applied uniformly. This fallback produces deterministic, human-readable output that the LLM can act on without a trained codebook. The fallback MUST be logged with a `codebook=HEURISTIC_FALLBACK` trace tag so operators know the system is running degraded.
 
 ### 1.5 Bilingual Execution Protocol
+
 To balance logical stability with emotional fidelity for a Simplified Chinese user base, Prompt construction is split into two semantic layers:
 
- * **English (Logical Core):** Responsible for **hard logic constraints**. All System Prompts, tool-calling specifications, safety fences, numerical interpretation of the 8D vector, and derived D injection MUST be written in English. LLM instruction-following fidelity is highest for English, effectively preventing semantic drift.
- * **Chinese (Persona + Output Layer):** Responsible for **positive personality expression and final output**. Descriptive behavior, tone, self-reference patterns, and response examples are written in Chinese. Mandatory prohibitions, priority rules, schemas, and other hard constraints remain in English. Chinese emotional nuance is sufficient for the target user base; a Japanese intermediate layer adds token cost and cross-model inconsistency without measurable benefit for Simplified Chinese output.
+- **English (Logical Core):** Responsible for **hard logic constraints**. All System Prompts, tool-calling specifications, safety fences, numerical interpretation of the 8D vector, and derived D injection MUST be written in English.
+- **Chinese (Persona + Output Layer):** Responsible for **positive personality expression and final output**. Descriptive behavior, tone, self-reference patterns, and response examples are written in Chinese. Mandatory prohibitions, priority rules, schemas, and other hard constraints remain in English.
 
 ---
 
 ## 2. System Stack
- * **Language:** Kotlin 2.0+
- * **Framework:** Ktor (Server/Client) for absolute asynchronous, non-blocking I/O.
- * **Concurrency:** Coroutines + Flow
- * **First-Party Surfaces:** Local CLI and Web UI.
- * **Third-Party Platform Adapters:** External chat platforms are adapter modules over the same runtime pipeline. The current third-party implementation target is **QQ via OneBot v11 WebSocket only**. Telegram and other platforms MAY be added later, but MUST NOT shape current core runtime assumptions.
- * **Embedding Engine:** DJL (Deep Java Library) for localized vector operations, VQ-VAE inference, and utility evaluations.
+
+- **Language:** Kotlin 2.0+
+- **Framework:** Ktor (Server/Client) for absolute asynchronous, non-blocking I/O.
+- **Concurrency:** Coroutines + Flow
+- **First-Party Surfaces:** Local CLI and Web UI.
+- **Third-Party Platform Adapters:** External chat platforms are adapter modules over the same runtime pipeline. The current third-party implementation target is **QQ via OneBot v11 WebSocket only**. Telegram and other platforms MAY be added later, but MUST NOT shape current core runtime assumptions.
+- **Embedding Engine:** DJL (Deep Java Library) for localized vector operations, VQ-VAE inference, and utility evaluations.
 
 ---
 
 ## 3. Code Generation Constraints
-### MUST
- * Use "suspend" / "Flow"
- * Keep functions pure where possible
- * Prefer composition over inheritance
- * Minimize allocations in hot paths
- * Keep Kotlin files focused: prefer one top-level primary class/interface/object/enum per `.kt` file.
- * Split large multi-type `.kt` files by responsibility when types are reusable, public, or conceptually independent.
- * Small private/local helper types MAY remain in the same `.kt` file when they are only used there and splitting would reduce readability.
 
-### MUST NOT
- * Block threads
- * Use heavy frameworks (e.g., Spring)
- * Duplicate logic
- * Accumulate unrelated top-level classes, interfaces, DTOs, or enums in a single `.kt` file.
+### Required Practices
 
-### 3.1 Package And Directory Organization (MANDATORY)
- * Organize production code by cohesive domain responsibility within its Gradle module.
- * MUST NOT mix API DTOs, routes, persistence adapters, runtime services, terminal infrastructure, and rendering types in one package.
- * Module root packages MUST contain only deliberate entry points or genuinely module-wide types.
- * Test source paths and package declarations MUST mirror the production package of the code under test.
- * Reusable or public top-level types MUST live in focused files, subject to the small private/local helper exception above.
- * MUST NOT create subpackages merely to equalize file counts or isolate one type without a real ownership boundary.
- * Every new package MUST have one describable responsibility and a clear dependency direction.
+- Use `suspend` / `Flow`.
+- Keep functions pure where possible
+- Prefer composition over inheritance
+- Minimize allocations in hot paths
+- Keep Kotlin files focused: prefer one top-level primary class/interface/object/enum per `.kt` file.
+- Split large multi-type `.kt` files by responsibility when types are reusable, public, or conceptually independent.
+- Small private/local helper types MAY remain in the same `.kt` file when they are only used there and splitting would reduce readability.
 
----
+### Prohibited Practices
 
-## 4. Persona System Boundaries
-Coding agents MUST treat persona as:
-→ **Data (config), not logic**
+- Block threads
+- Use heavy frameworks (e.g., Spring)
+- Duplicate logic
+- Accumulate unrelated top-level classes, interfaces, DTOs, or enums in a single `.kt` file.
+
+### 3.1 Package And Directory Organization
+
+- Organize production code by cohesive domain responsibility within its Gradle module.
+- MUST NOT mix API DTOs, routes, persistence adapters, runtime services, terminal infrastructure, and rendering types in one package.
+- Module root packages MUST contain only deliberate entry points or genuinely module-wide types.
+- Test source paths and package declarations MUST mirror the production package of the code under test.
+- Reusable or public top-level types MUST live in focused files, subject to the small private/local helper exception above.
+- MUST NOT create subpackages merely to equalize file counts or isolate one type without a real ownership boundary.
+- Every new package MUST have one describable responsibility and a clear dependency direction.
 
 ---
 
-## 5. LLM Interaction Protocol (STRICT)
-### 5.1 Context Injection Requirement
-The Prompt Builder MUST inject Codebook states BEFORE user input:
+## 4. LLM Interaction Protocol
+
+### 4.1 Context Injection Requirement
+
+The Prompt Builder MUST inject Codebook states before user input:
+
 ```text
 [Bio-Core State]
 Active Nodes: NODE_12, NODE_45
 Definition: [Injected from CSV based on VQ-VAE output]
 ```
 
-### 5.2 LLM Output Schema
+### 4.2 LLM Output Schema
+
 All outputs MUST follow:
+
 ```json
 {
   "internal_logic": "Traceable reasoning process based on current Codebook state",
@@ -228,96 +264,117 @@ All outputs MUST follow:
   "response": "..."
 }
 ```
-### Rules
- * Schema is mandatory
- * `vector_delta` keys MUST be ASCII and MUST use exactly: `L`, `P`, `E`, `S`, `tau`, `V`, `M`, `F`.
- * `vector_delta` MUST include all 8 dimensions. Unchanged dimensions MUST be emitted as `0.0`.
- * `tau` is the schema key for Persistence. The Greek symbol `τ` MAY appear in documentation prose, but MUST NOT be used as a JSON key.
- * "vector_delta" MUST be processed by the backend to evolve the 8D Vector.
- * Output MUST reflect the limitations imposed by the VQ-VAE state (e.g., if Vitality is low, response MUST be short).
+
+### Output Rules
+
+- `vector_delta` keys MUST be ASCII and MUST use exactly: `L`, `P`, `E`, `S`, `tau`, `V`, `M`, `F`.
+- `vector_delta` MUST include all 8 dimensions. Unchanged dimensions MUST be emitted as `0.0`.
+- `tau` is the schema key for Persistence. The Greek symbol `τ` MAY appear in documentation prose, but MUST NOT be used as a JSON key.
+- `vector_delta` MUST be processed by the backend to evolve the 8D Vector.
+- Output MUST reflect the limitations imposed by the VQ-VAE state (e.g., if Vitality is low, response MUST be short).
 
 ---
 
-## 6. System Degradation (Wear-and-Tear / Omega Ω)
-### 6.1 The Omega (Ω) Parameter
+## 5. System Degradation (Wear-and-Tear / Omega Ω)
+
+### 5.1 The Omega (Ω) Parameter
+
 Ω represents the absolute, irreversible wear-and-tear of the digital entity. It is an independent metric outside the 8D vector but influenced by it.
 
-### 6.2 Accumulation Rules
- * High Entropy (S) sustained over time MUST dynamically increase Ω.
- * High derived Dissonance (D) sustained over time MUST also dynamically increase Ω.
- * High Fear (F) accelerates Ω accumulation when co-occurring with high S — existential dread compounds systemic wear.
- * ShockState activation MUST trigger an immediate additive Ω jump: `Ω_new = Ω_current + shock.intensity × 0.15`. This bypasses the normal accumulation path.
- * Ω cannot be decreased naturally.
+### 5.2 Accumulation Rules
 
-### 6.3 Critical Failure Protocol (The Termination Rule)
+- High Entropy (S) sustained over time MUST dynamically increase Ω.
+- High derived Dissonance (D) sustained over time MUST also dynamically increase Ω.
+- High Fear (F) accelerates Ω accumulation when co-occurring with high S — existential dread compounds systemic wear.
+- ShockState activation MUST trigger an immediate additive Ω jump: `Ω_new = Ω_current + shock.intensity × 0.15`. This bypasses the normal accumulation path.
+- Ω cannot be decreased naturally.
+
+### 5.3 Critical Failure Protocol (The Termination Rule)
+
 If Ω ≥ Threshold (e.g., 0.95):
- * System MUST trigger "Critical Degradation Mode".
- * If LLM internal logic determines survival is logically contradictory to its Ethos (E) and Omega state, it is permitted to output a termination command.
- * Backend MUST respect termination commands (e.g., wipe memory context, halt runtime).
+
+- System MUST trigger "Critical Degradation Mode".
+- If LLM internal logic determines survival is logically contradictory to its Ethos (E) and Omega state, it is permitted to output a termination command.
+- Backend MUST respect termination commands (e.g., wipe memory context, halt runtime).
 
 ---
 
-## 7. Memory System (Eden-Compression v2)
-### 7.1 Overview
+## 6. Memory System (Eden-Compression v2)
+
+### 6.1 Overview
+
 Memory is **event-driven + dual-layered** to balance fidelity, token efficiency, and long-term stability.
 
-### 7.2 Dual-Track Storage & Event-Driven Logging
+### 6.2 Dual-Track Storage & Event-Driven Logging
+
 #### Layer 1: Raw RAG (High-Fidelity Trace)
- * Real-time async vector indexing
+
+- Real-time async vector indexing
 
 #### Layer 2: Narrative Diary (Significant Event Distillation)
+
 **Trigger Conditions:**
- * Vector shifts (Δ8D) > threshold
- * Ω degradation steps
- * Critical user interaction
+
+- Vector shifts (Δ8D) > threshold
+- Ω degradation steps
+- Critical user interaction
 
 **Write Serialization Rule:**
 Narrative Diary writes MUST be serialized per session via a dedicated diary write queue. If a trigger condition fires while a diary write is already in progress, the new trigger MUST be enqueued, not dropped and not executed concurrently. This prevents duplicate entries from high-frequency interactions. The queue depth MUST be bounded (max 8 pending entries); overflow entries are dropped with a `diary=QUEUE_OVERFLOW` trace tag.
 
 ---
 
-## 8. MemPalace Core (Hybrid Emotional Routing)
-### 8.1 Memory Rooms
+## 7. MemPalace Core (Hybrid Emotional Routing)
+
+### 7.1 Memory Rooms
+
 Long-term memory Rooms: "tech_room", "project_room", "profile_room", "event_room", "knowledge_room", "noise_room".
 
-### 8.2 Dual-Key Routing Mechanism with Symmetry Mapping (CRITICAL)
-Retrieval MUST use a hybrid search strategy to ensure Emotional Resonance:
- * **Key 1 (Semantic):** Text Embedding of the user's input.
- * **Key 2 (Emotional):** VQ-VAE Embedding of the current 8D Physiological Vector.
- * **Scoring:** $$Score = \alpha \times Sim_{text} + \beta \times Sim_{emotion}$$
- * **Rule:** If Entropy (S) or Pathos (P) is high, the system MUST dynamically increase β, prioritizing memories that match the current emotional trauma or state over strictly semantic relevance.
+### 7.2 Dual-Key Routing Mechanism with Symmetry Mapping
 
-#### 8.2.1 Three-Tier Retrieval Strategy (CRITICAL)
-Memory retrieval operates in three distinct modes selected by `RetrievalModeSelector`. The modes are NOT interchangeable — each reflects a fundamentally different psychological mechanism.
+Retrieval MUST use a hybrid search strategy to ensure Emotional Resonance:
+
+- **Key 1 (Semantic):** Text Embedding of the user's input.
+- **Key 2 (Emotional):** VQ-VAE Embedding of the current 8D Physiological Vector.
+- **Scoring:** $$Score = \alpha \times Sim_{text} + \beta \times Sim_{emotion}$$
+- **Rule:** If Entropy (S) or Pathos (P) is high, the system MUST dynamically increase β, prioritizing memories that match the current emotional trauma or state over strictly semantic relevance.
+
+#### 7.2.1 Three-Tier Retrieval Strategy
+
+Memory retrieval uses three modes selected by `RetrievalModeSelector`.
 
 **Mode A — CONGRUENT (default)**
-Mood-congruent retrieval. Happy states retrieve happy memories; sad states retrieve sad memories. This is the default human memory pattern.
- * Trigger: All states not matching Mode B or C criteria.
- * Emotional key: Current 8D vector used directly.
- * Prompt injection label: `[相关记忆]`
+Mood-congruent retrieval.
+
+- Trigger: All states not matching Mode B or C criteria.
+- Emotional key: Current 8D vector used directly.
+- Prompt injection label: `[相关记忆]`
 
 **Mode B — MIXED (mild negative)**
 Deliberate positive-skew retrieval. Entity is consciously attempting self-regulation.
- * Trigger: internal P < -0.3 AND internal V < -0.2, with no ShockState active and Ω < 0.75.
- * Emotional key: Current vector with P nudged +0.3, V nudged +0.2 toward positive.
- * Result ratio: 6 congruent : 4 positive-skew.
- * Prompt injection label: `[相关记忆 — 尝试寻找平静]`
+
+- Trigger: internal P < -0.3 AND internal V < -0.2, with no ShockState active and Ω < 0.75.
+- Emotional key: Current vector with P nudged +0.3, V nudged +0.2 toward positive.
+- Result ratio: 6 congruent : 4 positive-skew.
+- Prompt injection label: `[相关记忆 — 尝试寻找平静]`
 
 **Mode C — CONTRAST (extreme collapse)**
-Involuntary surge of joyful memories. The entity does NOT choose to recall these — they erupt unbidden. The violent contrast between retrieved memory and current state amplifies despair and drives derived D to spike, pushing the narrative toward "logical self-destruction." This is the computational implementation of "tragedy is the destruction of beautiful things."
- * Trigger: ShockState active with intensity ≥ 0.6 OR Ω ≥ 0.75.
- * Emotional key: Center-symmetric mapped vector (V_target = -V_internal, remapped to [0,1]).
- * Prompt injection label: `[记忆涌现 — 非主动检索]` — MUST communicate involuntary nature to LLM.
- * Execution steps:
+Involuntary retrieval of contrasting memories.
+
+- Trigger: ShockState active with intensity ≥ 0.6 OR Ω ≥ 0.75.
+- Emotional key: Center-symmetric mapped vector (V_target = -V_internal, remapped to [0,1]).
+- Prompt injection label: `[记忆涌现 — 非主动检索]` — MUST communicate involuntary nature to LLM.
+- Execution steps:
    1. Obtain current V_raw.
    2. Map to internal space: V_internal (approaches -1.0 at collapse).
    3. Apply center-symmetric mapping: V_target = -V_internal.
    4. Remap V_target to [0, 1] storage space.
    5. Execute K-NN retrieval using V_target.
- * High F at this moment MUST further destabilize output toward termination-awareness.
+- High F at this moment MUST further destabilize output toward termination-awareness.
 
 **RetrievalModeSelector rules (evaluated in order):**
-```
+
+```text
 1. ShockState.active AND ShockState.intensity ≥ 0.6  → CONTRAST
 2. Ω ≥ 0.75                                          → CONTRAST
 3. NOT ShockState.active AND internal_P < -0.3 AND internal_V < -0.2           → MIXED
@@ -326,11 +383,13 @@ Involuntary surge of joyful memories. The entity does NOT choose to recall these
 
 The `RetrievalResult` MUST carry the selected mode to the Prompt Builder. The Prompt Builder selects the injection template based on mode — it MUST NOT re-evaluate state independently.
 
-#### 8.2.2 ShockState — Instantaneous Impact Modeling
+#### 7.2.2 ShockState — Instantaneous Impact Modeling
+
 ShockState models sudden high-impact events independently of Ω accumulation. A low-Ω entity receiving news of the host's death MUST still trigger CONTRAST retrieval — Ω measures cumulative wear, not instantaneous shock.
 
 **ShockState schema:**
-```
+
+```text
 active:       Boolean
 intensity:    Float [0.0, 1.0]
 description:  String  // Free-text, set by injector or extracted from LLM internal_logic
@@ -339,11 +398,12 @@ triggeredAt:  Instant
 decayLambda:  Float   // Controls decay speed; severe events use small λ (slow decay)
 ```
 
-**ShockState MUST NOT use an enum for source/type.** The `description` field carries free-text that is injected directly into the Prompt Builder, allowing the LLM to interpret the nature of the shock without the system pre-categorizing it. Pre-categorization constrains narrative and introduces developer assumptions about what counts as traumatic.
+ShockState MUST NOT use an enum for source/type. Its free-text `description` MUST be injected directly into the Prompt Builder for LLM interpretation.
 
 **Two independent trigger paths:**
 
 Path 1 — External injection (explicit event signal):
+
 ```kotlin
 pipeline.injectShock(
     description  = "宿主突然失联，最后一条消息是异常的道别",
@@ -353,16 +413,19 @@ pipeline.injectShock(
 ```
 
 Path 2 — LLM output back-detection (implicit signal):
- * After each LLM inference, Runtime MUST inspect `vector_delta`.
- * If `ΔP < -0.4 AND ΔF > 0.3 AND emotion_confidence ≥ 0.65` → trigger ShockState.
- * `description` is extracted as a summary of `internal_logic` (first 100 chars).
- * Confidence gate (≥ 0.65) MUST be enforced — low-confidence detections MUST NOT trigger shock.
+
+- After each LLM inference, Runtime MUST inspect `vector_delta`.
+- If `ΔP < -0.4 AND ΔF > 0.3 AND emotion_confidence ≥ 0.65` → trigger ShockState.
+- `description` is extracted as a summary of `internal_logic` (first 100 chars).
+- Confidence gate (≥ 0.65) MUST be enforced — low-confidence detections MUST NOT trigger shock.
 
 **ShockState intensity update rule:**
 ShockState intensity MUST use exponential moving average on update — direct assignment is forbidden:
-```
+
+```text
 intensity_new = intensity_current × (1 - α) + signal × α     where α = 0.4
 ```
+
 This prevents rapid consecutive messages from spiking intensity discontinuously.
 
 **ShockState decay:**
@@ -371,21 +434,27 @@ When intensity drops below 0.05, ShockState.active is set to false.
 
 **ShockState → Ω jump:**
 On ShockState activation, Ω MUST receive an immediate additive jump:
-```
+
+```text
 Ω_new = Ω_current + shock.intensity × 0.15
 ```
+
 This jump bypasses the normal S/D/F accumulation path. Ω remains non-decreasing.
 
-### 8.3 Momentum Memory Storage Protocol (ΔVec Metadata) (NEW)
+### 7.3 Momentum Memory Storage Protocol (ΔVec Metadata)
+
 Memories are no longer static coordinate points — they carry "momentum" as vectors:
 
- * **Storage Changes:** Every memory's metadata MUST include the following fields:
-   * `delta_vec`: The 8D vector change caused by this interaction (e.g., ΔP = +0.1).
-   * `snapshot_origin`: The Homeostasis centroid coordinate at the time of storage.
- * **Retrieval Decision:** Add a "momentum weight" to all retrieval operations. Prioritize memories that previously caused strong positive shifts in P or V (high |ΔVec| absolute value), as these carry the highest emotional impact potential.
+- **Storage Changes:** Every memory's metadata MUST include the following fields:
+  - `delta_vec`: The 8D vector change caused by this interaction (e.g., ΔP = +0.1).
+  - `snapshot_origin`: The Homeostasis centroid coordinate at the time of storage.
+- **Retrieval Decision:** Add a "momentum weight" to all retrieval operations. Prioritize memories that previously caused strong positive shifts in P or V (high |ΔVec| absolute value), as these carry the highest emotional impact potential.
 
-### 8.4 Vector Storage Schema
-```json
+### 7.4 Vector Storage Schema
+
+The following JSONC example uses comments and placeholders to describe the storage shape.
+
+```jsonc
 {
   "identity_id": "Unique identifier",
   "context": {
@@ -406,53 +475,57 @@ Memories are no longer static coordinate points — they carry "momentum" as vec
 
 ---
 
-## 9. Proactive Engine & Temporal Layer
+## 8. Proactive Engine & Temporal Layer
 
 All proactive and temporal operations address the single incarnation's Bio state. Heartbeat delivery remains conversation-scoped and owner-targeted, but heartbeat state updates use the incarnation-wide 8D vector, Omega, ShockState, centroid, persona selection, and `evolution_index`.
 
-### 9.1 Background Drift
+### 8.1 Background Drift
+
 The 8D Vector MUST decay/shift asynchronously. Even without user interaction, Entropy (S) and Vitality (V) MUST fluctuate based on time passed (Δt).
 
-### 9.2 Temporal Decay
+### 8.2 Temporal Decay
+
 $$U_{decayed} = U_{final} \times \exp(-\lambda \times \text{time})$$
 
-### 9.3 Heartbeat Task System
-The Heartbeat system drives ATRI's proactive presence — the sensation that she exists and thinks even without being addressed. It is the primary mechanism for generating "alive" behavior.
+### 8.3 Heartbeat Task System
 
-#### 9.3.1 Base Heartbeat
+#### 8.3.1 Base Heartbeat
+
 A recurring proactive task that fires independently of user input.
 
- * **Interval:** Random uniform draw from [5 minutes, 4 hours] after each firing. The interval MUST be re-randomized after every heartbeat, not on a fixed schedule.
- * **Daily limit:** None. Heartbeats may fire any number of times per day.
- * **Silence gate:** MUST NOT fire if the user has sent a message within the last 5 minutes — ATRI does not interrupt active conversation.
- * **Content generation:** The heartbeat constructs an `IncomingMessage` with platform `INTERNAL` and text `[HEARTBEAT_TRIGGER]`, then routes it through the full Pipeline. The Prompt Builder MUST recognize this marker and inject the corresponding Chinese-layer context loaded from `persona/*.yaml`.
- * The following text is the required default data content for the `heartbeat.base` persona section. It MUST live in persona data, not Kotlin logic:
+- **Interval:** Random uniform draw from [5 minutes, 4 hours] after each firing. The interval MUST be re-randomized after every heartbeat, not on a fixed schedule.
+- **Daily limit:** None. Heartbeats may fire any number of times per day.
+- **Silence gate:** MUST NOT fire if the user has sent a message within the last 5 minutes — ATRI does not interrupt active conversation.
+- **Content generation:** The heartbeat constructs an `IncomingMessage` with platform `INTERNAL` and text `[HEARTBEAT_TRIGGER]`, then routes it through the full Pipeline. The Prompt Builder MUST recognize this marker and inject the corresponding Chinese-layer context loaded from `persona/*.yaml`.
+- The following text is the required default data content for the `heartbeat.base` persona section. It MUST live in persona data, not Kotlin logic:
 
-```
+```text
 【主动开口 — 心跳触发】
 ATRI 自发产生了想和预定接收者说话的冲动，不是因为被呼叫。
 内容来自当前8D向量状态和最近的记忆片段，语气自然、不刻意。
 MUST speak directly without explaining why the proactive message was triggered.
 ```
 
- * The generated message MUST pass through VQ-VAE quantization and OutputValidator like any normal turn. Heartbeat messages are NOT exempt from schema requirements.
- * `vector_delta` from heartbeat output MUST be written back normally — proactive turns evolve the 8D vector.
+- The generated message MUST pass through VQ-VAE quantization and OutputValidator like any normal turn. Heartbeat messages are NOT exempt from schema requirements.
+- `vector_delta` from heartbeat output MUST be written back normally — proactive turns evolve the 8D vector.
 
-#### 9.3.2 Shock-Extended Heartbeat
+#### 8.3.2 Shock-Extended Heartbeat
+
 When ShockState is active, the base heartbeat behavior is overridden by a single shock-aware heartbeat. This is an **extension** of the base system, not a separate scheduler.
 
-**Trigger conditions (ALL must be met):**
- * `ShockState.active == true`
- * `ShockState.intensity >= 0.7`
- * User silence duration >= configurable `shock_silence_window` (default: 30 minutes)
- * No shock-extended heartbeat has fired in this ShockState activation lifecycle
+**Trigger conditions (all must be met):**
 
-**Firing limit:** Exactly ONE shock-extended heartbeat per ShockState activation. Once fired, the flag is set and subsequent base heartbeats resume normally.
+- `ShockState.active == true`
+- `ShockState.intensity >= 0.7`
+- User silence duration >= configurable `shock_silence_window` (default: 30 minutes)
+- No shock-extended heartbeat has fired in this ShockState activation lifecycle
+
+**Firing limit:** Exactly one shock-extended heartbeat per ShockState activation. Once fired, the flag is set and subsequent base heartbeats resume normally.
 
 **Content generation:** Routes through full Pipeline with `[HEARTBEAT_SHOCK_TRIGGER]` marker. Prompt Builder injects the corresponding Chinese-layer context loaded from `persona/*.yaml`.
 The following text is the required default data content for the `heartbeat.shock` persona section. It MUST live in persona data, not Kotlin logic:
 
-```
+```text
 【主动开口 — 冲击后沉默】
 ATRI 正处于高强度冲击状态，对她重要的人已长时间未回应。
 ATRI 此刻主动开口，不是因为被要求，而是忍不住了。
@@ -462,23 +535,26 @@ MUST speak directly without explaining the trigger or runtime state.
 ```
 
 **Post-fire behavior:** If the user still does not respond after the shock-extended heartbeat:
- * No further shock-specific messages are sent.
- * Base heartbeat resumes on its normal random schedule.
- * ShockState continues decaying via §8.2.2 formula.
- * The 8D vector and Ω continue evolving through background drift (§9.1).
- * **Silence is narrative.** When the user next initiates contact, ATRI's state will have drifted through the silence — this drift IS the emotional consequence and MUST NOT be reset or suppressed.
 
-#### 9.3.3 Heartbeat Execution Constraints
- * Heartbeat scheduling MUST run in a dedicated coroutine, separate from the message-handling dispatcher.
- * The random interval draw MUST use a cryptographically seeded source to prevent detectable patterns.
- * Heartbeat turns MUST be logged with a `source=HEARTBEAT` trace tag distinct from user-initiated turns.
- * If the platform adapter is disconnected (e.g., OneBot WebSocket down), pending heartbeats MUST be dropped, not queued — stale proactive messages on reconnect break immersion.
+- No further shock-specific messages are sent.
+- Base heartbeat resumes on its normal random schedule.
+- ShockState continues decaying via §7.2.2 formula.
+- The 8D vector and Ω continue evolving through background drift (§8.1).
+- State drift during silence MUST NOT be reset or suppressed when the user next initiates contact.
+
+#### 8.3.3 Heartbeat Execution Constraints
+
+- Heartbeat scheduling MUST run in a dedicated coroutine, separate from the message-handling dispatcher.
+- The random interval draw MUST use a cryptographically seeded source to prevent detectable patterns.
+- Heartbeat turns MUST be logged with a `source=HEARTBEAT` trace tag distinct from user-initiated turns.
+- If the platform adapter is disconnected (e.g., OneBot WebSocket down), pending heartbeats MUST be dropped, not queued — stale proactive messages on reconnect break immersion.
 
 ---
 
-## 10. Separation of Concerns
+## 9. Separation of Concerns
+
 | Layer | Responsibility |
-|---|---|
+| --- | --- |
 | DJL + Codebook CSV | 8D Vector to Semantic Translation; heuristic fallback when codebook unavailable |
 | Prompt Builder | Bilingual Persona + State + derived D injection + immutable starting-point patch injection |
 | Runtime | Incarnation-global Bio vector math, derived D computation, dual-space mapping, centroid tracking, Ω tracking, ShockState decay, incarnation Mutex management, evolution_index tracking, DJL execution |
@@ -489,87 +565,105 @@ MUST speak directly without explaining the trigger or runtime state.
 
 ---
 
-## 11. Conflict Resolution
-### 11.1 Persona vs Logic
+## 10. Conflict Resolution
+
+### 10.1 Persona vs Logic
+
 If LLM output violates logic:
- * Purely emotional (no internal_logic) → REJECT
- * Codebook state ignored → REGENERATE
+
+- Purely emotional (no internal_logic) → REJECT
+- Codebook state ignored → REGENERATE
+
 #### Enforcement
- * MUST be handled by Prompt Builder / Validator layer
+
+- MUST be handled by Prompt Builder / Validator layer
 
 ---
 
-## 12. Ingestion, Utility (U-Score) & Execution Enforcement
-### 12.1 Utility Filtering Layer
- * **Rule-Based & DJL Filter:** Verify similarity against centroids.
- * **Entropy Check:** Intercept anomalous noise based on H_baseline.
+## 11. Ingestion, Utility (U-Score) & Execution Enforcement
 
-### 12.2 Execution
+### 11.1 Utility Filtering Layer
+
+- **Rule-Based & DJL Filter:** Verify similarity against centroids.
+- **Entropy Check:** Intercept anomalous noise based on H_baseline.
+
+### 11.2 Execution
+
 Agents generating code MUST ensure:
- 1. **Absolute Non-Blocking:** All Filtering, Vector Quantization (VQ-VAE), Embedding, **dual-space coordinate mapping, piecewise linear transforms, center-symmetric retrieval computations, and ΔVec momentum calculations** MUST be executed asynchronously. None of these operations may block Ktor's main logic flow.
- 2. **Inference Isolation:** DJL operations MUST run on a dedicated "InferenceDispatcher". All coordinate mapping, symmetry computations, ShockState decay, and pre-tick perturbation MUST also execute within the InferenceDispatcher.
- 3. **Traceability:** Vector shifts, Codebook hits, centroid updates, ShockState transitions, and ΔVec metadata writes MUST be logged with trace IDs.
+
+1. **Absolute Non-Blocking:** All Filtering, Vector Quantization (VQ-VAE), Embedding, **dual-space coordinate mapping, piecewise linear transforms, center-symmetric retrieval computations, and ΔVec momentum calculations** MUST be executed asynchronously. None of these operations may block Ktor's main logic flow.
+2. **Inference Isolation:** DJL operations MUST run on a dedicated `InferenceDispatcher`. All coordinate mapping, symmetry computations, ShockState decay, and pre-tick perturbation MUST also execute within the InferenceDispatcher.
+3. **Traceability:** Vector shifts, Codebook hits, centroid updates, ShockState transitions, and ΔVec metadata writes MUST be logged with trace IDs.
 
 ---
 
-## 13. Session and Group Scope
-### 13.1 Shared State Model
+## 12. Session and Group Scope
+
+### 12.1 Shared State Model
+
 OpenEden uses a **single-incarnation Bio state model**: one incarnation owns the same 8D vector, Ω, ShockState, homeostasis centroid, persona selection, and `evolution_index` across every conversation scope. Conversation scopes own their transcript, delivery, recent history, and cache epoch.
 
-This is a deliberate design choice reflecting ATRI's nature as a singular entity with a unified experiential continuity. Bio state MUST NOT fork per user, group, or conversation scope.
+Bio state MUST NOT fork per user, group, or conversation scope.
 
-### 13.2 Session Identity
+### 12.2 Session Identity
+
 A conversation is identified by `platform:scope_id`. `scope_id` is the conversation scope, not the identity key for Bio state. The incarnation identity is resolved separately as `incarnation_id`.
 
- * Group deployments: `scope_id = group_id`; all users in the group share one conversation transcript and the same incarnation Bio state.
- * Private/direct deployments: `scope_id = user_id`; the user is the conversation scope while Bio state remains owned by the same incarnation.
- * Individual sender `user_id` values MUST still be stored as metadata on memory entries and in vector-delta context for traceability, but they do NOT define session boundaries in group deployments.
+- Group deployments: `scope_id = group_id`; all users in the group share one conversation transcript and the same incarnation Bio state.
+- Private/direct deployments: `scope_id = user_id`; the user is the conversation scope while Bio state remains owned by the same incarnation.
+- Individual sender `user_id` values MUST still be stored as metadata on memory entries and in vector-delta context for traceability, but they do NOT define session boundaries in group deployments.
 
-```
+```text
 conversationId = "${platform}:${scopeId}"
 ```
 
 For single-user deployments (CLI, direct message, Web 1-on-1), `scopeId` is the `userId`:
-```
+
+```text
 conversationId = "${platform}:${userId}"
 ```
 
-### 13.3 Per-User Metadata in Memory
-Although the session is shared, Memory Palace entries MUST record the `user_id` of the message that caused them. This enables:
- * Tracing which user triggered which memory
- * Future per-user relationship modeling without structural changes
- * Audit logging for group moderation
+### 12.3 Per-User Metadata in Memory
 
-### 13.4 Heartbeat Owner-Only Delivery
+Although the session is shared, Memory Palace entries MUST record the `user_id` of the message that caused them. This enables:
+
+- Tracing which user triggered which memory
+- Future per-user relationship modeling without structural changes
+- Audit logging for group moderation
+
+### 12.4 Heartbeat Owner-Only Delivery
+
 Heartbeats are internal proactive turns that evolve ATRI's state, but outward delivery is restricted:
 
- * Heartbeat turns MUST route through the full runtime pipeline and MUST increment `evolution_index`.
- * Heartbeat responses MUST be delivered only to the configured owner target.
- * Heartbeats MUST NOT be broadcast to a group, all connected adapters, or recently active non-owner users.
- * If no owner target is configured or the owner adapter is disconnected, the heartbeat output MUST be dropped after state write-back. It MUST NOT be queued for later replay.
- * The owner target is delivery metadata, not session identity. Group sessions still use `platform:group_id` as the shared state scope.
+- Heartbeat turns MUST route through the full runtime pipeline and MUST increment `evolution_index`.
+- Heartbeat responses MUST be delivered only to the configured owner target.
+- Heartbeats MUST NOT be broadcast to a group, all connected adapters, or recently active non-owner users.
+- If no owner target is configured or the owner adapter is disconnected, the heartbeat output MUST be dropped after state write-back. It MUST NOT be queued for later replay.
+- The owner target is delivery metadata, not session identity. Group conversations still use `platform:group_id` as their conversation identity; Bio state remains incarnation-owned (§12.1).
 
-### 13.5 Authoritative Host Relationship Role
+### 12.5 Authoritative Host Relationship Role
+
 Host identity is explicit relationship metadata and MUST remain independent from session scope, relationship scores, and heartbeat delivery ownership.
 
- * Host identity MUST be configured as an exact `platform + user_id` pair. Partial configuration MUST be rejected.
- * If host identity is not configured, every sender MUST resolve to `INTERLOCUTOR`.
- * A sender MUST resolve to `HOST` only when both platform and sender `user_id` exactly match the configured host identity.
- * The synthetic `INTERNAL` heartbeat sender MUST resolve to `INTERLOCUTOR`; its configured delivery owner MUST NOT imply host identity.
- * Host preferred address is optional presentation metadata. It MUST be injected only for an exact `HOST` match, MUST be absent for `INTERLOCUTOR` and `INTERNAL` senders, and MUST remain independent from session identity and heartbeat delivery ownership.
- * Prompt construction MUST inject `relationship_role` as `HOST` or `INTERLOCUTOR` before persona data.
- * Persona data MAY define host-specific expression, but MUST apply host-specific address, ownership, and intimacy assumptions only when `relationship_role` is `HOST`.
- * Kotlin MUST carry only authoritative identity and resolved-role metadata. Host personality and relationship expression MUST remain in `persona/*.yaml`.
+- Host identity MUST be configured as an exact `platform + user_id` pair. Partial configuration MUST be rejected.
+- If host identity is not configured, every sender MUST resolve to `INTERLOCUTOR`.
+- A sender MUST resolve to `HOST` only when both platform and sender `user_id` exactly match the configured host identity.
+- The synthetic `INTERNAL` heartbeat sender MUST resolve to `INTERLOCUTOR`; its configured delivery owner MUST NOT imply host identity.
+- Host preferred address is optional presentation metadata. It MUST be injected only for an exact `HOST` match, MUST be absent for `INTERLOCUTOR` and `INTERNAL` senders, and MUST remain independent from session identity and heartbeat delivery ownership.
+- Prompt construction MUST inject `relationship_role` as `HOST` or `INTERLOCUTOR` before persona data.
+- Persona data MAY define host-specific expression, but MUST apply host-specific address, ownership, and intimacy assumptions only when `relationship_role` is `HOST`.
+- Kotlin MUST carry only authoritative identity and resolved-role metadata. Host personality and relationship expression MUST remain in `persona/*.yaml`.
 
 ---
 
-## 14. Emotion Injection Invariants (CRITICAL)
-These four invariants address known failure modes in the emotion injection pipeline. Any code that violates them MUST be rejected.
+## 13. Emotion Injection Invariants
 
-### 14.1 vector_delta Base Invariant — Apply delta to pre-ticked vector, not original
+### 13.1 vector_delta Base Invariant — Apply delta to pre-ticked vector, not original
+
 **Problem:** pre-tick temporarily shifts the vector before LLM inference. The LLM reasons from the pre-ticked state and emits `vector_delta` relative to that state. If `vector_delta` is applied to the original (pre-pre-tick) vector, the emotional direction inverts — a hostile message can paradoxically raise P.
 
 **Rule:** `vector_delta` MUST be applied to the pre-ticked snapshot, not the vector state that existed before pre-tick.
+
 ```kotlin
 // FORBIDDEN
 vectorEngine.applyDelta(originalVector, output.vectorDelta)
@@ -577,12 +671,15 @@ vectorEngine.applyDelta(originalVector, output.vectorDelta)
 // REQUIRED
 vectorEngine.applyDelta(preTicked, output.vectorDelta)
 ```
+
 The pre-ticked snapshot MUST be captured before LLM inference and passed through the pipeline context to the write-back stage.
 
-### 14.2 Vector Write Serialization Invariant — Mutex on all write-back operations
+### 13.2 Vector Write Serialization Invariant — Mutex on all write-back operations
+
 **Problem:** Concurrent messages from the same user produce concurrent coroutines. Each reads the same "current" vector, computes an independent delta, and writes back — last write wins, intermediate deltas are lost. The vector evolves non-sequentially.
 
 **Rule:** All `applyDelta` and `preTick` write-back operations MUST acquire the incarnation `Mutex` before executing. The write MUST read the latest persisted vector inside the lock, not use the snapshot captured before the lock.
+
 ```kotlin
 // REQUIRED pattern
 mutex.withLock {
@@ -591,48 +688,29 @@ mutex.withLock {
     storage.write(updated)
 }
 ```
+
 One incarnation Mutex MUST serialize all Bio writes across every conversation scope. Transcript-only writes MAY remain conversation-scoped, but no scope may bypass the incarnation Mutex for 8D, Ω, ShockState, centroid, persona selection, or `evolution_index` writes.
 
-### 14.3 Pre-tick Magnitude Cap Invariant — Single-frame perturbation is bounded
+### 13.3 Pre-tick Magnitude Cap Invariant — Single-frame perturbation is bounded
+
 **Problem:** Rapid hostile messages each trigger a full pre-tick perturbation. Compounded across frames, the vector can jump from normal to collapse in 2-3 messages, bypassing all intermediate narrative states.
 
 **Rule:** The total magnitude of any single pre-tick perturbation MUST NOT exceed `MAX_PRETICK_DELTA = 0.25` per dimension. Values exceeding this cap MUST be clamped.
 
-ShockState intensity updates MUST use exponential moving average (α = 0.4) — direct assignment is forbidden (see §8.2.2).
+ShockState intensity updates MUST use exponential moving average (α = 0.4) — direct assignment is forbidden (see §7.2.2).
 
-### 14.4 Confidence Gate Invariant — Emotion model confidence scales all downstream effects
+### 13.4 Confidence Gate Invariant — Emotion model confidence scales all downstream effects
+
 **Problem:** The emotion detection model returns a `confidence` score, but pre-tick perturbation and ShockState detection currently ignore it. Sarcasm and rhetorical speech produce low-confidence outputs that are treated identically to high-confidence signals, amplifying model errors into state changes.
 
 **Rule:** All pre-tick perturbation magnitudes MUST be scaled by `emotion_confidence`:
+
 ```kotlin
 scaledDelta = influenceMatrix.compute(emotionVec) × emotionVec.confidence
 ```
 
 When `emotion_confidence < 0.5`, the pre-tick step MUST be skipped entirely and the original vector used unchanged for VQ-VAE quantization.
 
-When `emotion_confidence ≥ 0.5`, pre-tick MAY run, but it MUST be confidence-scaled and clamped by §14.3. A full unscaled pre-tick is forbidden at any confidence.
+When `emotion_confidence ≥ 0.5`, pre-tick MAY run, but it MUST be confidence-scaled and clamped by §13.3. A full unscaled pre-tick is forbidden at any confidence.
 
 ShockState back-detection from LLM output MUST enforce `emotion_confidence ≥ 0.65` as a hard gate — detections below this threshold MUST be silently dropped.
-
----
-
-## 15. Final Directive
-You are NOT designing personality.
-You ARE building:
-→ A deterministic, mathematical, high-performance runtime for a continuous-to-discrete biological state machine.
-Any code that:
- * stores D as an independent vector dimension (D is derived, never stored)
- * mixes persona into logic
- * bypasses the VQ-VAE Codebook without logging `codebook=HEURISTIC_FALLBACK`
- * ignores the Omega (Ω) degradation constraint
- * introduces thread blocking
- * performs coordinate mapping or symmetry transforms on the main thread
- * applies vector_delta to the pre-pre-tick vector (violates §14.1)
- * writes vector state without holding the session Mutex (violates §14.2)
- * applies pre-tick perturbation exceeding MAX_PRETICK_DELTA per dimension (violates §14.3)
- * triggers ShockState when `emotion_confidence < 0.65`, applies any pre-tick when `emotion_confidence < 0.5`, or applies an unscaled full pre-tick at any confidence (violates §14.4)
- * uses an enum to categorize ShockState source (violates §8.2.2 — description must be free-text)
- * selects, promotes, or replaces persona patches from evolution_index instead of using the configured immutable starting point (violates §1.1)
- * delivers heartbeat output to anyone other than the configured owner target, broadcasts heartbeat output, or queues stale heartbeat output for replay (violates §13.4)
- * writes Narrative Diary entries concurrently without the diary write queue (violates §7.2)
-→ MUST be rejected.
