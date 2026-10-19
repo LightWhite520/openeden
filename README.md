@@ -6,11 +6,11 @@
 
 Most AI characters remember what happened. OpenEden explores whether what happened can change who they are.
 
-The runtime carries an evolving internal state across turns and conversation scopes. That state conditions memory retrieval and prompt construction; validated model output feeds back into the next state. The aim is behavioral continuity and path-dependent development, not a claim of consciousness.
+The runtime carries an evolving internal state across turns and conversation scopes. That state conditions memory retrieval and prompt construction; validated model output feeds back into the next state. The aim is behavioral continuity and path-dependent development.
 
 ## Abstract
 
-LLM personas are commonly defined by a prompt and reconstructed from conversation history or retrieved memories at each turn. This can preserve facts without explicitly modeling how experience changes the state from which later responses are generated. OpenEden explores an alternative: an explicit persistent state machine surrounding a probabilistic language model. The runtime maintains an eight-dimensional continuous BioVector, a changing homeostasis origin, cumulative wear, transient shock state, and a lived-turn counter. Semantic quantization maps the vector to codebook definitions, while hybrid semantic and emotional retrieval selects memory context conditioned on the current state. External persona data supplies the self-model and voice; the LLM proposes both a response and structured state deltas. Deterministic validation and bounded transition logic constrain those proposals, serialize state mutations, and persist the result in SQLite. Background dynamics and proactive heartbeat turns extend the feedback loop beyond direct user input. The design separates stochastic language generation from inspectable state mechanics, with explicit degradation paths when local quantization or optional vector infrastructure is unavailable. Its research objective is to examine behavioral continuity and path-dependent identity under changing state and interaction history. These mechanisms do not establish consciousness, biological emotion, psychological validity, or reliable long-term identity consistency; those behavioral outcomes require empirical evaluation.
+LLM personas are commonly defined by a prompt and reconstructed from conversation history or retrieved memories at each turn. This can preserve facts without explicitly modeling how experience changes the state from which later responses are generated. OpenEden explores an alternative: an explicit persistent state machine surrounding a probabilistic language model. The runtime maintains an eight-dimensional continuous BioVector, a changing homeostasis origin, cumulative wear, transient shock state, and a lived-turn counter. Semantic quantization maps the vector to codebook definitions, while hybrid semantic and emotional retrieval selects memory context conditioned on the current state. External persona data supplies the self-model and voice; the LLM proposes both a response and structured state deltas. Deterministic validation and bounded transition logic constrain those proposals, serialize state mutations, and persist the result in SQLite. Background dynamics and proactive heartbeat turns extend the feedback loop beyond direct user input. The design separates stochastic language generation from inspectable state mechanics, with explicit degradation paths when local quantization or optional vector infrastructure is unavailable. Its research objective is to examine behavioral continuity and path-dependent identity under changing state and interaction history. Behavioral continuity and long-term identity consistency require empirical evaluation.
 
 ## Research Question and Motivation
 
@@ -630,13 +630,10 @@ The main runtime boundaries are:
 - Surface and adapter layers call the shared runtime pipeline without duplicating core logic.
 - Heartbeat turns go through the full pipeline and are delivered only to the configured owner target.
 
-## Non-claims and Limitations
+## Limitations
 
-OpenEden does **not** claim consciousness, sentience, genuine biological emotion,
-neuroscientific equivalence, psychological validity, or that the chosen eight
-dimensions are biologically canonical. Internal state is an engineered
-abstraction; terms such as Fear, Empathy, wear, and shock describe runtime
-variables and prompt semantics.
+Internal state is an engineered abstraction; terms such as Fear, Empathy,
+wear, and shock describe runtime variables and prompt semantics.
 
 - **Model dependence.** Behavioral continuity depends on the underlying LLM,
   codebook definitions, persona assets, retrieval quality, and context budget.
