@@ -18,8 +18,57 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class QdrantProjectionSynchronizerTest {
+    @Test
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun `worker recovers after startup claim and acknowledgement failures`() = runTest {
+        for (failurePoint in listOf("recovery", "claim", "acknowledgement")) {
+            val delegate = FakeStore(work("a"))
+            var failed = false
+            var recoveries = 0
+            val store = object : ProjectionWorkStore by delegate {
+                private fun failOnce(point: String) {
+                    if (failurePoint == point && !failed) {
+                        failed = true
+                        throw java.sql.SQLException("database is locked", "", 5)
+                    }
+                }
+                override suspend fun recoverRunning(nowMs: Long) {
+                    recoveries++
+                    failOnce("recovery")
+                    // A real store restores any claimed but unacknowledged work.
+                    if (failed && failurePoint == "acknowledgement" && delegate.ready.isEmpty()) {
+                        delegate.recovered = listOf(work("a"))
+                    }
+                }
+                override suspend fun claimDue(nowMs: Long, batchSize: Int, activeModelId: String): List<MemoryVectorProjectionStore.ProjectionWork> {
+                    failOnce("claim")
+                    return delegate.claimDue(nowMs, batchSize, activeModelId)
+                }
+                override suspend fun markReady(memoryIds: Collection<String>, nowMs: Long) {
+                    failOnce("acknowledgement")
+                    delegate.markReady(memoryIds, nowMs)
+                }
+                override suspend fun rescheduleWithJitter(memoryId: String, nowMs: Long, error: String?, jitterMs: Long, baseDelayMs: Long) {
+                    if (failurePoint == "acknowledgement") throw java.sql.SQLException("database is locked", "", 5)
+                    delegate.rescheduleWithJitter(memoryId, nowMs, error, jitterMs, baseDelayMs)
+                }
+            }
+            val synchronizer = QdrantProjectionSynchronizer(store, { entry(it) }, { }, "model", intervalMs = 100)
+            val job = synchronizer.start(this)
+            synchronizer.signal()
+            testScheduler.advanceTimeBy(301)
+            testScheduler.runCurrent()
+            assertTrue(job.isActive, failurePoint)
+            assertEquals(listOf("a"), delegate.ready, failurePoint)
+            assertTrue(recoveries >= 2, failurePoint)
+            synchronizer.stop()
+            assertTrue(job.isCancelled)
+        }
+    }
+
     @Test
     fun `shared incarnation gate covers projection through ready acknowledgement`() = runTest {
         val store = FakeStore(work("a"))
@@ -232,6 +281,7 @@ class QdrantProjectionSynchronizerTest {
 
     private class FakeStore(vararg initial: MemoryVectorProjectionStore.ProjectionWork) : ProjectionWorkStore {
         private val pending = initial.toMutableList()
+        var recovered = emptyList<MemoryVectorProjectionStore.ProjectionWork>()
         val ready = mutableListOf<String>()
         val rescheduled = mutableListOf<String>()
         val resetModels = mutableListOf<String>()
@@ -239,7 +289,7 @@ class QdrantProjectionSynchronizerTest {
         var resetCalls = 0
         val errors = mutableListOf<String?>()
         override suspend fun recoverRunning(nowMs: Long) = Unit
-        override suspend fun claimDue(nowMs: Long, batchSize: Int, activeModelId: String) = pending.toList().also { pending.clear() }
+        override suspend fun claimDue(nowMs: Long, batchSize: Int, activeModelId: String) = (pending.toList() + recovered).also { pending.clear(); recovered = emptyList() }
         override suspend fun markReady(memoryIds: Collection<String>, nowMs: Long) { ready += memoryIds }
         override suspend fun reschedule(memoryId: String, nowMs: Long, error: String?) { rescheduled += memoryId; errors += error }
         override suspend fun rescheduleWithJitter(memoryId: String, nowMs: Long, error: String?, jitterMs: Long, baseDelayMs: Long) {

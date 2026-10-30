@@ -10,6 +10,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.onTimeout
@@ -140,13 +141,26 @@ class QdrantProjectionSynchronizer(
     fun start(scope: CoroutineScope): Job {
         child?.let { if (it.isActive) return it }
         return scope.launch {
-            store.recoverRunning(nowMs())
+            var recoveryRequired = true
             while (isActive) {
-                select<Unit> {
-                    wake.onReceive { }
-                    onTimeout(intervalMs) { }
+                try {
+                    if (recoveryRequired) {
+                        store.recoverRunning(nowMs())
+                        recoveryRequired = false
+                    }
+                    select<Unit> {
+                        wake.onReceive { }
+                        onTimeout(intervalMs) { }
+                    }
+                    while (isActive && drainOnce() == batchSize) Unit
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    // Claims and acknowledgements can fail too; do not lose the worker.
+                    recoveryRequired = true
+                    emitTrace("${TraceTag.VectorProjectionRetry} worker_failure=${failure::class.simpleName}")
+                    delay(intervalMs)
                 }
-                while (isActive && drainOnce() == batchSize) Unit
             }
         }.also { child = it }
     }

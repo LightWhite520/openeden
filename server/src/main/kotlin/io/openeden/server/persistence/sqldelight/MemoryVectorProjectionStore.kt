@@ -49,11 +49,13 @@ class MemoryVectorProjectionStore(
         requireTimestamp(nowMs)
         require(batchSize > 0) { "batchSize must be positive" }
         if (activeModelId.isNotEmpty()) requireId(activeModelId)
-        database.transactionWithResult {
-            queries.selectDueVectorSync(nowMs, activeModelId, activeModelId, batchSize.toLong(), ::map).executeAsList().mapNotNull { candidate ->
-                queries.claimVectorSync(nowMs, candidate.memoryId)
-                if (queries.selectChanges().executeAsOne() != 1L) return@mapNotNull null
-                queries.selectVectorSync(candidate.memoryId, ::map).executeAsOneOrNull()
+        retrySqliteBusy {
+            database.transactionWithResult {
+                queries.selectDueVectorSync(nowMs, activeModelId, activeModelId, batchSize.toLong(), ::map).executeAsList().mapNotNull { candidate ->
+                    queries.claimVectorSync(nowMs, candidate.memoryId)
+                    if (queries.selectChanges().executeAsOne() != 1L) return@mapNotNull null
+                    queries.selectVectorSync(candidate.memoryId, ::map).executeAsOneOrNull()
+                }
             }
         }
     }
@@ -119,10 +121,12 @@ class MemoryVectorProjectionStore(
         requireId(modelId)
         requireTimestamp(nowMs)
         require(batchSize > 0) { "batchSize must be positive" }
-        database.transactionWithResult {
-            val ids = queries.selectReadyVectorSync(modelId, batchSize.toLong()).executeAsList()
-            ids.forEach { queries.resetReadyVectorSync(nowMs, nowMs, it) }
-            ids
+        retrySqliteBusy {
+            database.transactionWithResult {
+                val ids = queries.selectReadyVectorSync(modelId, batchSize.toLong()).executeAsList()
+                ids.forEach { queries.resetReadyVectorSync(nowMs, nowMs, it) }
+                ids
+            }
         }
     }
 
