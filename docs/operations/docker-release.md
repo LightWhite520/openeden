@@ -22,7 +22,6 @@ Release 附件：
 
 镜像为 `ghcr.io/lightwhite520/openeden:<release-tag>`。
 正式版还更新 `latest`；预发布版只发布对应版本标签。两者都会上传附件。
-使用仓库 `GITHUB_TOKEN` 写入 Release 和 Packages，无需配置服务器 SSH Secrets。
 
 ## 服务器拉取并启动
 
