@@ -17,7 +17,8 @@ RUN mkdir -p /app/data/runtime /app/data/exports /app/data/operator /app/data/mo
     && chmod +x /opt/openeden/bin/server
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70 -Dfile.encoding=UTF-8" \
     DJL_CACHE_DIR=/home/openeden/.djl.ai \
-    OPENEDEN_THYMOS_DEVICE=cpu
+    OPENEDEN_THYMOS_DEVICE=cpu \
+    OPENEDEN_STARTUP_TIMEOUT_MS=600000
 USER openeden
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30m --retries=5 \

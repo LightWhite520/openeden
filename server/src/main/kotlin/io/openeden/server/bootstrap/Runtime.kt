@@ -271,6 +271,10 @@ private suspend fun Application.startRuntime(
         projectionEraser = projectionEraser,
     )
     resetService.resumeIncomplete()
+    // Background jobs must see initialized Bio state even before the first conversation.
+    initializeRuntimeIncarnation(
+        lifecycleRepository.read(), transcriptStore, writer, persona.mode, persona.startSubState,
+    )
     val serverMaintenance = LiveServerIncarnationMaintenance(
         repository = maintenanceRepository,
         exporter = maintenanceExporter,
