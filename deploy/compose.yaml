@@ -21,6 +21,7 @@ services:
       - exports:/app/data/exports
       - operator:/app/data/operator
       - djl_cache:/home/openeden/.djl.ai
+      - models:/app/data/models
     depends_on:
       qdrant:
         condition: service_started
@@ -49,4 +50,5 @@ volumes:
   exports:
   operator:
   djl_cache:
+  models:
   qdrant_storage:

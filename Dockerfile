@@ -1,27 +1,26 @@
 # syntax=docker/dockerfile:1
-# Build the distribution first: ./gradlew :server:installDist ensureThymosAffectModel
+# Prepare server/build/install/server and build/model-manifest before building.
 FROM eclipse-temurin:21-jre-jammy
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl libgomp1 \
+RUN apt-get update && apt-get install -y --no-install-recommends curl libgomp1 util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 openeden \
     && useradd --uid 10001 --gid openeden --create-home openeden
 WORKDIR /app
 COPY --chown=openeden:openeden server/build/install/server/ /opt/openeden/
 COPY --chown=openeden:openeden persona/ /app/persona/
-COPY --chown=openeden:openeden data/models/local-model-artifact.json /app/data/models/local-model-artifact.json
-COPY --chown=openeden:openeden data/models/djl/vqvae/ /app/data/models/djl/vqvae/
-COPY --chown=openeden:openeden data/models/djl/text/ /app/data/models/djl/text/
-COPY --chown=openeden:openeden data/models/djl/emotional/ /app/data/models/djl/emotional/
-COPY --chown=openeden:openeden data/models/thymos-6d/ /app/data/models/thymos-6d/
-RUN mkdir -p /app/data/runtime /app/data/exports /app/data/operator \
+COPY build/model-manifest/ /opt/openeden-models/
+COPY --chmod=755 deploy/model-entrypoint.sh /usr/local/bin/openeden-entrypoint
+RUN mkdir -p /app/data/runtime /app/data/exports /app/data/operator /app/data/models /home/openeden/.djl.ai \
     && chown -R openeden:openeden /app/data \
+    && chown openeden:openeden /home/openeden/.djl.ai \
     && chmod +x /opt/openeden/bin/server
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70 -Dfile.encoding=UTF-8" \
     DJL_CACHE_DIR=/home/openeden/.djl.ai \
     OPENEDEN_THYMOS_DEVICE=cpu
 USER openeden
 EXPOSE 8080
-HEALTHCHECK --interval=15s --timeout=5s --start-period=180s --retries=5 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30m --retries=5 \
     CMD curl --fail --silent --max-time 4 http://127.0.0.1:8080/health > /dev/null || exit 1
-ENTRYPOINT ["/opt/openeden/bin/server"]
+ENTRYPOINT ["/usr/local/bin/openeden-entrypoint"]
+CMD ["/opt/openeden/bin/server"]

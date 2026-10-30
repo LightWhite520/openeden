@@ -30,6 +30,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Test and assemble server
         run: bash ./gradlew :core:jvmTest :onebot:test :server:test :server:installDist :server:buildFatJar :server:distTar --no-daemon --console=plain
+      - name: Test persistent model bootstrap
+        run: python3 -m unittest discover -s deploy/tests -v
       - name: Upload test reports on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -44,6 +46,10 @@ jobs:
             server/build/test-results/
       - name: Download production affect model
         run: bash ./gradlew ensureThymosAffectModel --no-daemon --console=plain
+      - name: Package independent models
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: bash deploy/package-models.sh "$GITHUB_REPOSITORY" "$RELEASE_TAG"
       - name: Resolve image name
         id: image
         env:
@@ -73,6 +79,14 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify model and inference cache volumes are writable
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          docker run --rm --entrypoint bash \
+            --mount type=volume,destination=/app/data/models \
+            --mount type=volume,destination=/home/openeden/.djl.ai \
+            "$IMAGE" -c 'test -w /app/data/models && test -w /home/openeden/.djl.ai && test ! -f /app/data/models/local-model-artifact.json'
 
       - name: Prepare release attachments
         env:
@@ -87,10 +101,10 @@ jobs:
           cp "${jars[0]}" release-assets/openeden-server.jar
           gzip -c "${distributions[0]}" > release-assets/openeden-server.tar.gz
           cp deploy/compose.yaml release-assets/compose.yaml
-          cp deploy/.env.example release-assets/openeden.env.example
+          awk -v image="$IMAGE" '/^OPENEDEN_IMAGE=/ {$0="OPENEDEN_IMAGE="image} {print}' deploy/.env.example > release-assets/openeden.env.example
           printf '%s\n' "$IMAGE" > release-assets/docker-image.txt
           cd release-assets
-          sha256sum openeden-server.jar openeden-server.tar.gz compose.yaml openeden.env.example docker-image.txt > SHA256SUMS
+          sha256sum * > SHA256SUMS
       - name: Upload release attachments
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
