@@ -71,6 +71,7 @@ For npm packaging and launch, see [npm CLI instructions](npm/README.md).
 
 - [Runtime, CLI configuration, commands and HTTP API](docs/runtime-cli-server.md)
 - [ChatGPT sign-in and model selection](docs/operations/chatgpt-and-model-selection.md)
+- [Release builds and Docker startup (Chinese)](docs/operations/docker-release.md)
 - [NapCat / OneBot v11](docs/onebot-napcat.md)
 - [Model training and DJL configuration](docs/local-model-training.md)
 - [Conversation export and incarnation reset](docs/operations/companion-quality-production-rollout.md)

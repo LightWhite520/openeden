@@ -1,0 +1,86 @@
+name: Release artifacts and container
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-container
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test and assemble server
+        run: bash ./gradlew :core:jvmTest :onebot:test :server:test :server:installDist :server:buildFatJar :server:distTar --no-daemon --console=plain
+      - name: Download production affect model
+        run: bash ./gradlew ensureThymosAffectModel --no-daemon --console=plain
+      - name: Resolve image name
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: metadata
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=${{ github.event.release.tag_name }}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+          flavor: latest=false
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Prepare release attachments
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p release-assets
+          jars=(server/build/libs/*-all.jar)
+          distributions=(server/build/distributions/*.tar)
+          [[ ${#jars[@]} == 1 && -f ${jars[0]} ]]
+          [[ ${#distributions[@]} == 1 && -f ${distributions[0]} ]]
+          cp "${jars[0]}" release-assets/openeden-server.jar
+          gzip -c "${distributions[0]}" > release-assets/openeden-server.tar.gz
+          cp deploy/compose.yaml release-assets/compose.yaml
+          cp deploy/.env.example release-assets/openeden.env.example
+          printf '%s\n' "$IMAGE" > release-assets/docker-image.txt
+          cd release-assets
+          sha256sum openeden-server.jar openeden-server.tar.gz compose.yaml openeden.env.example docker-image.txt > SHA256SUMS
+      - name: Upload release attachments
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber

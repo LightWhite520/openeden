@@ -1,0 +1,52 @@
+name: openeden
+
+services:
+  server:
+    image: ${OPENEDEN_IMAGE:?Set OPENEDEN_IMAGE to a release image tag or digest}
+    init: true
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      OPENEDEN_SERVER_PORT: "8080"
+      OPENEDEN_RUNTIME_DB_PATH: /app/data/runtime/openeden.db
+      OPENEDEN_MODEL_SETTINGS_DIR: /app/data/operator/models
+      OPENEDEN_CHATGPT_AUTH_DIR: /app/data/operator/chatgpt
+      OPENEDEN_MAINTENANCE_EXPORT_ROOT: /app/data/exports
+      OPENEDEN_QDRANT_URL: http://qdrant:6333
+    ports:
+      - "${OPENEDEN_BIND_ADDRESS:-127.0.0.1}:${OPENEDEN_HTTP_PORT:-8080}:8080"
+    volumes:
+      - runtime:/app/data/runtime
+      - exports:/app/data/exports
+      - operator:/app/data/operator
+      - djl_cache:/home/openeden/.djl.ai
+    depends_on:
+      qdrant:
+        condition: service_started
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.6
+    restart: unless-stopped
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  runtime:
+  exports:
+  operator:
+  djl_cache:
+  qdrant_storage:

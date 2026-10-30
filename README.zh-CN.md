@@ -62,6 +62,7 @@ CLI 通过 HTTP 连接，不负责启停服务端。交互输入使用打包后�
 
 - [运行、CLI 配置、命令与 HTTP API](docs/runtime-cli-server.md)
 - [ChatGPT 登录与模型选择](docs/operations/chatgpt-and-model-selection.md)
+- [Release 自动构建与 Docker 启动](docs/operations/docker-release.md)
 - [NapCat / OneBot v11 接入](docs/onebot-napcat.md)
 - [模型训练与 DJL 配置](docs/local-model-training.md)
 - [对话导出与 incarnation 重置](docs/operations/companion-quality-production-rollout.md)
