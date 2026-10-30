@@ -121,18 +121,6 @@ python scripts/train-codebook-base-model.py `
 If VRAM is tight, add `--freeze-text-encoder` to train only the 8D vector
 projector against the base text encoder.
 
-For effect-first training on a 12GB RTX 4070 Ti, the tested stronger setting is
-an unfrozen encoder with a larger contrastive batch:
-
-```powershell
-python scripts/train-codebook-base-model.py `
-  --samples data/training/codebook.samples.json `
-  --base-model Qwen/Qwen3-Embedding-0.6B `
-  --output data/models/codebook-base-model `
-  --epochs 5 `
-  --batch-size 16
-```
-
 Evaluate the trained model:
 
 ```powershell
@@ -142,11 +130,35 @@ python scripts/evaluate-codebook-base-model.py `
   --batch-size 64
 ```
 
-To use the generated artifact in the local CLI runtime:
+To select the generated artifact on the server:
 
 ```powershell
 $env:OPENEDEN_LOCAL_MODEL_ARTIFACT="data/models/local-model-artifact.json"
 ```
 
-If no artifact is configured, or a quantization path fails at runtime, OpenEden
-continues through the deterministic `codebook=HEURISTIC_FALLBACK` path.
+Quantization failures use the logged `codebook=HEURISTIC_FALLBACK` path.
+This does not bypass startup checks for missing configured model files.
+
+## DJL runtime
+
+`OPENEDEN_MODEL_BACKEND=djl` selects DJL; `artifact` selects the local JSON model.
+The server's default DJL paths are:
+
+```text
+OPENEDEN_LOCAL_MODEL_ARTIFACT=data/models/local-model-artifact.json
+OPENEDEN_DJL_VQVAE_MODEL_PATH=data/models/djl/vqvae
+OPENEDEN_DJL_TEXT_MODEL_PATH=data/models/djl/text
+OPENEDEN_DJL_EMOTIONAL_MODEL_PATH=data/models/djl/emotional
+OPENEDEN_DJL_AFFECT_MODEL_PATH=data/models/thymos-6d
+```
+
+The selected DJL engine and native runtime must match the host platform.
+Export JSON MLP weights into TorchScript model directories with:
+
+```powershell
+python scripts/export-local-artifact-djl.py `
+  --artifact data/models/local-model-artifact.json `
+  --output data/models/djl
+```
+
+The exporter writes `model.pt` under `vqvae`, `text`, and `emotional`.

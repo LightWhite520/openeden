@@ -1,87 +1,64 @@
-# Companion Quality Production Rollout
+# Conversation export and incarnation reset
 
-This runbook covers the guarded export and incarnation reset used before production companion-quality testing. It applies only to OpenEden. Do not stop, inspect, bind, reconfigure, or alter Illusion Server. Port `8080` is reserved and must not be supplied to any OpenEden command.
+These scripts call the running server's authenticated loopback maintenance API.
+They do not open or reset a database independently. Back up the deployed SQLite
+database and configuration before resetting an incarnation.
 
-## Deployed Configuration
+## Configuration
 
-The running OpenEden server, not the scripts, owns all mutation authority and configuration:
+Set `OPENEDEN_MAINTENANCE_TOKEN` and `OPENEDEN_MAINTENANCE_EXPORT_ROOT` on the
+server. Database and Qdrant settings come from the deployed configuration.
+The maintenance scripts currently reject port `8080`; for these commands, run
+the intended OpenEden instance on another explicitly configured port.
 
-- `OPENEDEN_RUNTIME_DB_PATH` selects the SQLite database.
-- `OPENEDEN_MAINTENANCE_EXPORT_ROOT` selects the only export tree the server accepts.
-- `OPENEDEN_MAINTENANCE_TOKEN` enables the loopback maintenance API and is required as its bearer token.
-- `OPENEDEN_VECTOR_DB_ENABLED`, `OPENEDEN_QDRANT_URL`, `OPENEDEN_QDRANT_COLLECTION`, and `OPENEDEN_EMBEDDING_MODEL_ID` determine projection erasure. Operators cannot disable or replace these settings in a reset request.
+Readiness must report schema version `23` or newer, one active incarnation,
+and a matching incarnation ID. Use the returned ID rather than guessing one.
+Export requires `secureExportDirectoryHandlesAvailable=true`.
 
-The maintenance API is hosted inside the live runtime and uses the exact `IncarnationTurnGate` owned by `VectorWriteService`. Standalone CLI reset is forbidden. Do not stop OpenEden before export or reset; a stopped process cannot provide the shared mutation boundary.
-
-## Preconditions
-
-1. Complete the Task 17 A/B release gate on a candidate database and retain its raw decisions and report.
-2. Back up the configured SQLite database and deployed configuration to a separate access-controlled location.
-3. Confirm OpenEden is running on its configured non-`8080` port with maintenance enabled.
-4. Record the exact active incarnation ID, service root, export root, immutable persona mode/start point, and one stable reset request ID.
-5. Confirm the requested export directory is a new direct child of both the service root and configured maintenance export root.
-
-Both scripts first call the authenticated live readiness endpoint. They require schema version `23` or newer, exactly one active incarnation, an exact active-incarnation ID match, and an acceptable reset readiness state. The server independently canonicalizes paths and binds all data access to deployed configuration. A missing active ID accompanies an invalid zero/multiple-active diagnostic and must never be guessed by an operator.
+The destination must be a new direct child of the configured export root.
+Unix uses `SecureDirectoryStream`; Windows uses pinned native directory handles
+and rejects reparse points. Unsupported filesystems fail closed.
 
 ## Export
 
+Substitute the service paths, active ID, token and port for your deployment:
+
 ```powershell
 .\scripts\export-production-conversation.ps1 `
-  -ServiceRoot 'D:\Services\openeden' `
-  -ExportDirectory 'D:\Services\openeden\data\exports\before-quality-reset-20260829' `
-  -IncarnationId '<exact-active-incarnation-id>' `
-  -MaintenanceToken '<deployed-maintenance-token>' `
-  -OpenEdenPort <configured-openeden-port>
+  -ServiceRoot '<service-root>' `
+  -ExportDirectory '<export-root>\before-reset' `
+  -IncarnationId '<active-incarnation-id>' `
+  -MaintenanceToken '<maintenance-token>' `
+  -OpenEdenPort <port>
 ```
 
-The live server acquires the shared global incarnation mutation gate, takes an exact-incarnation SQLite snapshot, and writes deterministic JSONL files. The target must be a direct child of the server-configured export root. On Unix, production export uses `SecureDirectoryStream`. On Windows, it pins the ancestor/root directories without delete sharing and uses root-relative native handles for staging, payload creation and publication. Reparse points are rejected. The final rename does not replace an existing target, including one created after preparation. Each file and `manifest.json` is forced to storage before publication; directory metadata is flushed around publication and identity-marker removal.
+Keep the completed export and its manifest unchanged. The manifest binds the
+payload used to validate a reset.
 
-The capability check is fail closed. Unix requires `SecureDirectoryStream`. Windows probes native non-reparse directory opens, stable file identities and a root metadata flush on the configured filesystem. Unsupported filesystems remain unavailable. Do not bypass this result with the test-only path boundary or a standalone process.
+## Reset
 
-The readiness response includes `secureExportDirectoryHandlesAvailable`: `false` means the configured filesystem lacks secure directory handles, and `null` means capability is unknown. The export script requires `true` before submitting a mutation. This probe does not guarantee directory durability or export success; all export-time checks remain mandatory. An unsupported capability encountered during export returns HTTP `503` with `EXPORT_CAPABILITY_UNAVAILABLE`.
-
-Windows native export is covered by real filesystem tests for durable publication, full database snapshot verification, junction rejection, pinned-directory replacement and target collision. Reset readiness describes database/saga state independently of export capability, so existing saga recovery remains available.
-
-Store the completed export read-only. Do not edit its JSONL files or manifest.
-
-## Reset Saga
+Choose a stable request ID and an explicit persona starting point:
 
 ```powershell
 .\scripts\reset-production-incarnation.ps1 `
-  -ServiceRoot 'D:\Services\openeden' `
-  -ManifestPath 'D:\Services\openeden\data\exports\before-quality-reset-20260829\manifest.json' `
-  -IncarnationId '<exact-active-incarnation-id>' `
-  -RequestId 'quality-reset-20260829-01' `
-  -PersonaMode 'growth' `
-  -PersonaStart 'pre_command' `
-  -MaintenanceToken '<deployed-maintenance-token>' `
-  -OpenEdenPort <configured-openeden-port> `
+  -ServiceRoot '<service-root>' `
+  -ManifestPath '<export-root>\before-reset\manifest.json' `
+  -IncarnationId '<active-incarnation-id>' `
+  -RequestId '<stable-request-id>' `
+  -PersonaMode growth `
+  -PersonaStart pre_command `
+  -MaintenanceToken '<maintenance-token>' `
+  -OpenEdenPort <port> `
   -ConfirmReset
 ```
 
-The reset is a recoverable saga serialized by the same live global gate as turns, heartbeats, diary turn commits, and runtime ticks:
+Export and reset share the live incarnation mutation gate with turns and
+background workers. Reset records durable phases: `PREPARED`,
+`PROJECTIONS_VERIFIED`, then `COMPLETED`. Qdrant erasure is verified before the
+final SQLite transaction creates the replacement incarnation.
 
-1. `PREPARED`: one SQLite transaction revalidates the exact active incarnation and exported payload, stores the normalized request fingerprint and stable fresh-incarnation ID, records every persisted projection model, and changes owned projection rows from `READY` to `RESET_RECOVERABLE` while preserving their prior state in recovery rows.
-2. External erase: every collection derived from authoritative runtime configuration and persisted model metadata receives an exact incarnation/model filtered Qdrant delete with `wait=true`. An exact filtered count must then be zero for every collection.
-3. `PROJECTIONS_VERIFIED`: successful external verification is committed durably. A later SQLite failure leaves this phase and recoverable projection rows; it never leaves `READY` rows pointing to absent points.
-4. `COMPLETED`: one final SQLite transaction reconstructs and revalidates the exported payload, erases only rows owned by the old incarnation, retains other-incarnation rows and archives, creates exactly one neutral full-8D active incarnation with the selected immutable persona mode/start point, and records completion.
-
-Request IDs are trimmed before lookup. A replay is accepted only when incarnation ID, durable manifest path/hash and payload hash, confirmation, persona mode, and starting point match the durable request. Conflicting reuse is rejected. A completed replay is returned from SQL before archive access, so moving a completed archive does not create another incarnation.
-
-## Crash And Failure Recovery
-
-- Failure before `PREPARED`: no reset saga exists and no projection state was changed. Correct the reported validation issue and retry.
-- `PREPARED`: retry the exact command and request ID. Qdrant deletion is idempotent and will be issued and verified again.
-- `PROJECTIONS_VERIFIED`: retry the exact command and request ID. The server skips repeated external deletion and retries only the final SQL transaction.
-- Process crash: startup loads the configured database and Qdrant settings, resumes every incomplete saga under the shared gate before background schedulers or routes become available, and fails startup closed if recovery cannot complete. While diagnostics report `RESUME_REQUIRED`, new export/reset admission is rejected; only the exact durable saga request or an already completed replay is accepted.
-- Ambiguous client result: query readiness, then rerun the exact reset request. Never invent a new request ID.
-- Do not mark projection rows `READY`, edit saga phases, create an incarnation manually, or bypass manifest verification.
-
-Qdrant and SQLite cannot form one cross-system ACID transaction. The durable phases, recoverable projection rows, idempotent external operation, exact verification, startup resume, and final SQL transaction are the supported equivalent atomic boundary.
-
-## Verify
-
-1. Query the authenticated live maintenance readiness endpoint and record its response. It must report schema `23+`, exactly one active incarnation with a nonblank matching ID, zero incomplete resets, and `resetReadiness=READY`.
-2. Run `scripts/verify-production-runtime.ps1` on a non-`8080` verification port and retain its output. The verifier starts an isolated temporary OpenEden runtime; it does not export or reset deployed data.
-3. Confirm the verifier reports its live maintenance schema, one active incarnation, reset readiness, Relay cache policy/capability state, diary persistence, restart continuity, and post-restart evolution.
-4. Run the authorized production conversation scenario. Export transcript, Bio, relationship, memory-lineage, prompt-segment, and cache metrics without weakening any Task 17 threshold.
+If the command fails or its result is ambiguous, query readiness and retry the
+exact request with the same ID and arguments. Do not manually edit saga phases
+or projection rows. Startup resumes incomplete resets before accepting turns.
+After completion, readiness should show one active incarnation, no incomplete
+resets, and `resetReadiness=READY`.

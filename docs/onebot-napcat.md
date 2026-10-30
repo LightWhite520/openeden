@@ -51,8 +51,11 @@ correlates the action response by `echo`.
 ## Session and heartbeat behavior
 
 Private messages use `QQ:<user_id>` as their runtime session. Group messages
-use `QQ:<group_id>`, so users in one group share one runtime state while the
-sender ID remains message metadata.
+use `QQ:<group_id>`, so users in one group share a conversation transcript.
+All private and group conversations share one incarnation Bio state; the sender
+ID remains message metadata. Host identity is configured separately through an
+exact `OPENEDEN_HOST_PLATFORM` + `OPENEDEN_HOST_USER_ID` pair and is not implied
+by heartbeat ownership.
 
 Heartbeat output is sent only to the configured `QQ` owner as a private message.
 If the reverse WebSocket is disconnected, heartbeat output is dropped and is not
