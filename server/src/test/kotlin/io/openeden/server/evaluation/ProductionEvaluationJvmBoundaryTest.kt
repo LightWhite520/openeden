@@ -190,11 +190,11 @@ class ProductionEvaluationJvmBoundaryTest {
     }
 
     private fun javap(className: String): String {
-        val executable = Path.of(System.getProperty("java.home"), "bin", "javap.exe")
+        val executable = JdkTestTools.executable("javap")
         val process = ProcessBuilder(
             executable.absolutePathString(),
             "-classpath",
-            System.getProperty("java.class.path"),
+            JdkTestTools.runtimeClasspath,
             "-p",
             "-s",
             className,
@@ -245,11 +245,11 @@ private fun runGateProcess(
     trustedFingerprint: String,
     vararg options: String,
 ): GateProcessResult {
-    val java = Path.of(System.getProperty("java.home"), "bin", "java.exe")
+    val java = JdkTestTools.executable("java")
     val process = ProcessBuilder(
         java.absolutePathString(),
         "-cp",
-        System.getProperty("java.class.path"),
+        JdkTestTools.runtimeClasspath,
         ProductionEvaluationProcessMain::class.java.name,
         descriptor.absolutePathString(),
         *options,

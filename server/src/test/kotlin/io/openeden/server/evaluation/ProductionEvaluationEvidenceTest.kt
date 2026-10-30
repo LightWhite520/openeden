@@ -217,14 +217,14 @@ class ProductionEvaluationEvidenceTest {
         addUntrustedSystemProperty: Boolean = false,
     ): ForkedProductionReport {
         val descriptor = writeDescriptor(input)
-        val java = Path.of(System.getProperty("java.home"), "bin", "java.exe")
+        val java = JdkTestTools.executable("java")
         val command = buildList {
             add(java.absolutePathString())
             if (addUntrustedSystemProperty) {
                 add("-Dopeneden.evaluation.trustedSignerFingerprints=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             }
             add("-cp")
-            add(System.getProperty("java.class.path"))
+            add(JdkTestTools.runtimeClasspath)
             add(ProductionEvaluationProcessMain::class.java.name)
             add(descriptor.absolutePathString())
         }

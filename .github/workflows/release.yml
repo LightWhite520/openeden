@@ -30,6 +30,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Test and assemble server
         run: bash ./gradlew :core:jvmTest :onebot:test :server:test :server:installDist :server:buildFatJar :server:distTar --no-daemon --console=plain
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-reports
+          path: |
+            core/build/reports/tests/
+            core/build/test-results/
+            onebot/build/reports/tests/
+            onebot/build/test-results/
+            server/build/reports/tests/
+            server/build/test-results/
       - name: Download production affect model
         run: bash ./gradlew ensureThymosAffectModel --no-daemon --console=plain
       - name: Resolve image name
