@@ -102,6 +102,7 @@ jobs:
           gzip -c "${distributions[0]}" > release-assets/openeden-server.tar.gz
           cp deploy/compose.yaml release-assets/compose.yaml
           awk -v image="$IMAGE" '/^OPENEDEN_IMAGE=/ {$0="OPENEDEN_IMAGE="image} {print}' deploy/.env.example > release-assets/openeden.env.example
+          awk -v image="$IMAGE" '/^OPENEDEN_IMAGE=/ {$0="OPENEDEN_IMAGE="image} {print}' deploy/.env.full.example > release-assets/openeden.env.full.example
           printf '%s\n' "$IMAGE" > release-assets/docker-image.txt
           cd release-assets
           sha256sum * > SHA256SUMS

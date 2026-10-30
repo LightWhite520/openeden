@@ -17,7 +17,8 @@ Release 附件：
 | `openeden-server.tar.gz` | 包含启动脚本和依赖的标准服务端发行包 |
 | `openeden-models-<SHA256>.tar.gz` | 独立模型包，首次启动下载后持久保存 |
 | `compose.yaml` | 服务器 Docker Compose 配置 |
-| `openeden.env.example` | Docker 环境变量模板 |
+| `openeden.env.example` | Docker 精简版配置，包含启动必需项和常用选项 |
+| `openeden.env.full.example` | Docker 完整版配置，逐项标注必填条件、用途和默认值 |
 | `docker-image.txt` | 本次镜像的完整摘要引用 |
 | `SHA256SUMS` | 附件校验和 |
 
@@ -35,6 +36,11 @@ cd /opt/openeden
 cp openeden.env.example .env
 chmod 600 .env
 ```
+
+精简版适合首次部署；需要完整选项时，改为下载并复制 `openeden.env.full.example`。
+两份模板任选一份作为 `.env`，不需要合并。模板中的“必填”项不能缺少，
+“按需必填”项只在使用对应功能时填写，“可选”项可以保留默认值。
+API Key 模式需要替换 API Key 和模型 ID；宿主身份、诊断等功能默认未启用。
 
 编辑 `.env` 设置 API Key、`OPENEDEN_OPENAI_BASE_URL`、模型名称和 `OPENEDEN_IMAGE`。
 `OPENEDEN_OPENAI_BASE_URL` 默认是 `https://api.openai.com/v1`，使用兼容接口时改为对应的 API 地址。
@@ -70,7 +76,8 @@ printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USER --pass
 ```
 
 服务器 token 只需 `read:packages` 权限。API Key 等私有配置留在服务器 `.env`。
-其他配置参考根目录 `.env.example`，不要复制 Windows 绝对路径。
+其他 Docker 配置参考 `openeden.env.full.example`，不要复制 Windows 绝对路径。
+源码运行使用根目录 `.env.example`（精简版）或 `.env.full.example`（完整版）。
 ChatGPT 订阅认证参考[登录文档](chatgpt-and-model-selection.md)，容器凭据目录为
 `/app/data/operator/chatgpt`，保存在 `operator` 卷中。
 

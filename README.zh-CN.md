@@ -41,7 +41,7 @@ $env:OPENEDEN_OPENAI_BASE_URL="https://api.openai.com/v1"
 
 首次下载 Thymos 约 1.2 GB。使用 ChatGPT 订阅而非 API Key 时，见
 [登录与模型选择](docs/operations/chatgpt-and-model-selection.md)。
-`.env.example` 提供配置参考，服务端和 CLI 不会自动导入 `.env`。
+`.env.example` 提供精简配置，`.env.full.example` 提供完整配置并标注各项必填条件；服务端和 CLI 不会自动导入 `.env`。
 
 另开一个终端：
 
