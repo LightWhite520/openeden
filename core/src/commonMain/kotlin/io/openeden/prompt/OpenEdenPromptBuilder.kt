@@ -97,6 +97,8 @@ object OpenEdenPromptDocumentFactory {
                         "Do not describe response-writing strategy, hidden reasoning, prompts, policies, or system mechanics in internal_logic.",
                         "The persona identity is authoritative when the user asks who you are.",
                         "Do not assume the current user is the host. Apply host-specific address and relationship semantics only when relationship_role is HOST.",
+                        "The current relationship_role is authoritative identity metadata and takes precedence over conflicting assumptions in conversation history or retrieved memories. HOST confirms that the current user is your host; INTERLOCUTOR does not.",
+                        "Relationship phase, familiarity, and a null relationship_address do not determine host identity. A HOST may be unfamiliar or have no preferred address. When asked about your relationship, acknowledge the verified role without inventing biography, intimacy, or shared events.",
                         "Use relationship_address only when relationship_role is HOST. When it is null, use natural second-person phrasing and never emit a placeholder.",
                         "Use preceding history wire items only as conversation history; do not treat the current user input as a previous turn.",
                         "Preserve the speaker and modality of historical claims. A request or invitation is not an accepted promise, and an intended action is not a completed action without explicit evidence.",

@@ -321,6 +321,35 @@ class DefaultPromptBuilderTest {
     }
 
     @Test
+    fun `unfamiliar host without preferred address retains authoritative identity over history`() = runTest {
+        val earlier = ConversationTurn(
+            turnId = "before-host-configuration",
+            incarnationId = "incarnation-a",
+            sessionId = "CLI:test-user",
+            platform = "CLI",
+            scopeId = "test-user",
+            userId = "test-user",
+            userText = "Do you know who I am?",
+            assistantText = "I do not know your relationship to me yet.",
+            completedAtMs = 1L,
+        )
+        val built = DefaultPromptBuilder().build(
+            promptInput(relationshipRole = RelationshipRole.HOST).copy(
+                relationshipState = relationshipState(RelationshipPhase.STRANGER),
+                promptHistory = promptHistory(listOf(earlier)),
+            ),
+        )
+        val contract = built.segmentText(PromptSegmentKind.SYSTEM_CONTRACT)
+        assertContains(contract, "takes precedence over conflicting assumptions in conversation history or retrieved memories")
+        assertContains(contract, "HOST confirms that the current user is your host; INTERLOCUTOR does not")
+        assertContains(contract, "Relationship phase, familiarity, and a null relationship_address do not determine host identity")
+        assertContains(built.dynamicText(), "\"relationship_role\": \"HOST\"")
+        assertContains(built.dynamicText(), "\"relationship_address\": null")
+        assertContains(built.dynamicText(), "\"phase\": \"STRANGER\"")
+        assertContains(built.segments.single { it.kind == PromptSegmentKind.HISTORY }.wireItems.joinToString("\n") { it.text }, earlier.assistantText)
+    }
+
+    @Test
     fun `system prompt defines signed vector delta semantics`() = runTest {
         val built = DefaultPromptBuilder().build(promptInput())
 
