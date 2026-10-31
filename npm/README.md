@@ -11,6 +11,12 @@ npm run build
 npm start
 ```
 
+Builds publish a complete set of CLI libraries to a separate directory and then
+switch the launcher to that version. Running clients retain their original
+libraries, so rebuilding cannot replace classes they may load later during exit.
+Older runtime versions remain in `.npm-runtime/cli/releases` while they may still
+be in use. The first build also leaves the legacy `cli/lib` directory untouched.
+
 `npm run cli` is an alias for `npm start`. Both enter the interactive client.
 The default server URL is `http://127.0.0.1:8080`. The JVM CLI reads the address
 from `%USERPROFILE%\.openeden\config.json`, created on first launch. To use

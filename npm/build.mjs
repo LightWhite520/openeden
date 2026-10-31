@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
-import { cp, mkdir, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { publishRuntime } from './bin/runtime.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const windows = process.platform === 'win32';
@@ -13,9 +13,6 @@ child.on('error', error => { console.error(error.message); process.exitCode = 1;
 child.on('exit', async code => {
   if (code !== 0) { process.exitCode = code ?? 1; return; }
   try {
-    const target = path.join(root, '.npm-runtime', 'cli');
-    await rm(target, { recursive: true, force: true });
-    await mkdir(target, { recursive: true });
-    await cp(path.join(root, 'cli/build/install/openeden/lib'), path.join(target, 'lib'), { recursive: true });
+    await publishRuntime(root, path.join(root, 'cli/build/install/openeden/lib'));
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 });
