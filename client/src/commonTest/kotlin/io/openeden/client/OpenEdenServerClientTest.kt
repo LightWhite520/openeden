@@ -21,6 +21,24 @@ import kotlin.test.assertTrue
 
 class OpenEdenServerClientTest {
     @Test
+    fun `diagnostics accepts added vector database status and legacy responses`() = runTest {
+        val state = """"sessionId":"CLI:local","vector":[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8],"omega":0.2,"shockActive":false,"shockIntensity":null,"evolutionIndex":12,"derivedDissonance":0.1"""
+        for (extra in listOf("", ""","vectorDatabase":{"backend":"QDRANT","collection":"memory","circuit":"CLOSED","fallbackActive":false,"pendingProjectionCount":0,"totalNonReadyProjectionCount":0,"lastSuccessAtMs":123,"lastErrorCategory":null,"lastErrorAtMs":null}""")) {
+            val client = testClient(MockEngine { request ->
+                assertEquals("Bearer operator", request.headers["Authorization"])
+                assertEquals("/api/v1/diagnostics", request.url.encodedPath)
+                respond("{$state$extra}", headers = contentType())
+            })
+            try {
+                val diagnostics = client.diagnostics("local", "operator")
+                assertEquals("CLI:local", diagnostics.sessionId)
+                assertEquals(12L, diagnostics.evolutionIndex)
+                assertEquals(8, diagnostics.vector.size)
+            } finally { client.close() }
+        }
+    }
+
+    @Test
     fun `model fetch and selection send operator authorization and decode catalog`() = runTest {
         val methods = mutableListOf<String>()
         val http = HttpClient(MockEngine { request ->
