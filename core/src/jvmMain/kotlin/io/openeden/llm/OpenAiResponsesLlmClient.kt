@@ -9,7 +9,6 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
-import io.ktor.util.logging.*
 import io.ktor.utils.io.*
 import io.openeden.prompt.BuiltPrompt
 import io.openeden.prompt.PromptSegmentKind
@@ -22,8 +21,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.security.MessageDigest
-
-private val log = KtorSimpleLogger("io.openeden.llm.OpenAiResponsesLlmClient")
 
 class OpenAiResponsesLlmClient private constructor(
     private val apiKey: String,
@@ -186,7 +183,6 @@ class OpenAiResponsesLlmClient private constructor(
 
     override suspend fun complete(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): LlmOutput {
         if (subscriptionToken != null) return stream(prompt, generationSettings).filterIsInstance<LlmStreamEvent.Completed>().single().output
-        log.info("\nPrompt:\n${prompt.textPreview()}")
         val response = execute(prompt, generationSettings, stream = false)
         val llmOutput = parseBufferedResponse(response.bodyAsText())
         return llmOutput
@@ -195,7 +191,6 @@ class OpenAiResponsesLlmClient private constructor(
     override fun stream(prompt: BuiltPrompt): Flow<LlmStreamEvent> = stream(prompt, defaultGenerationSettings)
 
     override fun stream(prompt: BuiltPrompt, generationSettings: LlmGenerationSettings): Flow<LlmStreamEvent> = flow {
-        log.info("\nPrompt:\n${prompt.textPreview()}")
         val response = execute(prompt, generationSettings, stream = true)
         val responseType = response.contentType()?.withoutParameters()
         if (responseType != ContentType.Text.EventStream && !(subscriptionToken != null && responseType == null)) {
