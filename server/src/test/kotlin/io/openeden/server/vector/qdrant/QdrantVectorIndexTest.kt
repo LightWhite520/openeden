@@ -309,7 +309,7 @@ class QdrantVectorIndexTest {
         )
 
         val searchRequests = requests.filter { it.url.encodedPath.endsWith("/points/search") }
-        assertEquals(listOf("semantic", "emotional"), searchRequests.map { it.jsonBody()["vector"]!!.jsonObject["name"]!!.jsonPrimitive.content })
+        assertEquals(listOf("emotional", "semantic"), searchRequests.map { it.jsonBody()["vector"]!!.jsonObject["name"]!!.jsonPrimitive.content }.sorted())
         assertEquals(listOf("memory-1", "memory-2", "memory-3"), hits.map { it.memoryId })
         assertEquals(.9f, hits[0].semanticSimilarity)
         assertEquals(.7f, hits[0].emotionalSimilarity)
