@@ -32,6 +32,7 @@ class CliPseudoTerminalTest {
                 System.getenv().toMutableMap().apply {
                     put("TERM", "xterm-256color")
                     put("JAVA_OPTS", "-Duser.home=$home")
+                    put("OPENEDEN_CLI_DIAGNOSTICS_TOKEN", "pty-test-token")
                 },
             )
             .setUseWinConPty(System.getProperty("os.name", "").startsWith("Windows", ignoreCase = true))
@@ -146,6 +147,16 @@ class CliPseudoTerminalTest {
                 assertFalse(inlineTranscript.contains('\uFFFD'), diagnostics)
                 assertFalse(inlineTranscript.contains("??"), diagnostics)
 
+                input.write("/inspect on\r")
+                input.flush()
+                transcriptBuffer.awaitScreenState("inline inspect displays all vector dimensions") { lines ->
+                    val visible = lines.takeLast(30)
+                    visible.contains("[8D] L=0.100 P=0.200 E=0.300 S=0.400") &&
+                        visible.contains("[8D] tau=0.500 V=0.600 M=0.700 F=0.800")
+                }
+                input.write("/inspect off\r")
+                input.flush()
+
                 input.write("/mo")
                 input.flush()
                 transcriptBuffer.awaitScreenState("mode command selected for enter confirmation") { lines ->
@@ -163,6 +174,17 @@ class CliPseudoTerminalTest {
                     visible.firstOrNull()?.startsWith("OpenEden") == true &&
                         visible.lastOrNull()?.startsWith("4 messages") == true
                 }
+
+                input.write("/inspect on\r")
+                input.flush()
+                transcriptBuffer.awaitScreenState("full screen inspect displays all vector dimensions") { lines ->
+                    val visible = lines.takeLast(30)
+                    visible.contains("[8D] L=0.100 P=0.200 E=0.300 S=0.400") &&
+                        visible.contains("[8D] tau=0.500 V=0.600 M=0.700 F=0.800") &&
+                        visible.getOrNull(28) == ">"
+                }
+                input.write("/inspect off\r")
+                input.flush()
 
                 input.write("/")
                 input.flush()
@@ -196,6 +218,17 @@ class CliPseudoTerminalTest {
                 transcriptBuffer.awaitScreenState("empty full screen input after multibyte deletion") { lines ->
                     val visible = lines.takeLast(30)
                     visible.getOrNull(28) == ">"
+                }
+
+                input.write("/mode inline\r")
+                input.flush()
+                input.write("/clear\r")
+                input.flush()
+                transcriptBuffer.awaitScreenState("clear removes committed conversation from visible screen") { lines ->
+                    val visible = lines.takeLast(30)
+                    visible.any { it.contains("Visible conversation cleared") } &&
+                        visible.none { it.contains("第一轮回复") || it.contains("第二轮回复") || it.contains("OpenEden connected") } &&
+                        visible.contains(">")
                 }
 
                 input.write("/exit\r")
@@ -243,6 +276,10 @@ class CliPseudoTerminalTest {
         ).apply {
             createContext("/health") { exchange ->
                 exchange.respond("application/json", """{"status":"ready"}""")
+            }
+            createContext("/api/v1/diagnostics") { exchange ->
+                assertEquals("Bearer pty-test-token", exchange.requestHeaders.getFirst("Authorization"))
+                exchange.respond("application/json", """{"sessionId":"CLI:local","vector":[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8],"omega":0.4,"shockActive":false,"shockIntensity":null,"evolutionIndex":2,"derivedDissonance":0.2}""")
             }
             createContext("/api/v1/chat/stream") { exchange ->
                 exchange.requestBody.use { it.readAllBytes() }

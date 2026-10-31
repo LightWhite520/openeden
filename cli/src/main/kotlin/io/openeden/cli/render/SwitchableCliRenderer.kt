@@ -22,6 +22,10 @@ class SwitchableCliRenderer(
             }
         }
 
+    override fun clearVisibleHistory() {
+        if (fullScreen == null) inline.clearVisibleHistory()
+    }
+
     override fun close() {
         fullScreen?.close()
         fullScreen = null

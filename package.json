@@ -1,0 +1,17 @@
+{
+  "name": "openeden",
+  "version": "1.0.0-dev.0",
+  "description": "npm launcher for the OpenEden Kotlin/JVM CLI",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "openeden": "npm/bin/openeden.mjs" },
+  "files": ["npm/bin/", "npm/README.md", ".npm-runtime/cli/"],
+  "scripts": {
+    "build": "node npm/build.mjs",
+    "start": "node npm/bin/openeden.mjs",
+    "cli": "node npm/bin/openeden.mjs",
+    "test:npm": "node --test npm/test/*.test.mjs",
+    "prepack": "npm run build"
+  }
+}

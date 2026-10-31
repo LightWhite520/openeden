@@ -21,6 +21,7 @@ import io.openeden.cli.render.SwitchableCliRenderer
 import io.openeden.cli.terminal.TerminalSession
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import io.openeden.cli.terminal.CliTerminalEvent
@@ -110,6 +111,7 @@ class OpenEdenCli(
             markdown = MarkdownTextRenderer(colorEnabled = theme.colorEnabled),
             theme = theme,
             separateMessages = true,
+            clearScreen = { session.lineReader.callWidget(org.jline.reader.LineReader.CLEAR_SCREEN) },
         )
         val renderer = SwitchableCliRenderer(inline) {
             FullScreenCliRenderer(
@@ -182,6 +184,11 @@ private fun createServerClient(url: String): OpenEdenServerClient =
     OpenEdenServerClient(
         baseUrl = url,
         httpClient = HttpClient(CIO) {
+            install(HttpTimeout) {
+                requestTimeoutMillis = 60_000
+                connectTimeoutMillis = 10_000
+                socketTimeoutMillis = 180_000
+            }
             install(ContentNegotiation) { json() }
         },
     )

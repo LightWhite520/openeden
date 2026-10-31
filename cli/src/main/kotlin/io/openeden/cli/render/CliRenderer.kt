@@ -11,5 +11,6 @@ sealed interface RenderDecision {
 
 interface CliRenderer : AutoCloseable {
     fun render(previous: CliUiState?, current: CliUiState, size: Size): RenderDecision
+    fun clearVisibleHistory() {}
     override fun close()
 }

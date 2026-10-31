@@ -84,6 +84,12 @@ internal open class OpenEdenLineReader(
         super.redisplay(flush)
     }
 
+    override fun clearScreen(): Boolean = lock.withLock {
+        val cleared = super.clearScreen()
+        if (reading) redisplay()
+        cleared
+    }
+
     override fun doCleanup(nl: Boolean) = lock.withLock {
         // JLine must clear transient rows before committing the edited line to scrollback.
         finishingLine = true

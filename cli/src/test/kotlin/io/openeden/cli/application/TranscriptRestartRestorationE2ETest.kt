@@ -115,6 +115,11 @@ class TranscriptRestartRestorationE2ETest {
             assertEquals(listOf("history", "readLine"), order)
             assertEquals(listOf<String?>("50"), historyLimits)
 
+            val restoredText = AttributedString.fromAnsi(terminalOutput.toString(UTF_8)).toString()
+                .replace("\r\n", "\n")
+            assertTrue(restoredText.contains("> user-turn-51\n\nATRI: assistant-turn-51\n\n"), restoredText)
+            assertFalse(restoredText.contains("\n\n\n"), restoredText)
+
             val restoredLines = AttributedString.fromAnsi(terminalOutput.toString(UTF_8)).toString()
                 .lineSequence()
                 .map(String::trimEnd)

@@ -26,15 +26,17 @@ class InlineCliRenderer(
     private val active: InlineActiveSink? = null,
     private val theme: CliTheme = CliTheme(),
     private val separateMessages: Boolean = false,
+    private val clearScreen: () -> Unit = {},
 ) : CliRenderer {
     private val committed = CommittedMessageOwnership(MAX_REMOVED_MESSAGE_IDS)
+    private var needsLeadingSeparator = true
 
     fun rows(state: CliUiState, width: Int): List<String> {
         return buildList {
             state.messages.forEach { addAll(messageRows(it, width)) }
             state.stage?.let { addAll(theme.wrap(theme.status("[status] $it"), width)) }
             state.notice?.let { addAll(theme.wrap(theme.notice("[notice] $it"), width)) }
-            diagnosticsRow(state)?.let { addAll(theme.wrap(theme.muted(it), width)) }
+            diagnosticsRows(state).forEach { addAll(theme.wrap(theme.muted(it), width)) }
         }
     }
 
@@ -44,7 +46,7 @@ class InlineCliRenderer(
             addAll(messageRows(it, width))
         }
         state.notice?.let { addAll(theme.wrap(theme.notice("[notice] $it"), width)) }
-        diagnosticsRow(state)?.let { addAll(theme.wrap(theme.muted(it), width)) }
+        diagnosticsRows(state).forEach { addAll(theme.wrap(theme.muted(it), width)) }
     }
 
     override fun render(previous: CliUiState?, current: CliUiState, size: Size): RenderDecision {
@@ -58,7 +60,11 @@ class InlineCliRenderer(
             state.requestActive || state.notice != null || state.messages.any { it.status == CliMessageStatus.STREAMING }
         } == true
         if (completedToPrint.isNotEmpty() && previousHadActiveRows) active?.clear()
-        completedToPrint.forEach { msg ->
+        newlyCompleted.forEach { msg ->
+            if (msg.role == CliRole.USER && msg.inlineTerminalCommitted) {
+                needsLeadingSeparator = true
+                return@forEach
+            }
             val committedState = current.copy(
                 messages = listOf(msg),
                 requestActive = false,
@@ -67,10 +73,13 @@ class InlineCliRenderer(
                 diagnosticsVisible = false,
             )
             val text = rows(committedState, size.columns).joinToString("\n")
-            history?.printAbove(if (separateMessages) "\n$text\n" else text)
+            history?.printAbove(if (separateMessages) {
+                (if (needsLeadingSeparator) "\n" else "") + text + "\n\n"
+            } else text)
+            needsLeadingSeparator = false
         }
         val provisional = current.messages.filter { it.status == CliMessageStatus.STREAMING }
-        if (provisional.isNotEmpty() || current.requestActive || current.notice != null || diagnosticsRow(current) != null) {
+        if (provisional.isNotEmpty() || current.requestActive || current.notice != null || diagnosticsRows(current).isNotEmpty()) {
             if (active != null) {
                 active.render(activeRows(current, size.columns))
             } else if (current.notice != null && current.notice != previous?.notice) {
@@ -80,6 +89,12 @@ class InlineCliRenderer(
             if (completedToPrint.isEmpty()) active?.clear()
         }
         return RenderDecision.Rendered
+    }
+
+    override fun clearVisibleHistory() {
+        active?.clear()
+        clearScreen()
+        needsLeadingSeparator = true
     }
 
     override fun close() {
@@ -104,11 +119,9 @@ class InlineCliRenderer(
         }
     }
 
-    private fun diagnosticsRow(state: CliUiState): String? = if (state.diagnosticsVisible) {
-        state.diagnostics?.let {
-            "[diagnostics] omega=${it.omega} shock=${it.shockActive} evolution=${it.evolutionIndex} D=${it.derivedDissonance}"
-        }
+    private fun diagnosticsRows(state: CliUiState): List<String> = if (state.diagnosticsVisible) {
+        state.diagnostics?.let(CliDiagnosticsRenderer::rows).orEmpty()
     } else {
-        null
+        emptyList()
     }
 }

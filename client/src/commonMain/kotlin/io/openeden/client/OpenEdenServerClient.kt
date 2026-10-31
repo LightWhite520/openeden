@@ -2,6 +2,8 @@ package io.openeden.client
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpTimeoutConfig
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -38,6 +40,8 @@ class OpenEdenServerClient(
 
     override fun chatStream(userId: String, text: String, clientRequestId: String): Flow<ChatStreamEvent> = channelFlow {
         httpClient.preparePost("$baseUrl/api/v1/chat/stream") {
+            // A live event stream can outlast an ordinary HTTP request deadline.
+            timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
             contentType(ContentType.Application.Json)
             setBody(ChatStreamRequest(userId = userId, text = text, clientRequestId = clientRequestId))
         }.execute { response ->

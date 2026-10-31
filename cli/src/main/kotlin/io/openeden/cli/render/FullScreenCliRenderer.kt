@@ -59,11 +59,7 @@ class FullScreenCliRenderer internal constructor(
         val conversationWidth = frameWidth - 2
         val chrome = CliChrome(theme)
         val diagnostics = if (current.diagnosticsVisible) current.diagnostics?.let {
-            listOf(
-                "diagnostics",
-                "omega=${it.omega} shock=${it.shockActive}",
-                "evolution=${it.evolutionIndex} D=${it.derivedDissonance}",
-            )
+            CliDiagnosticsRenderer.rows(it).flatMap { row -> theme.wrap(row, frameWidth) }
         }.orEmpty() else emptyList()
         val viewportHeight = (size.rows - 2 - diagnostics.size - 4).coerceAtLeast(1)
 

@@ -64,6 +64,11 @@ Thumbs.db
 *.swo
 .worktrees/
 
+# npm distribution staging
+.npm-runtime/
+node_modules/
+/*.tgz
+
 # Local evaluation outputs (may contain private transcripts)
 /test-artifacts/
 /docs/evaluation/results/

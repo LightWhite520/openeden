@@ -12,6 +12,26 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class InlineCliRendererTest {
+    @Test
+    fun `restored history and terminal submissions keep exactly one blank separator`() {
+        val history = mutableListOf<String>()
+        val renderer = InlineCliRenderer(history = InlineHistorySink { history += it }, separateMessages = true)
+        val restored = CliUiState("s", messages = listOf(
+            CliMessage("old:u", CliRole.USER, "old question", CliMessageStatus.COMPLETE),
+            CliMessage("old:a", CliRole.ASSISTANT, "old answer", CliMessageStatus.COMPLETE),
+        ))
+        renderer.render(null, restored, Size(80, 24))
+        val submitted = restored.copy(messages = restored.messages +
+            CliMessage("new:u", CliRole.USER, "new question", CliMessageStatus.COMPLETE, inlineTerminalCommitted = true))
+        renderer.render(restored, submitted, Size(80, 24))
+        val completed = submitted.copy(messages = submitted.messages +
+            CliMessage("new:a", CliRole.ASSISTANT, "new answer", CliMessageStatus.COMPLETE))
+        renderer.render(submitted, completed, Size(80, 24))
+        renderer.render(completed, completed, Size(80, 24))
+
+        assertEquals(listOf("\n> old question\n\n", "ATRI: old answer\n\n", "\nATRI: new answer\n\n"), history)
+    }
+
     @Test fun `messages are vertical and hide diagnostics`() {
         val state = CliUiState("s", messages = listOf(CliMessage("u", CliRole.USER, "你好", CliMessageStatus.COMPLETE), CliMessage("a", CliRole.ASSISTANT, "😀 hi", CliMessageStatus.COMPLETE)), diagnosticsVisible = false, diagnostics = CliDiagnostics(emptyList(), .4f, false, null, 1, .2f))
         val rows = InlineCliRenderer().rows(state, 20)
@@ -35,9 +55,20 @@ class InlineCliRendererTest {
             diagnostics = CliDiagnostics(emptyList(), .4f, false, null, 1, .2f),
         )
 
-        val conversation = InlineCliRenderer().rows(state, 120).filterNot { it.startsWith("[diagnostics]") }
+        val conversation = InlineCliRenderer().rows(state, 120).filter { it.startsWith("ATRI:") }
 
         assertEquals(listOf("ATRI: $message"), conversation)
+    }
+
+    @Test fun `inspect labels every vector coordinate and hides them when disabled`() {
+        val state = CliUiState("s", diagnosticsVisible = true, diagnostics = CliDiagnostics(
+            listOf(.1f, .2f, .3f, .4f, .5f, .6f, .7f, .8f), .4f, false, null, 2, .2f,
+        ))
+        val renderer = InlineCliRenderer()
+        val expected = listOf("[8D] L=0.100 P=0.200 E=0.300 S=0.400", "[8D] tau=0.500 V=0.600 M=0.700 F=0.800")
+        assertEquals(expected, renderer.rows(state, 80).filter { it.startsWith("[8D]") })
+        assertEquals(expected, renderer.activeRows(state, 80).filter { it.startsWith("[8D]") })
+        assertTrue(renderer.rows(state.copy(diagnosticsVisible = false), 80).isEmpty())
     }
 
     @Test fun `streaming assistant refreshes active sink without committing`() {

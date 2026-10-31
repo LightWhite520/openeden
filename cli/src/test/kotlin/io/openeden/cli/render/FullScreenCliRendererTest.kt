@@ -95,6 +95,23 @@ class FullScreenCliRendererTest {
         assertTrue(output.contains("diagnostics"))
     }
 
+    @Test fun `inspect keeps all eight coordinates within the minimum full screen frame`() {
+        val sink = FakeFullscreenSink(true)
+        val renderer = FullScreenCliRenderer(sink)
+        val state = CliUiState("CLI:local", diagnosticsVisible = true, diagnostics = CliDiagnostics(
+            listOf(.1f, .2f, .3f, .4f, .5f, .6f, .7f, .8f), .4f, false, null, 2, .2f,
+        ))
+        renderer.render(state, Size(80, 24))
+        val output = sink.rows.map { AttributedString.fromAnsi(it).toString() }
+        assertTrue(output.contains("[8D] L=0.100 P=0.200 E=0.300 S=0.400"))
+        assertTrue(output.contains("[8D] tau=0.500 V=0.600 M=0.700 F=0.800"))
+        assertEquals(24, output.size)
+        assertEquals("> ", output[22])
+        assertTrue(output.all { DisplayWidth.of(it) < 80 })
+        renderer.render(state.copy(diagnosticsVisible = false), Size(80, 24))
+        assertTrue(sink.rows.none { it.contains("[8D]") })
+    }
+
     @Test
     fun `wide full screen conversation does not inherit the inline 96 column cap`() {
         val sink = FakeFullscreenSink(true)

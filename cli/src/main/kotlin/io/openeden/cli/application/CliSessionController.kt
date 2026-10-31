@@ -279,6 +279,7 @@ class CliSessionController(
     private fun dispatch(event: CliEvent) = synchronized(stateLock) {
         val current = state
         val next = current.reduce(event)
+        if (event == CliEvent.ClearVisibleHistory) renderer.clearVisibleHistory()
         val previous = previousState
         previousState = current
         state = next
