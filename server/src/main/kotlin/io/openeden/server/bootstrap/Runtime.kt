@@ -499,6 +499,9 @@ private suspend fun Application.startRuntime(
         worker = diaryWorker,
         sessionIds = { store.sessionIds() },
         nowMs = { System.currentTimeMillis() },
+        onFailure = { failure ->
+            log.warn("Diary worker poll failed; will retry: diary=WORKER_RETRY", failure)
+        },
     ).start(scope)
     val elapsedDiaryJob = scope.launch {
         while (true) {

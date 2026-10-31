@@ -1,6 +1,7 @@
 package io.openeden.runtime.diary
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -11,6 +12,7 @@ class DiaryWorkerScheduler(
     private val worker: DurableDiaryWorker,
     private val sessionIds: suspend () -> Set<String>,
     private val nowMs: () -> Long,
+    private val onFailure: (Throwable) -> Unit = {},
 ) {
     suspend fun runOnce() {
         val now = nowMs()
@@ -22,7 +24,13 @@ class DiaryWorkerScheduler(
 
     fun start(scope: CoroutineScope, pollIntervalMs: Long = 5_000L): Job = scope.launch {
         while (isActive) {
-            runOnce()
+            try {
+                runOnce()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                onFailure(failure)
+            }
             delay(pollIntervalMs.coerceAtLeast(100L))
         }
     }
