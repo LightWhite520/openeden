@@ -6,7 +6,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "bin": { "openeden": "npm/bin/openeden.mjs" },
-  "files": ["npm/bin/", "npm/README.md", ".npm-runtime/cli/current.json", ".npm-runtime/cli/releases/"],
+  "files": ["npm/bin/", "npm/README.md", ".npm-runtime/cli/"],
   "scripts": {
     "build": "node npm/build.mjs",
     "start": "node npm/bin/openeden.mjs",

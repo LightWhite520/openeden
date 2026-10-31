@@ -3,14 +3,13 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runtimeLib } from './runtime.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const args = process.argv.slice(2);
 if (args[0] === '--help' || args[0] === '-h') {
   console.log('Usage: openeden [chat --message <text>|state]\nRequires Java 21+ and a separately running server.\nBuild from source with npm run build. Configure serverUrl in ~/.openeden/config.json.');
 } else {
-  const lib = runtimeLib(root);
+  const lib = path.join(root, '.npm-runtime', 'cli', 'lib');
   if (!existsSync(lib)) {
     console.error('OpenEden distribution missing. Run npm run build in the source checkout, or reinstall a built npm package.');
     process.exitCode = 1;

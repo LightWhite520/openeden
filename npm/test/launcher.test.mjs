@@ -7,12 +7,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const launcher = fileURLToPath(new URL('../bin/openeden.mjs', import.meta.url));
-function copyLauncher(root) {
-  const copy = path.join(root, 'npm/bin/openeden.mjs');
-  cpSync(launcher, copy);
-  cpSync(fileURLToPath(new URL('../bin/runtime.mjs', import.meta.url)), path.join(root, 'npm/bin/runtime.mjs'));
-  return copy;
-}
 test('help works without Java or a build', () => {
   const result = spawnSync(process.execPath, [launcher, '--help'], { encoding: 'utf8' });
   assert.equal(result.status, 0);
@@ -23,7 +17,8 @@ test('unbuilt installation reports how to recover', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'openeden-npm-'));
   try {
     mkdirSync(path.join(root, 'npm/bin'), { recursive: true });
-    const copy = copyLauncher(root);
+    const copy = path.join(root, 'npm/bin/openeden.mjs');
+    cpSync(launcher, copy);
     const result = spawnSync(process.execPath, [copy], { encoding: 'utf8' });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /npm run build/);
@@ -35,7 +30,8 @@ test('missing Java reports an actionable error', () => {
   try {
     mkdirSync(path.join(root, 'npm/bin'), { recursive: true });
     mkdirSync(path.join(root, '.npm-runtime/cli/lib'), { recursive: true });
-    const copy = copyLauncher(root);
+    const copy = path.join(root, 'npm/bin/openeden.mjs');
+    cpSync(launcher, copy);
     const result = spawnSync(process.execPath, [copy], {
       encoding: 'utf8', env: { ...process.env, JAVA_HOME: path.join(root, 'missing-java') },
     });
